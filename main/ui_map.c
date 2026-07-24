@@ -31,9 +31,14 @@ LV_IMG_DECLARE(img_plane);
 #define COL_DEST   lv_color_hex(0xff6b6b)
 #define COL_PLANE  lv_color_hex(0xffd166)
 
-#define MAP_W      800
-#define MAP_H      400
+/* Map fills the canvas minus the 56px header and 24px footer strip; on the
+ * 800x480 device this is the original 800x400. */
+#define MAP_W      LV_HOR_RES
+#define MAP_H      (LV_VER_RES - 80)
 #define MAP_Y      56
+/* Bundled world.png fallback keeps its native size, centered */
+#define WORLD_W    800
+#define WORLD_H    400
 #define PATH_PTS   33
 
 static lv_obj_t *s_overlay;
@@ -149,8 +154,9 @@ static void project(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
         *y = (lv_coord_t)(yy + MAP_Y);
         return;
     }
-    *x = (lv_coord_t)((lon + 180.0) / 360.0 * MAP_W);
-    *y = (lv_coord_t)(MAP_Y + (90.0 - lat) / 180.0 * MAP_H);
+    *x = (lv_coord_t)((MAP_W - WORLD_W) / 2 + (lon + 180.0) / 360.0 * WORLD_W);
+    *y = (lv_coord_t)(MAP_Y + (MAP_H - WORLD_H) / 2 +
+                      (90.0 - lat) / 180.0 * WORLD_H);
 }
 
 static lv_obj_t *marker(lv_obj_t *parent, lv_coord_t x, lv_coord_t y, int d, lv_color_t color)
@@ -273,7 +279,12 @@ static void build_content(void)
     if (map != NULL) {
         lv_obj_t *img = lv_img_create(s_overlay);
         lv_img_set_src(img, map);
-        lv_obj_set_pos(img, 0, MAP_Y);
+        if (s_view_ok) {
+            lv_obj_set_pos(img, 0, MAP_Y);
+        } else {
+            lv_obj_set_pos(img, (MAP_W - WORLD_W) / 2,
+                                MAP_Y + (MAP_H - WORLD_H) / 2);
+        }
     }
 
     lv_coord_t x, y;
@@ -489,7 +500,7 @@ void ui_map_open(const aircraft_t *ac, const route_info_t *rt)
     s_generation++;
 
     s_overlay = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(s_overlay, 800, 480);
+    lv_obj_set_size(s_overlay, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_pos(s_overlay, 0, 0);
     lv_obj_set_style_bg_color(s_overlay, COL_BG, 0);
     lv_obj_set_style_border_width(s_overlay, 0, 0);

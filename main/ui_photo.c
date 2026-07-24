@@ -131,7 +131,7 @@ void ui_photo_open(const char *hex, const char *callsign)
     }
 
     s_overlay = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(s_overlay, 800, 480);
+    lv_obj_set_size(s_overlay, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_pos(s_overlay, 0, 0);
     lv_obj_set_style_bg_color(s_overlay, COL_BG, 0);
     lv_obj_set_style_border_width(s_overlay, 0, 0);

@@ -1,5 +1,17 @@
 #pragma once
 
+/* Coarse aircraft class for user filtering and list markers. Military wins
+ * over the emitter category (a C-17 is "military", not "airliner"). */
+typedef enum {
+    FCLS_LINER = 0,   /* A2-A6: airliners and other large aircraft */
+    FCLS_SMALL,       /* A1 light (<7t), B4 ultralight */
+    FCLS_HELI,        /* A7 rotorcraft */
+    FCLS_MIL,         /* dbFlags military bit */
+    FCLS_OTHER,       /* gliders, balloons, UAVs, surface, unknown */
+    FCLS_COUNT
+} flight_class_t;
+#define FCLS_ALL_MASK ((1u << FCLS_COUNT) - 1u)
+
 #include <stdbool.h>
 
 #define MAX_AIRCRAFT      80

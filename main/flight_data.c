@@ -35,6 +35,33 @@ bool flight_is_airline(const aircraft_t *ac)
     return true;
 }
 
+flight_class_t flight_class(const aircraft_t *ac)
+{
+    if (ac->military) {
+        return FCLS_MIL;
+    }
+    const char *c = ac->category;
+    if (c[0] == 'A') {
+        if (c[1] == '1') {
+            return FCLS_SMALL;
+        }
+        if (c[1] == '7') {
+            return FCLS_HELI;
+        }
+        if (c[1] >= '2' && c[1] <= '6') {
+            return FCLS_LINER;
+        }
+    }
+    if (c[0] == 'B' && c[1] == '4') {
+        return FCLS_SMALL;
+    }
+    if (c[0] == 'B' || c[0] == 'C') {
+        return FCLS_OTHER;
+    }
+    /* no category broadcast: judge by the callsign shape */
+    return flight_is_airline(ac) ? FCLS_LINER : FCLS_OTHER;
+}
+
 bool flight_is_interesting(const aircraft_t *ac, const char *watchlist)
 {
     if (ac->military) {
@@ -188,7 +215,7 @@ static esp_err_t parse_point_response(const char *json, double lat, double lon,
         if (st->hide_ground && tmp.on_ground) {
             continue;
         }
-        if (st->hide_private && !flight_is_airline(&tmp)) {
+        if (!(st->show_classes & (1u << flight_class(&tmp)))) {
             continue;
         }
         if (!tmp.on_ground &&

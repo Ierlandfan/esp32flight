@@ -19,6 +19,7 @@
 #include "obslog.h"
 #include "alertlog.h"
 #include "settings.h"
+#include "flight_model.h"
 #include "waveshare_rgb_lcd_port.h"
 
 static const char *TAG = "web";
@@ -146,8 +147,14 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Filters</h4><div class='grid2'>"
 "<div><label>Hide ground traffic</label><select id='c_hide_ground'><option value='0'>no</option><option value='1'>yes</option></select>"
 "<div class='help'>Hides aircraft taxiing or parked at nearby airports.</div></div>"
-"<div><label>Airline flights only</label><select id='c_airline_only'><option value='0'>no</option><option value='1'>yes</option></select>"
-"<div class='help'>Hides private planes, air taxis and helicopters.</div></div>"
+"<div><label>Aircraft classes</label>"
+"<div style='display:flex;gap:10px;flex-wrap:wrap;padding:6px 0'>"
+"<label><input type='checkbox' id='c_cls0'> airliners</label>"
+"<label><input type='checkbox' id='c_cls1'> light</label>"
+"<label><input type='checkbox' id='c_cls2'> helicopters</label>"
+"<label><input type='checkbox' id='c_cls3'> military</label>"
+"<label><input type='checkbox' id='c_cls4'> other</label>"
+"</div><div class='help'>Show only the selected classes. Military comes from the community aircraft database; class of others from the ADS-B emitter category.</div></div>"
 "<div><label>Altitude from (ft, 0 = off)</label><input id='c_alt_min_ft' type='number'></div>"
 "<div><label>Altitude to (ft, 0 = off)</label><input id='c_alt_max_ft' type='number'></div>"
 "<div><label>Airport (ICAO or IATA)</label><input id='c_filter_airport' placeholder='KRK'>"
@@ -209,7 +216,7 @@ static const char INDEX_HTML[] =
 "<dt>GET /api/log</dt>"
 "<dd>Spotting history, one aircraft per line, tab-separated: unix epoch, ICAO hex, callsign, type, airline. Rotates at about 256 KB (current + previous file are concatenated).</dd>"
 "<dt>GET /screen.bmp</dt>"
-"<dd>Live screenshot of the display as an 800x480 BMP.</dd>"
+"<dd>Live screenshot of the display as a BMP.</dd>"
 "<dt>GET /metrics</dt>"
 "<dd>Prometheus text format: <code>esp32flight_aircraft_count</code>, <code>esp32flight_unique_aircraft</code>, <code>esp32flight_max_alt_ft</code>, <code>esp32flight_nearest_km</code>, <code>esp32flight_heap_free_bytes</code>, <code>esp32flight_uptime_seconds</code>.</dd>"
 "<dt>POST /ota</dt>"
@@ -259,7 +266,7 @@ static const char INDEX_HTML[] =
 "const n=d.net||{};"
 "document.getElementById('hdr').innerHTML=`${d.city||''} (${(+d.lat).toFixed(3)}, ${(+d.lon).toFixed(3)}), radius ${d.radius_km} km${w}`;+((d.stats&&d.stats.metar)?`<br>${d.stats.metar}`:'');"
 "const s=d.stats||{};document.getElementById('cards').innerHTML="
-"`<div class='card'>Network<b>${n.ssid||'-'} ${n.rssi||''} dBm</b>${n.ip||''} \\u00B7 ${n.mdns||''}${n.heap_int?` \\u00B7 RAM ${Math.round(n.heap_int/1024)} KB`:''}${s.version?` \\u00B7 v${s.version}`:''}</div>`+"
+"`<div class='card'>Network<b>${n.ssid?`${n.ssid} ${n.rssi||''} dBm`:location.host}</b>${[n.ip,n.mdns,n.heap_int?`RAM ${Math.round(n.heap_int/1024)} KB`:'',s.version?`v${s.version}`:''].filter(Boolean).join(' \\u00B7 ')}</div>`+"
 "`<div class='card'>Unique aircraft<b>${s.unique_aircraft||0}</b></div>`+"
 "`<div class='card'>Max altitude<b>${(s.max_alt_ft||0).toLocaleString()} ft</b></div>`+"
 "`<div class='card'>Fastest<b>${s.max_gs_kt||0} kt</b></div>`+"
@@ -282,6 +289,7 @@ static const char INDEX_HTML[] =
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
 "document.getElementById('c_theme').value=c.theme;document.getElementById('c_lang').value=c.lang;"
+"const cm=c.show_classes==null?31:c.show_classes;for(let i=0;i<5;i++)document.getElementById('c_cls'+i).checked=!!(cm>>i&1);"
 "const mm=v=>`${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`;"
 "document.getElementById('c_night_start').value=mm(c.night_start_min||1380);"
 "document.getElementById('c_night_end').value=mm(c.night_end_min||390);"
@@ -298,7 +306,7 @@ static const char INDEX_HTML[] =
 "c.night_start_min=pm('c_night_start');c.night_end_min=pm('c_night_end');"
 "c.fixed=document.getElementById('c_fixed').value==='1';"
 "c.hide_ground=document.getElementById('c_hide_ground').value==='1';"
-"c.airline_only=document.getElementById('c_airline_only').value==='1';"
+"c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.lat=+document.getElementById('c_lat').value;c.lon=+document.getElementById('c_lon').value;"
 "c.radius_nm=+document.getElementById('c_radius_nm').value;"
 "c.theme=+document.getElementById('c_theme').value;c.lang=+document.getElementById('c_lang').value;"
@@ -322,7 +330,8 @@ static const char INDEX_HTML[] =
 static esp_err_t screen_get(httpd_req_t *req)
 {
     AUTH_GUARD(req);
-    const int W = 800, H = 480;
+    int W, H;
+    waveshare_lcd_get_res(&W, &H);
     const uint32_t data_size = W * H * 2;
     uint8_t *fb = waveshare_lcd_get_fb();
     if (fb == NULL) {
@@ -416,7 +425,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "lon", c->lon);
     cJSON_AddNumberToObject(root, "radius_nm", c->radius_nm);
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
-    cJSON_AddBoolToObject(root, "airline_only", c->hide_private);
+    cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
     cJSON_AddStringToObject(root, "ntfy_topic", c->ntfy_topic);
@@ -484,8 +493,11 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "hide_ground")))) {
         c->hide_ground = cJSON_IsTrue(j);
     }
-    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "airline_only")))) {
-        c->hide_private = cJSON_IsTrue(j);
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "show_classes")))) {
+        c->show_classes = (uint8_t)j->valueint & FCLS_ALL_MASK;
+        if (c->show_classes == 0) {
+            c->show_classes = FCLS_ALL_MASK;   /* nothing = everything */
+        }
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "cpa_alerts")))) {
         c->cpa_alerts = cJSON_IsTrue(j);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "esp_err.h"
 
 typedef struct {
@@ -34,6 +35,9 @@ typedef struct {
     bool   filter_apt_exclude; /* false: show only that airport, true: hide it */
     int    alt_min_ft;        /* altitude band filter, 0 = no bound */
     int    alt_max_ft;
+    /* keep new fields at the end: the app build persists this struct as a
+     * versioned blob and reads old files as a prefix */
+    uint8_t show_classes;     /* bitmask of flight_class_t, FCLS_ALL_MASK = all */
 } settings_t;
 
 /* Load from NVS (menuconfig values as first-boot defaults). Call once at

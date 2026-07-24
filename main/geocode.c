@@ -84,3 +84,54 @@ esp_err_t geocode_search(const char *query, geocode_result_t *results, int max, 
     ESP_LOGI(TAG, "\"%s\" -> %d results", query, *count);
     return ESP_OK;
 }
+
+esp_err_t geocode_reverse(double lat, double lon, char *city, size_t city_len)
+{
+    if (city == NULL || city_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    city[0] = '\0';
+
+    /* zoom=10 resolves to city/town granularity */
+    char url[192];
+    snprintf(url, sizeof(url),
+             "https://nominatim.openstreetmap.org/reverse"
+             "?lat=%.4f&lon=%.4f&format=jsonv2&zoom=10&accept-language=local",
+             lat, lon);
+
+    char *buf = malloc(8 * 1024);
+    if (buf == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = http_get_to_buffer(url, buf, 8 * 1024, NULL);
+    if (err != ESP_OK) {
+        free(buf);
+        return err;
+    }
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (root == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    const cJSON *addr = cJSON_GetObjectItem(root, "address");
+    static const char *keys[] = { "city", "town", "village", "municipality",
+                                  "county" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *j = addr ? cJSON_GetObjectItem(addr, keys[i]) : NULL;
+        if (cJSON_IsString(j) && j->valuestring[0]) {
+            strlcpy(city, j->valuestring, city_len);
+            break;
+        }
+    }
+    if (city[0] == '\0') {
+        /* fall back to the display name's first segment */
+        const cJSON *dn = cJSON_GetObjectItem(root, "name");
+        if (cJSON_IsString(dn) && dn->valuestring[0]) {
+            strlcpy(city, dn->valuestring, city_len);
+        }
+    }
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "reverse %.4f,%.4f -> \"%s\"", lat, lon, city);
+    return city[0] ? ESP_OK : ESP_ERR_NOT_FOUND;
+}

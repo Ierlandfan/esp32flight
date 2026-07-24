@@ -1,5 +1,7 @@
 #include "settings.h"
 
+#include "flight_model.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +37,7 @@ void settings_load(void)
     s_settings.radius_nm = CONFIG_CANFLIGHT_RADIUS_NM;
     s_settings.hide_ground = true;
     s_settings.hide_private = false;
+    s_settings.show_classes = FCLS_ALL_MASK;
     s_settings.theme = 0;
     s_settings.lang = 1;
     s_settings.ota_enabled = false;   /* never persisted, armed per session */
@@ -83,6 +86,10 @@ void settings_load(void)
     }
     if (nvs_get_u8(h, "hide_priv", &hide) == ESP_OK) {
         s_settings.hide_private = hide != 0;
+    }
+    uint8_t cls = 0;
+    if (nvs_get_u8(h, "show_cls", &cls) == ESP_OK && (cls & FCLS_ALL_MASK)) {
+        s_settings.show_classes = cls & FCLS_ALL_MASK;
     }
     uint8_t theme = 0;
     if (nvs_get_u8(h, "theme", &theme) == ESP_OK) {
@@ -155,6 +162,7 @@ esp_err_t settings_save(void)
     nvs_set_i32(h, "radius_nm", s_settings.radius_nm);
     nvs_set_u8(h, "hide_gnd", s_settings.hide_ground ? 1 : 0);
     nvs_set_u8(h, "hide_priv", s_settings.hide_private ? 1 : 0);
+    nvs_set_u8(h, "show_cls", s_settings.show_classes);
     nvs_set_u8(h, "theme", (uint8_t)s_settings.theme);
     nvs_set_u8(h, "lang", (uint8_t)s_settings.lang);
     nvs_set_str(h, "ntfy", s_settings.ntfy_topic);

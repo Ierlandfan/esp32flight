@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "flight_model.h"
 #include "fonts.h"
 #include "geocode.h"
 #include "lang.h"
@@ -38,7 +39,8 @@ static lv_obj_t *s_ta_fltapt, *s_ta_altmin, *s_ta_altmax;
 static lv_obj_t *s_dd_cpa_scope, *s_dd_aptmode;
 static lv_obj_t *s_ta_night_from, *s_ta_night_to, *s_ta_amb_idle;
 static lv_obj_t *s_dd_networks, *s_dd_cities, *s_dd_theme, *s_dd_lang;
-static lv_obj_t *s_sw_auto, *s_sw_ground, *s_sw_private, *s_sw_cpa, *s_sw_night;
+static lv_obj_t *s_sw_auto, *s_sw_ground, *s_sw_cpa, *s_sw_night;
+static lv_obj_t *s_sw_cls[FCLS_COUNT];
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
 static bool s_scan_busy;
@@ -247,17 +249,28 @@ static int parse_hhmm(const char *txt, int fallback)
 static void save_cb(lv_event_t *e)
 {
     settings_t *cfg = settings_get();
+#ifndef APKFLIGHT_NO_WIFI
     strlcpy(cfg->wifi_ssid, lv_textarea_get_text(s_ta_ssid), sizeof(cfg->wifi_ssid));
     const char *pw = lv_textarea_get_text(s_ta_pass);
     if (pw[0] != '\0') {
         strlcpy(cfg->wifi_pass, pw, sizeof(cfg->wifi_pass));
     }
+#endif
     cfg->use_fixed_loc = !lv_obj_has_state(s_sw_auto, LV_STATE_CHECKED);
     cfg->lat = atof(lv_textarea_get_text(s_ta_lat));
     cfg->lon = atof(lv_textarea_get_text(s_ta_lon));
     cfg->radius_nm = lv_slider_get_value(s_slider_radius);
     cfg->hide_ground = lv_obj_has_state(s_sw_ground, LV_STATE_CHECKED);
-    cfg->hide_private = lv_obj_has_state(s_sw_private, LV_STATE_CHECKED);
+    cfg->hide_private = false;   /* legacy switch, superseded by the class mask */
+    cfg->show_classes = 0;
+    for (int i = 0; i < FCLS_COUNT; i++) {
+        if (lv_obj_has_state(s_sw_cls[i], LV_STATE_CHECKED)) {
+            cfg->show_classes |= (uint8_t)(1u << i);
+        }
+    }
+    if (cfg->show_classes == 0) {   /* nothing checked = show everything */
+        cfg->show_classes = FCLS_ALL_MASK;
+    }
     cfg->cpa_alerts = lv_obj_has_state(s_sw_cpa, LV_STATE_CHECKED);
     cfg->night_enabled = lv_obj_has_state(s_sw_night, LV_STATE_CHECKED);
     cfg->night_start_min = parse_hhmm(lv_textarea_get_text(s_ta_night_from),
@@ -271,7 +284,9 @@ static void save_cb(lv_event_t *e)
     strlcpy(cfg->fa_key, lv_textarea_get_text(s_ta_fa), sizeof(cfg->fa_key));
     strlcpy(cfg->webhook_url, lv_textarea_get_text(s_ta_webhook), sizeof(cfg->webhook_url));
     strlcpy(cfg->local_adsb, lv_textarea_get_text(s_ta_ladsb), sizeof(cfg->local_adsb));
+#ifndef APKFLIGHT   /* no web panel in the app - the field doesn't exist */
     strlcpy(cfg->web_pass, lv_textarea_get_text(s_ta_webpass), sizeof(cfg->web_pass));
+#endif
     strlcpy(cfg->filter_airport, lv_textarea_get_text(s_ta_fltapt), sizeof(cfg->filter_airport));
     cfg->alt_min_ft = atoi(lv_textarea_get_text(s_ta_altmin));
     cfg->alt_max_ft = atoi(lv_textarea_get_text(s_ta_altmax));
@@ -283,6 +298,14 @@ static void save_cb(lv_event_t *e)
              cfg->lang, cfg->theme, cfg->use_fixed_loc);
     settings_save();
 
+#ifdef APKFLIGHT
+    /* App build: no process restart. Signal the flight task to re-apply
+     * location/radius live, then just close the settings overlay. */
+    extern void apk_settings_touch(void);
+    apk_settings_touch();
+    close_overlay();
+    return;
+#else
     lv_obj_t *msg = lv_label_create(s_overlay);
     lv_obj_set_style_text_color(msg, COL_ACCENT, 0);
     lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
@@ -293,6 +316,7 @@ static void save_cb(lv_event_t *e)
     lv_obj_center(msg);
     lv_refr_now(NULL);
     esp_restart();
+#endif
 }
 
 /* ---- widget helpers ---- */
@@ -414,7 +438,7 @@ void ui_settings_open(void)
     char buf[48];
 
     s_overlay = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(s_overlay, 800, 480);
+    lv_obj_set_size(s_overlay, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_pos(s_overlay, 0, 0);
     lv_obj_set_style_bg_color(s_overlay, COL_BG, 0);
     lv_obj_set_style_border_width(s_overlay, 0, 0);
@@ -430,11 +454,11 @@ void ui_settings_open(void)
     lv_obj_set_pos(title, 14, 12);
 
     snprintf(buf, sizeof(buf), LV_SYMBOL_SAVE "  %s", L()->save);
-    add_button(s_overlay, 570, 6, 150, 38, buf, save_cb, COL_ACCENT);
-    add_button(s_overlay, 734, 6, 54, 38, LV_SYMBOL_CLOSE, close_cb, COL_PANEL);
+    add_button(s_overlay, LV_HOR_RES - 230, 6, 150, 38, buf, save_cb, COL_ACCENT);
+    add_button(s_overlay, LV_HOR_RES - 66, 6, 54, 38, LV_SYMBOL_CLOSE, close_cb, COL_PANEL);
 
     lv_obj_t *tv = lv_tabview_create(s_overlay, LV_DIR_TOP, 44);
-    lv_obj_set_size(tv, 800, 480 - 50);
+    lv_obj_set_size(tv, LV_HOR_RES, LV_VER_RES - 50);
     lv_obj_set_pos(tv, 0, 50);
     lv_obj_set_style_bg_color(tv, COL_BG, 0);
     lv_obj_t *bar = lv_tabview_get_tab_btns(tv);
@@ -442,6 +466,10 @@ void ui_settings_open(void)
     lv_obj_set_style_text_color(bar, COL_TEXT, 0);
     lv_obj_set_style_text_font(bar, &font_pl_16, 0);
 
+#ifdef APKFLIGHT_NO_WIFI
+    /* App build: Wi-Fi is the host OS's job, so the Network tab is dropped. */
+    lv_obj_t *p;
+#else
     /* --- Network --- */
     lv_obj_t *p = tab_page(tv, L()->tab_net);
     add_label(p, L()->wifi_ssid, 0, 0);
@@ -451,6 +479,7 @@ void ui_settings_open(void)
     lv_dropdown_set_text(s_dd_networks, L()->dd_networks);
     add_label(p, L()->password, 0, 84);
     s_ta_pass = add_textarea(p, 0, 108, 380, "", true);
+#endif
 
     /* --- Location --- */
     p = tab_page(tv, L()->tab_place);
@@ -487,7 +516,6 @@ void ui_settings_open(void)
     p = tab_page(tv, L()->tab_filters);
     add_section(p, L()->sec_traffic, 0);
     s_sw_ground = add_switch(p, L()->hide_ground, 0, 32, cfg->hide_ground);
-    s_sw_private = add_switch(p, L()->airline_only, 380, 32, cfg->hide_private);
     add_label(p, L()->lbl_altmin, 0, 88);
     snprintf(buf, sizeof(buf), "%d", cfg->alt_min_ft);
     s_ta_altmin = add_textarea(p, 0, 112, 140, buf, false);
@@ -509,6 +537,13 @@ void ui_settings_open(void)
     s_dd_cpa_scope = add_dropdown(p, 500, 320, 240, NULL);
     lv_dropdown_set_options(s_dd_cpa_scope, L()->cpa_scope_opts);
     lv_dropdown_set_selected(s_dd_cpa_scope, cfg->cpa_all ? 1 : 0);
+
+    add_section(p, L()->sec_classes, 380);
+    for (int i = 0; i < FCLS_COUNT; i++) {
+        s_sw_cls[i] = add_switch(p, L()->cls_names[i], (i % 2) * 380,
+                                 412 + (i / 2) * 52,
+                                 (cfg->show_classes >> i) & 1);
+    }
 
     /* --- Integrations --- */
     p = tab_page(tv, L()->tab_integr);
@@ -552,6 +587,10 @@ void ui_settings_open(void)
     snprintf(buf, sizeof(buf), "%d", cfg->ambient_idle_min);
     s_ta_amb_idle = add_textarea(p, 630, 220, 110, buf, false);
 
+#ifdef APKFLIGHT
+    /* No web panel and no OTA in the app - updates arrive as a new APK. */
+    int nety = 282;
+#else
     add_section(p, L()->sec_webpanel, 282);
     s_ta_webpass = add_textarea(p, 0, 314, 360, cfg->web_pass, false);
     add_hint(p, L()->lbl_webpass, 0, 360, 360);
@@ -561,21 +600,30 @@ void ui_settings_open(void)
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 472);
     lv_obj_set_style_text_font(hint, &font_pl_14, 0);
+    int nety = 520;
+#endif
 
     char netbuf[120] = "";
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t ip_info;
     if (netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+#ifdef APKFLIGHT
+        /* the app has no web panel, so no .local URL to advertise */
+        snprintf(netbuf, sizeof(netbuf),
+                 "panel: http://" IPSTR ":8080    apkflight v%s",
+                 IP2STR(&ip_info.ip), esp_app_get_description()->version);
+#else
         snprintf(netbuf, sizeof(netbuf), "IP: " IPSTR "    http://esp32flight.local    v%s",
                  IP2STR(&ip_info.ip), esp_app_get_description()->version);
+#endif
     } else {
         snprintf(netbuf, sizeof(netbuf), "IP: -    v%s", esp_app_get_description()->version);
     }
-    add_label(p, netbuf, 0, 520);
+    add_label(p, netbuf, 0, nety);
 
     /* keyboard on the top layer */
     s_kb = lv_keyboard_create(lv_layer_top());
-    lv_obj_set_size(s_kb, 800, 210);
+    lv_obj_set_size(s_kb, LV_HOR_RES, 210);
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_kb, kb_event_cb, LV_EVENT_ALL, NULL);

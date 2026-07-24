@@ -18,6 +18,7 @@
 
 #include "flight_data.h"
 #include "geolocate.h"
+#include "geocode.h"
 #include "airlines.h"
 #include "lvgl_port.h"
 #include "routes.h"
@@ -313,8 +314,10 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
         char ip[16];
         snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ip_info.ip));
         cJSON_AddStringToObject(jn, "ip", ip);
+#ifndef APKFLIGHT   /* a desktop-class heap number is just noise */
         cJSON_AddNumberToObject(jn, "heap_int",
                                 (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+#endif
         snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ip_info.gw));
         cJSON_AddStringToObject(jn, "gateway", ip);
     }
@@ -324,7 +327,11 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
         cJSON_AddNumberToObject(jn, "rssi", ap.rssi);
         cJSON_AddNumberToObject(jn, "channel", ap.primary);
     }
+#ifdef APKFLIGHT
+    /* no mDNS in the app - the panel is reached by ip:8080 */
+#else
     cJSON_AddStringToObject(jn, "mdns", "esp32flight.local");
+#endif
     /* ota_enabled is injected live by the /api/state handler, not cached here */
 
     cJSON *js = cJSON_AddObjectToObject(root, "stats");
@@ -481,6 +488,10 @@ static void flight_task(void *arg)
         set_status(L()->geo_retry);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
+    if (city[0] == '\0') {
+        /* fixed coordinates carry no name - resolve one from the map */
+        geocode_reverse(lat, lon, city, sizeof(city));
+    }
 
     /* Clock + ETA follow the device's location, wherever it is */
     int home_off;
@@ -510,8 +521,45 @@ static void flight_task(void *arg)
     int64_t last_weather_ms = -1;
     int64_t last_update_check_ms = -1;
     static weather_t wx;
+#ifdef APKFLIGHT
+    /* App build applies settings live (no restart): re-resolve location and
+     * radius whenever the settings screen saves. */
+    extern unsigned apk_settings_gen(void);
+    unsigned cfg_gen = apk_settings_gen();
+#endif
     while (true) {
         int64_t tick_ms = esp_timer_get_time() / 1000;
+#ifdef APKFLIGHT
+        if (apk_settings_gen() != cfg_gen) {
+            cfg_gen = apk_settings_gen();
+            double nlat = lat, nlon = lon;
+            char ncity[32] = "";
+            if (geolocate_get(&nlat, &nlon, ncity, sizeof(ncity)) == ESP_OK) {
+                lat = nlat;
+                lon = nlon;
+                if (ncity[0] == '\0') {
+                    geocode_reverse(nlat, nlon, ncity, sizeof(ncity));
+                }
+                if (ncity[0]) {
+                    strlcpy(city, ncity, sizeof(city));
+                }
+                int off;
+                char tzkey[12];   /* fresh key per change: skip the tz cache */
+                snprintf(tzkey, sizeof(tzkey), "HOME%u", cfg_gen);
+                if (tz_offset_for(tzkey, lat, lon, &off)) {
+                    tz_set_home_offset(off);
+                }
+                if (lvgl_port_lock(1000)) {
+                    ui_set_home(lat, lon);
+                    lvgl_port_unlock();
+                }
+                airports_nearest(lat, lon, metar_station);
+                last_weather_ms = -1;   /* refresh weather for the new spot */
+            }
+            radius_nm = settings_get()->radius_nm;
+            last_weather_ms = -1;
+        }
+#endif
         if (last_update_check_ms < 0 || tick_ms - last_update_check_ms > 24LL * 3600 * 1000) {
             check_updates();
             last_update_check_ms = tick_ms;
@@ -553,14 +601,15 @@ static void flight_task(void *arg)
             consecutive_failures = 0;
 
             const settings_t *cfg = settings_get();
-            if (cfg->hide_ground || cfg->hide_private) {
+            if (cfg->hide_ground ||
+                (cfg->show_classes & FCLS_ALL_MASK) != FCLS_ALL_MASK) {
                 int w = 0;
                 for (int i = 0; i < list->count; i++) {
                     const aircraft_t *ac = &list->ac[i];
                     if (cfg->hide_ground && ac->on_ground) {
                         continue;
                     }
-                    if (cfg->hide_private && !flight_is_airline(ac)) {
+                    if (!(cfg->show_classes & (1u << flight_class(ac)))) {
                         continue;
                     }
                     list->ac[w++] = *ac;

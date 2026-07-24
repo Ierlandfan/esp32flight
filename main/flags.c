@@ -18,6 +18,19 @@ typedef struct {
 static flag_entry_t s_cache[FLAG_CACHE_SIZE];
 static uint32_t s_tick;
 
+/* Flags are raw PNG blobs (the LVGL decoder reads dimensions at draw time,
+ * so dsc->header.w is zero). Aspect ratios differ per country; layout code
+ * needs the real width, read from the PNG IHDR chunk. */
+int flags_width(const lv_img_dsc_t *dsc)
+{
+    if (dsc == NULL || dsc->data == NULL || dsc->data_size < 24) {
+        return 30;
+    }
+    const uint8_t *d = dsc->data;
+    int w = (d[16] << 24) | (d[17] << 16) | (d[18] << 8) | d[19];
+    return w > 0 && w < 128 ? w : 30;
+}
+
 const lv_img_dsc_t *flags_get(const char *cc)
 {
     if (cc == NULL || strlen(cc) != 2) {
