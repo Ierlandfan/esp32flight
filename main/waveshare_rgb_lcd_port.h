@@ -55,8 +55,15 @@
 #define EXAMPLE_LCD_IO_RGB_DATA15       (GPIO_NUM_40)
 
 esp_err_t waveshare_esp32_s3_rgb_lcd_init(void);
+
+/* Name of the board picked at boot (autodetect or forced). */
+const char *waveshare_lcd_board_name(void);
 esp_err_t waveshare_rgb_lcd_bl_on(void);
 esp_err_t waveshare_rgb_lcd_bl_off(void);
 
 /* First RGB frame buffer (800x480 RGB565 in PSRAM), NULL before init. */
 void *waveshare_lcd_get_fb(void);
+
+/* Framebuffer dimensions (fixed 800x480 on the panel; the app build may
+ * render a larger canvas). */
+void waveshare_lcd_get_res(int *w, int *h);
