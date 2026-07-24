@@ -1,0 +1,57 @@
+apply plugin: 'com.android.application'
+
+// One version for firmware and app: parsed from esp32flight's PROJECT_VER
+def espfVer = new File(projectDir, '../../../CMakeLists.txt').text
+        .find(/PROJECT_VER "([^"]+)"/) { m, v -> v } ?: '0.0.0' 
+
+def ksProps = new Properties()
+def ksFile = new File(projectDir, '../keystore.properties')
+if (ksFile.exists()) {
+    ksFile.withInputStream { ksProps.load(it) }
+}
+
+android {
+    namespace 'pl.theqkash.apkflight'
+    compileSdk 34
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile new File(projectDir, '../' + ksProps.storeFile)
+                storePassword ksProps.storePassword
+                keyAlias ksProps.keyAlias
+                keyPassword ksProps.keyPassword
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId 'pl.theqkash.apkflight'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName espfVer
+        externalNativeBuild {
+            ndkBuild {
+                arguments 'APP_PLATFORM=android-21'
+                abiFilters 'arm64-v8a', 'armeabi-v7a'
+            }
+        }
+    }
+    externalNativeBuild {
+        ndkBuild { path 'jni/Android.mk' }
+    }
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ksFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}

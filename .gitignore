@@ -11,3 +11,19 @@ assets/airports.tsv
 .cache/
 # generated assets (see tools/fetch_flags.sh)
 assets/flags/*.png
+
+# apkflight (Android/desktop port) build artifacts and fetched deps
+apkflight/apkflight
+apkflight/*.bmp
+apkflight/third_party/
+apkflight/android/.gradle/
+apkflight/android/build/
+apkflight/android/app/build/
+apkflight/android/app/.cxx/
+apkflight/android/app/src/main/assets/appdata/
+apkflight/android/local.properties
+apkflight/android/app/jni/SDL
+apkflight/android/keystore/
+apkflight/android/keystore.properties
+build-*/
+.DS_Store
