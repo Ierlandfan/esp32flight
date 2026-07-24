@@ -1,7 +1,8 @@
 <h1 align="center">esp32flight</h1>
 
 <p align="center">
-  A standalone desk flight radar on a single ESP32 board with a 7" touchscreen.<br>
+  A standalone desk flight radar on a single ESP32 board with a touchscreen,<br>
+  also available as an Android app built from the same code.<br>
   Live aircraft around you: airline logos, routes, maps, alerts and a built-in web panel.<br>
   No Raspberry Pi, no server, no subscriptions, no API keys.
 </p>
@@ -9,6 +10,7 @@
 <p align="center">
   <a href="https://theqkash.github.io/esp32flight/"><img src="https://img.shields.io/badge/flash-from%20your%20browser-4da3ff?style=flat-square" alt="browser flasher"></a>
   <a href="https://github.com/theqkash/esp32flight/releases"><img src="https://badgen.net/github/release/theqkash/esp32flight?color=2ea44f" alt="latest release"></a>
+  <a href="https://github.com/theqkash/esp32flight/releases/latest"><img src="https://img.shields.io/badge/android-apk%20download-3ddc84?style=flat-square&logo=android&logoColor=white" alt="Android APK"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT"></a>
   <a href="https://ko-fi.com/theqkash"><img src="https://img.shields.io/badge/ko--fi-support%20the%20project-ff5e5b?style=flat-square&logo=kofi&logoColor=white" alt="Ko-fi"></a>
 </p>
@@ -23,11 +25,13 @@
 
 ## Quick start
 
-1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35) and a USB cable.
-2. Open **[the browser installer](https://theqkash.github.io/esp32flight/)** in Chrome or Edge, click *Install*, pick the serial port. Done in a few minutes.
+1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35) or a **Guition JC8048W550** (~$20) and a USB cable.
+2. Open **[the browser installer](https://theqkash.github.io/esp32flight/)** in Chrome or Edge, click *Install*, pick the serial port. One firmware fits both boards, it detects the hardware at boot.
 3. Tap the gear icon, pick your 2.4 GHz Wi-Fi from the scan list, save. The device locates itself by IP (or type any city) and starts tracking.
 
 Later updates install over the air from the web panel. The cable is only ever needed once.
+
+No board at hand? Grab **apkflight**, the same radar as an [Android app](#android-app-apkflight).
 
 ## What it does
 
@@ -39,6 +43,7 @@ Later updates install over the air from the web panel. The cable is only ever ne
 - Four views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR)
 - Full-screen route map with the great-circle track, swipe pan and zoom, flight trails
 - Map screensaver after idle: your observation circle, every aircraft in range, clock and weather; tap a plane for its route
+- Aircraft class filter: pick any mix of airliners, light aircraft, helicopters, military and others; the class colors the type code in the list
 - Night mode, 7 color themes, English and Polish UI, all settings on the touchscreen
 
 **Data**
@@ -59,6 +64,16 @@ Later updates install over the air from the web panel. The cable is only ever ne
 - Tabs: Live (Leaflet map with trails and flags, flight table), History (spotting log with CSV export, alert history), Settings (full config with per-field help), API (built-in reference)
 - OTA firmware updates from the browser, locked by default and armed from the device
 - Prometheus `/metrics`, live `/screen.bmp` screenshots, optional password (HTTP Basic Auth) covering the panel and the whole API
+
+## Android app (apkflight)
+
+The same radar, compiled for Android from the same core sources, so every feature above ships on both at the same version. Download `apkflight-vX.Y.Z.apk` from the [latest release](https://github.com/theqkash/esp32flight/releases/latest) and install it (sideload; Android 5.0 or newer, phones and tablets, arm64 + arm32).
+
+- Always landscape, always fullscreen, notch and cutout areas included
+- The canvas adapts to the screen: tablets render more list rows, a bigger radar and larger type instead of a stretched frame
+- The web panel runs inside the app at `http://<phone-ip>:8080`
+- Wi-Fi setup is not needed (the system connection is used) and settings apply live, no restart
+- Source lives in [`apkflight/`](apkflight/), a thin SDL2 + shim layer over the shared code
 
 ## Setting up the integrations
 
@@ -143,7 +158,10 @@ Optional, with a user-provided free key: [FlightAware AeroAPI](https://www.fligh
 
 ## Hardware
 
-Waveshare ESP32-S3-Touch-LCD-7: ESP32-S3 (16 MB flash, 8 MB PSRAM), 800x480 RGB LCD (ST7262), GT911 capacitive touch, CH343 USB-UART. Available from the usual electronics shops. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
+Two supported boards, one firmware; the board is autodetected at boot:
+
+- **Waveshare ESP32-S3-Touch-LCD-7** (7", the original target): ESP32-S3, 16 MB flash, 8 MB PSRAM, 800x480 RGB LCD (ST7262), GT911 capacitive touch. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
+- **Guition JC8048W550** (5", budget option, ~$20): same ESP32-S3 class, 800x480 RGB LCD, GT911 touch. Support is new (pinout contributed from a community fork); if you run it, a short "works for me" in the issues is appreciated.
 
 ## Building from source
 
@@ -162,6 +180,8 @@ idf.py -p /dev/cu.usbmodemXXXX -b 230400 flash
 ```
 
 Subsequent updates can go over the air from the web panel (`build/esp32flight.bin`).
+
+The Android app builds from [`apkflight/`](apkflight/): `make` gives a desktop test build (SDL2 via Homebrew), `gradle assembleRelease` in `apkflight/android/` produces the APK. Native curl and mbedTLS are cross-compiled once with `apkflight/scripts/build_android_deps.sh`.
 </details>
 
 ## Support the project
