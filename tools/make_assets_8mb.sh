@@ -32,6 +32,10 @@ for f in assets-8mb/flags/*.png assets-8mb/map/*.png; do
     magick "$f" -colors 64 -strip -define png:compression-level=9 PNG8:"$f" 2>/dev/null || true
 done
 
+# full index of the ONLINE logo set: the firmware only fetches codes it
+# finds here, so unknown callsign prefixes never hit the network
+cp assets/logos/index.txt assets-8mb/logos/index.txt
+
 # refresh the manifest used by the app build's asset extraction
 ( cd assets-8mb && find . -type f | sed 's|^\./||' | grep -v '^manifest.txt$' > manifest.txt )
 

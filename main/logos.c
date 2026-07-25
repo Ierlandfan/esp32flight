@@ -27,6 +27,58 @@ static int  s_miss_n;
 static char s_fetching[4];
 static volatile bool s_fetch_busy;
 
+/* Index of logos available in the online repo (bundled as
+ * /assets/logos/index.txt). Fetches are gated on it, so a callsign prefix
+ * that is no airline at all (SP-xxx and friends) never hits the network.
+ * Without the file (older asset sets) every code is assumed fetchable. */
+static char (*s_index)[4];
+static int  s_index_n = -1;   /* -1 = not loaded yet */
+
+static void index_load(void)
+{
+    s_index_n = 0;
+    FILE *f = fopen("/assets/logos/index.txt", "r");
+    if (f == NULL) {
+        s_index_n = -2;       /* no index bundled: allow everything */
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    int cap = (int)(size / 4) + 8;
+    s_index = heap_caps_malloc((size_t)cap * 4, MALLOC_CAP_SPIRAM);
+    if (s_index == NULL) {
+        fclose(f);
+        s_index_n = -2;
+        return;
+    }
+    char line[16];
+    while (fgets(line, sizeof(line), f) != NULL && s_index_n < cap) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strlen(line) == 3) {
+            strlcpy(s_index[s_index_n++], line, 4);
+        }
+    }
+    fclose(f);
+    ESP_LOGI(TAG, "online logo index: %d entries", s_index_n);
+}
+
+static bool index_has(const char *icao)
+{
+    if (s_index_n == -1) {
+        index_load();
+    }
+    if (s_index_n < 0) {
+        return true;
+    }
+    for (int i = 0; i < s_index_n; i++) {
+        if (s_index[i][0] == icao[0] && strcmp(s_index[i], icao) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 typedef struct {
     char         icao[4];
     uint8_t     *data;
@@ -108,6 +160,10 @@ static void logo_fetch_task(void *arg)
 static void logo_fetch_want(const char *icao)
 {
     if (s_fetch_busy || miss_known(icao)) {
+        return;
+    }
+    if (!index_has(icao)) {
+        miss_remember(icao);   /* not in the online set either */
         return;
     }
     s_fetch_busy = true;
