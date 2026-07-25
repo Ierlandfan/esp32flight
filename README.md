@@ -160,7 +160,7 @@ Optional, with a user-provided free key: [FlightAware AeroAPI](https://www.fligh
 
 ## Hardware
 
-Two supported boards, one firmware; the board is autodetected at boot:
+Three supported boards, all running the same code. The 16 MB boards share one binary with boot-time autodetection; 8 MB modules get a dedicated build:
 
 - **Waveshare ESP32-S3-Touch-LCD-7** (7", the original target): ESP32-S3, 16 MB flash, 8 MB PSRAM, 800x480 RGB LCD (ST7262), GT911 capacitive touch. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
 - **Waveshare ESP32-S3-Touch-LCD-4.3** (and the 4.3B): same electronics in a smaller panel; the whole Waveshare 800x480 family shares one pinout. Note: 4.3 units ship with an 8 MB flash module (WROOM-1 N8R8) - flash `esp32flight-vX.Y.Z-8mb-full.bin` on those. It bundles the ~330 most common airline logos and fetches the rest on demand from [esp32flight-logos](https://github.com/theqkash/esp32flight-logos).
