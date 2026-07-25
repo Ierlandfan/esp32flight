@@ -120,19 +120,20 @@ menu "Example Configuration"
             prompt "Display board"
             default CANFLIGHT_BOARD_AUTO
             help
-                Both supported boards are ESP32-S3 with a 800x480 RGB565
+                All supported boards are ESP32-S3 with a 800x480 RGB565
                 panel and GT911 touch; they differ in pin mapping, backlight
                 control and touch orientation. Auto probes the Waveshare
                 CH422G IO expander on I2C at boot and picks the right pin
-                set - one binary serves both boards (web flasher and OTA
-                stay single-artifact). Force a board only if a clone
-                confuses the probe.
+                set - one binary serves all of them (web flasher and OTA
+                stay single-artifact). The whole Waveshare 800x480 family
+                (4.3", 5", 7") shares one pinout, so it needs no telling
+                apart. Force a board only if a clone confuses the probe.
 
             config CANFLIGHT_BOARD_AUTO
-                bool "Auto-detect (Waveshare 7inch / Guition JC8048W550)"
+                bool "Auto-detect (Waveshare 4.3/5/7 / Guition JC8048W550)"
 
             config CANFLIGHT_BOARD_WAVESHARE_7
-                bool "Force Waveshare ESP32-S3-Touch-LCD-7 (7 inch)"
+                bool "Force Waveshare ESP32-S3-Touch-LCD (4.3/5/7 inch)"
 
             config CANFLIGHT_BOARD_GUITION_JC8048W550
                 bool "Force Guition JC8048W550 (5 inch)"

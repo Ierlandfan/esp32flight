@@ -25,7 +25,7 @@
 
 ## Quick start
 
-1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35) or a **Guition JC8048W550** (~$20) and a USB cable.
+1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35), its 4.3" sibling, or a **Guition JC8048W550** (~$20) and a USB cable.
 2. Open **[the browser installer](https://theqkash.github.io/esp32flight/)** in Chrome or Edge, click *Install*, pick the serial port. One firmware fits both boards, it detects the hardware at boot.
 3. Tap the gear icon, pick your 2.4 GHz Wi-Fi from the scan list, save. The device locates itself by IP (or type any city) and starts tracking.
 
@@ -161,6 +161,7 @@ Optional, with a user-provided free key: [FlightAware AeroAPI](https://www.fligh
 Two supported boards, one firmware; the board is autodetected at boot:
 
 - **Waveshare ESP32-S3-Touch-LCD-7** (7", the original target): ESP32-S3, 16 MB flash, 8 MB PSRAM, 800x480 RGB LCD (ST7262), GT911 capacitive touch. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
+- **Waveshare ESP32-S3-Touch-LCD-4.3** (and the 4.3B): same electronics in a smaller panel; the whole Waveshare 800x480 family shares one pinout, so the same firmware just works.
 - **Guition JC8048W550** (5", budget option, ~$20): same ESP32-S3 class, 800x480 RGB LCD, GT911 touch. Support is new (pinout contributed from a community fork); if you run it, a short "works for me" in the issues is appreciated.
 
 ## Building from source
