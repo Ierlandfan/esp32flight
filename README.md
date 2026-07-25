@@ -31,7 +31,7 @@
 
 Later updates install over the air from the web panel. The cable is only ever needed once.
 
-No board at hand? Grab **apkflight**, the same radar as an [Android app](#android-app-apkflight).
+No board at hand? The same radar also ships as an [Android app](#android-app).
 
 ## What it does
 
@@ -65,9 +65,9 @@ No board at hand? Grab **apkflight**, the same radar as an [Android app](#androi
 - OTA firmware updates from the browser, locked by default and armed from the device
 - Prometheus `/metrics`, live `/screen.bmp` screenshots, optional password (HTTP Basic Auth) covering the panel and the whole API
 
-## Android app (apkflight)
+## Android app
 
-The same radar, compiled for Android from the same core sources, so every feature above ships on both at the same version. Download `apkflight-vX.Y.Z.apk` from the [latest release](https://github.com/theqkash/esp32flight/releases/latest) and install it (sideload; Android 5.0 or newer, phones and tablets, arm64 + arm32).
+The same radar, compiled for Android from the same core sources, so every feature above ships on both at the same version. Download `esp32flight-vX.Y.Z.apk` from the [latest release](https://github.com/theqkash/esp32flight/releases/latest) and install it (sideload; Android 5.0 or newer, phones and tablets, arm64 + arm32).
 
 - Always landscape, always fullscreen, notch and cutout areas included
 - The canvas adapts to the screen: tablets render more list rows, a bigger radar and larger type instead of a stretched frame

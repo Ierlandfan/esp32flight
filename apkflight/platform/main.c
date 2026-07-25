@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     STEP("settings_load");
     settings_load();
     STEP("app_port_init");
-    if (app_port_init("apkflight") != 0) {
+    if (app_port_init("esp32flight") != 0) {
         STEP("app_port_init FAILED");
         return 1;
     }

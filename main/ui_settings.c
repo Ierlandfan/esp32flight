@@ -610,7 +610,7 @@ void ui_settings_open(void)
 #ifdef APKFLIGHT
         /* the app has no web panel, so no .local URL to advertise */
         snprintf(netbuf, sizeof(netbuf),
-                 "panel: http://" IPSTR ":8080    apkflight v%s",
+                 "panel: http://" IPSTR ":8080    esp32flight v%s",
                  IP2STR(&ip_info.ip), esp_app_get_description()->version);
 #else
         snprintf(netbuf, sizeof(netbuf), "IP: " IPSTR "    http://esp32flight.local    v%s",
