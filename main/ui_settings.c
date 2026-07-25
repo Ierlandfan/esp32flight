@@ -41,6 +41,8 @@ static lv_obj_t *s_ta_night_from, *s_ta_night_to, *s_ta_amb_idle;
 static lv_obj_t *s_dd_networks, *s_dd_cities, *s_dd_theme, *s_dd_lang;
 static lv_obj_t *s_sw_auto, *s_sw_ground, *s_sw_cpa, *s_sw_night;
 static lv_obj_t *s_sw_cls[FCLS_COUNT];
+static lv_obj_t *s_sw_rain;
+static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
 static bool s_scan_busy;
@@ -278,6 +280,8 @@ static void save_cb(lv_event_t *e)
     cfg->night_end_min = parse_hhmm(lv_textarea_get_text(s_ta_night_to),
                                     cfg->night_end_min);
     cfg->ambient_idle_min = atoi(lv_textarea_get_text(s_ta_amb_idle));
+    cfg->rain_overlay = lv_obj_has_state(s_sw_rain, LV_STATE_CHECKED);
+    cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
     strlcpy(cfg->watch_regs, lv_textarea_get_text(s_ta_watch), sizeof(cfg->watch_regs));
     strlcpy(cfg->ntfy_topic, lv_textarea_get_text(s_ta_ntfy), sizeof(cfg->ntfy_topic));
     strlcpy(cfg->mqtt_uri, lv_textarea_get_text(s_ta_mqtt), sizeof(cfg->mqtt_uri));
@@ -545,6 +549,9 @@ void ui_settings_open(void)
                                  (cfg->show_classes >> i) & 1);
     }
 
+    add_section(p, L()->sec_layers, 580);
+    s_sw_rain = add_switch(p, L()->rain_lbl, 0, 612, cfg->rain_overlay);
+
     /* --- Integrations --- */
     p = tab_page(tv, L()->tab_integr);
     add_label(p, L()->lbl_ntfy, 0, 0);
@@ -586,6 +593,10 @@ void ui_settings_open(void)
     add_label(p, L()->amb_idle_lbl, 0, 226);
     snprintf(buf, sizeof(buf), "%d", cfg->ambient_idle_min);
     s_ta_amb_idle = add_textarea(p, 630, 220, 110, buf, false);
+    add_label(p, L()->amb_style_lbl, 380, 176);
+    s_dd_amb_style = add_dropdown(p, 380, 220, 220, NULL);
+    lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
+    lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */

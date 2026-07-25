@@ -7,6 +7,10 @@
 
 void ui_init(void);
 
+/* Force a right-panel view (0 detail, 1 map, 2 radar, 3 stats, 4 retro);
+ * used by the desktop build for screenshot testing. */
+void ui_set_view(int mode);
+
 /* One-line status in the header (Wi-Fi / location / errors). */
 void ui_set_status(const char *text);
 

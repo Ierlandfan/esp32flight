@@ -25,6 +25,7 @@
 #include "metar.h"
 #include "dailystats.h"
 #include "tilemap.h"
+#include "rainviewer.h"
 #include "trails.h"
 #include "tz.h"
 #include "ui_map.h"
@@ -95,7 +96,8 @@ static lv_obj_t *s_list_rows[MAX_SHOWN];
 #define VIEW_MAP    1
 #define VIEW_RADAR  2
 #define VIEW_STATS  3
-#define VIEW_COUNT  4
+#define VIEW_RETRO  4
+#define VIEW_COUNT  5
 #define EMB_MAP_W   (SCR_W - LIST_W)
 #define EMB_MAP_H   (SCR_H - HEADER_H - 187)   /* info bubble keeps its 169px strip */
 /* Bundled world-map fallback image size (tiles replace it once rendered) */
@@ -130,6 +132,8 @@ static lv_obj_t *s_amb_lbls[MAX_SHOWN];
 static lv_obj_t *s_amb_clock, *s_amb_wx;
 static lv_obj_t *s_amb_ring, *s_amb_home;
 static lv_obj_t *s_amb_selbub;
+static bool s_amb_retro;          /* overlay currently hosts the retro panel */
+static bool s_retro_was_hidden;
 static char s_amb_sel_cs[9];   /* callsign picked by tapping its sprite */
 typedef struct {
     char  callsign[9];
@@ -175,6 +179,30 @@ static lv_obj_t *s_radar_range;
 static lv_obj_t *s_radar_img;
 static lv_obj_t *s_radar_rings[3];
 static lv_obj_t *s_radar_home;
+
+/* Retro radar view: phosphor CRT with a rotating sweep and afterglow blips */
+#define RETRO_TRAIL   10          /* beam trail segments */
+#define RETRO_TICK_MS 40
+#define RETRO_STEP    2.4f        /* deg per tick: full turn every 6 s */
+#define RET_COL_BEAM  lv_color_hex(0x53ff8a)
+#define RET_COL_DIM   lv_color_hex(0x1e7a44)
+#define RET_COL_BG    lv_color_hex(0x03140a)
+static lv_obj_t *s_retro_panel;
+static lv_obj_t *s_retro_beam[RETRO_TRAIL];
+static lv_point_t s_retro_beam_pts[RETRO_TRAIL][2];
+static lv_obj_t *s_retro_blips[MAX_AIRCRAFT];
+static lv_obj_t *s_retro_lbls[MAX_AIRCRAFT];
+static lv_obj_t *s_retro_info;
+static float s_retro_angle;
+static float s_retro_bearing[MAX_AIRCRAFT];
+static bool  s_retro_valid[MAX_AIRCRAFT];
+/* optional precipitation echo under the sweep (RainViewer, rain-only) */
+static lv_obj_t     *s_retro_rain_img;
+static uint16_t     *s_retro_rain_buf;
+static lv_img_dsc_t  s_retro_rain_dsc;
+static volatile bool s_retro_rain_busy;
+static int64_t       s_retro_rain_ms = -1;
+static int           s_retro_rain_gen = -1;
 #define RADAR_W  (SCR_W - LIST_W)
 #define RADAR_H  (SCR_H - HEADER_H)
 #define RADAR_CX (RADAR_W / 2)
@@ -234,6 +262,7 @@ static void render_list_selection(void);
 static void render_map_panel(void);
 static void render_radar_panel(void);
 static void render_stats_panel(void);
+static void render_retro_panel(void);
 
 static void render_right(void)
 {
@@ -246,6 +275,9 @@ static void render_right(void)
         break;
     case VIEW_STATS:
         render_stats_panel();
+        break;
+    case VIEW_RETRO:
+        render_retro_panel();
         break;
     default:
         render_detail();
@@ -380,14 +412,15 @@ static void cycle_timer_cb(lv_timer_t *t)
     lv_obj_scroll_to_view(s_list_rows[s_selected], LV_ANIM_ON);
 }
 
-static void mode_click_cb(lv_event_t *e)
+static void apply_view(int mode)
 {
-    s_view_mode = (s_view_mode + 1) % VIEW_COUNT;
+    s_view_mode = mode % VIEW_COUNT;
 
     lv_obj_add_flag(s_detail_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_map_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_radar_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_stats_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
 
     switch (s_view_mode) {
     case VIEW_MAP:
@@ -404,6 +437,11 @@ static void mode_click_cb(lv_event_t *e)
         break;
     case VIEW_STATS:
         lv_obj_clear_flag(s_stats_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_mode_btn_label, LV_SYMBOL_EYE_OPEN);  /* next: retro */
+        lv_timer_pause(s_cycle_timer);
+        break;
+    case VIEW_RETRO:
+        lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_mode_btn_label, LV_SYMBOL_LIST);  /* next: detail */
         lv_timer_pause(s_cycle_timer);
         break;
@@ -414,6 +452,16 @@ static void mode_click_cb(lv_event_t *e)
         break;
     }
     render_right();
+}
+
+static void mode_click_cb(lv_event_t *e)
+{
+    apply_view(s_view_mode + 1);
+}
+
+void ui_set_view(int mode)
+{
+    apply_view(mode);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color)
@@ -1283,6 +1331,10 @@ static void render_ambient(void)
     if (s_amb == NULL) {
         return;
     }
+    if (s_amb_retro) {
+        render_retro_panel();
+        return;
+    }
     /* tile fetch failed earlier (offline blip): retry every 20 s */
     if (!s_amb_view_ok && !s_amb_busy && s_home_ok &&
         esp_timer_get_time() / 1000 - s_amb_last_try > 20000) {
@@ -1425,9 +1477,23 @@ static void render_ambient(void)
     }
 }
 
+static void amb_restore_retro(void)
+{
+    if (!s_amb_retro || s_retro_panel == NULL) {
+        return;
+    }
+    lv_obj_set_parent(s_retro_panel, lv_scr_act());
+    lv_obj_set_pos(s_retro_panel, LIST_W, HEADER_H);
+    if (s_retro_was_hidden) {
+        lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_amb_retro = false;
+}
+
 static void amb_close(void)
 {
     if (s_amb != NULL) {
+        amb_restore_retro();   /* rescue the adopted retro panel first */
         lv_obj_del(s_amb);
         s_amb = NULL;
         s_amb_view_ok = false;
@@ -1478,6 +1544,26 @@ static void amb_click_cb(lv_event_t *e)
 static void amb_show(void)
 {
     if (s_amb != NULL) {
+        return;
+    }
+    s_amb_retro = settings_get()->amb_style == 1 && s_retro_panel != NULL;
+    if (s_amb_retro) {
+        /* CRT bezel: black screen, the retro scope centered on it */
+        s_amb = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_amb, SCR_W, SCR_H);
+        lv_obj_set_pos(s_amb, 0, 0);
+        lv_obj_set_style_bg_color(s_amb, lv_color_black(), 0);
+        lv_obj_set_style_border_width(s_amb, 0, 0);
+        lv_obj_set_style_radius(s_amb, 0, 0);
+        lv_obj_set_style_pad_all(s_amb, 0, 0);
+        lv_obj_clear_flag(s_amb, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(s_amb, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(s_amb, amb_click_cb, LV_EVENT_CLICKED, NULL);
+        s_retro_was_hidden = lv_obj_has_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_parent(s_retro_panel, s_amb);
+        lv_obj_set_pos(s_retro_panel, (SCR_W - RADAR_W) / 2, (SCR_H - RADAR_H) / 2);
+        lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        render_retro_panel();
         return;
     }
     s_amb = lv_obj_create(lv_layer_top());
@@ -1589,6 +1675,253 @@ static void idle_timer_cb(lv_timer_t *t)
             }
         }
     }
+}
+
+
+/* ---- Retro radar: phosphor CRT sweep over the same targets ---- */
+
+static void retro_rain_task(void *arg)
+{
+    int w = RADAR_W, h = RADAR_H;
+    if (s_retro_rain_buf == NULL) {
+        s_retro_rain_buf = heap_caps_malloc((size_t)w * h * 2, MALLOC_CAP_SPIRAM);
+    }
+    double rkm = settings_get()->radius_nm * 1.852;
+    double dlat = rkm / 111.0;
+    double dlon = rkm / (111.0 * cos(s_home_lat * M_PI / 180.0));
+    tile_view_t view;
+    bool ok = s_retro_rain_buf != NULL &&
+              tilemap_render_rain(s_retro_rain_buf, w, h,
+                                  s_home_lat - dlat, s_home_lat + dlat,
+                                  s_home_lon - dlon, s_home_lon + dlon, &view);
+    if (lvgl_port_lock(-1)) {
+        if (ok && s_retro_rain_img != NULL) {
+            s_retro_rain_dsc.header.always_zero = 0;
+            s_retro_rain_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+            s_retro_rain_dsc.header.w = w;
+            s_retro_rain_dsc.header.h = h;
+            s_retro_rain_dsc.data = (const uint8_t *)s_retro_rain_buf;
+            s_retro_rain_dsc.data_size = (size_t)w * h * 2;
+            lv_img_set_src(s_retro_rain_img, &s_retro_rain_dsc);
+            lv_obj_clear_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        lvgl_port_unlock();
+    }
+    s_retro_rain_ms = esp_timer_get_time() / 1000;
+    s_retro_rain_gen = rainviewer_generation();
+    s_retro_rain_busy = false;
+    vTaskDelete(NULL);
+}
+
+static void retro_rain_want(void)
+{
+    if (!settings_get()->rain_overlay) {
+        if (s_retro_rain_img != NULL) {
+            lv_obj_add_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    if (!s_home_ok || s_retro_rain_busy) {
+        return;
+    }
+    int64_t now = esp_timer_get_time() / 1000;
+    if (s_retro_rain_ms >= 0 && now - s_retro_rain_ms < 10 * 60 * 1000) {
+        return;
+    }
+    s_retro_rain_busy = true;
+    if (xTaskCreatePinnedToCore(retro_rain_task, "retro_rain", 10240,
+                                NULL, 3, NULL, 0) != pdPASS) {
+        s_retro_rain_busy = false;
+    }
+}
+
+static void retro_timer_cb(lv_timer_t *t)
+{
+    if (s_retro_panel == NULL || lv_obj_has_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    s_retro_angle += RETRO_STEP;
+    if (s_retro_angle >= 360.0f) {
+        s_retro_angle -= 360.0f;
+    }
+
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+    for (int k = 0; k < RETRO_TRAIL; k++) {
+        float a = (s_retro_angle - k * 2.0f) * (float)M_PI / 180.0f;
+        s_retro_beam_pts[k][0].x = cx;
+        s_retro_beam_pts[k][0].y = cy;
+        s_retro_beam_pts[k][1].x = cx + (lv_coord_t)(sinf(a) * r);
+        s_retro_beam_pts[k][1].y = cy - (lv_coord_t)(cosf(a) * r);
+        lv_line_set_points(s_retro_beam[k], s_retro_beam_pts[k], 2);
+    }
+
+    /* blips glow when the beam passes and decay until the next sweep */
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        if (!s_retro_valid[i]) {
+            continue;
+        }
+        float delta = s_retro_angle - s_retro_bearing[i];
+        while (delta < 0) {
+            delta += 360.0f;
+        }
+        int opa = (int)(255.0f * (1.0f - delta / 320.0f));
+        if (opa < 25) {
+            opa = 25;
+        }
+        lv_obj_set_style_bg_opa(s_retro_blips[i], opa, 0);
+        lv_obj_set_style_text_opa(s_retro_lbls[i], opa > 60 ? opa : 0, 0);
+    }
+}
+
+static void render_retro_panel(void)
+{
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+    int radius_nm = settings_get()->radius_nm;
+    lv_area_t lbl_box[24];
+    int nlbl = 0;
+
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        if (i >= s_all_count || s_all[i].dist_nm < 0 ||
+            s_all[i].dist_nm > radius_nm * 1.02f) {
+            s_retro_valid[i] = false;
+            lv_obj_add_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        float frac = s_all[i].dist_nm / (float)radius_nm;
+        float rad = s_all[i].dir_deg * (float)M_PI / 180.0f;
+        int x = cx + (int)(sinf(rad) * frac * r);
+        int y = cy - (int)(cosf(rad) * frac * r);
+        lv_obj_set_pos(s_retro_blips[i], x - 3, y - 3);
+        lv_obj_set_pos(s_retro_lbls[i], x + 8, y - 7);
+        lv_label_set_text(s_retro_lbls[i], s_all[i].callsign);
+        lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+        s_retro_bearing[i] = s_all[i].dir_deg;
+        s_retro_valid[i] = true;
+
+        /* labels declutter like the screensaver: first come, first labeled */
+        bool clash = nlbl >= 24;
+        for (int p2 = 0; p2 < nlbl && !clash; p2++) {
+            if (x + 8 < lbl_box[p2].x2 && x + 8 + 78 > lbl_box[p2].x1 &&
+                y - 7 < lbl_box[p2].y2 && y - 7 + 16 > lbl_box[p2].y1) {
+                clash = true;
+            }
+        }
+        if (clash) {
+            lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+            lbl_box[nlbl].x1 = x + 8;
+            lbl_box[nlbl].y1 = y - 7;
+            lbl_box[nlbl].x2 = x + 8 + 78;
+            lbl_box[nlbl].y2 = y - 7 + 16;
+            nlbl++;
+        }
+    }
+
+    retro_rain_want();
+
+    char info[64];
+    if (s_home_ok) {
+        snprintf(info, sizeof(info), "%.4f%c %.4f%c  R%dkm",
+                 fabs(s_home_lat), s_home_lat >= 0 ? 'N' : 'S',
+                 fabs(s_home_lon), s_home_lon >= 0 ? 'E' : 'W',
+                 (int)(radius_nm * 1.852));
+    } else {
+        snprintf(info, sizeof(info), "R%dkm", (int)(radius_nm * 1.852));
+    }
+    lv_label_set_text(s_retro_info, info);
+}
+
+static void build_retro_panel(lv_obj_t *scr)
+{
+    s_retro_panel = make_panel(scr);
+    lv_obj_set_size(s_retro_panel, RADAR_W, RADAR_H);
+    lv_obj_set_pos(s_retro_panel, LIST_W, HEADER_H);
+    lv_obj_set_style_bg_color(s_retro_panel, RET_COL_BG, 0);
+    lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+
+    s_retro_rain_img = lv_img_create(s_retro_panel);
+    lv_obj_set_pos(s_retro_rain_img, 0, 0);
+    lv_obj_set_style_img_opa(s_retro_rain_img, 140, 0);
+    lv_obj_add_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+
+    /* range rings + crosshair */
+    for (int i = 1; i <= 3; i++) {
+        int rr = r * i / 3;
+        lv_obj_t *ring = lv_obj_create(s_retro_panel);
+        lv_obj_set_size(ring, rr * 2, rr * 2);
+        lv_obj_set_pos(ring, cx - rr, cy - rr);
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(ring, 1, 0);
+        lv_obj_set_style_border_color(ring, RET_COL_DIM, 0);
+        lv_obj_set_style_border_opa(ring, i == 3 ? 200 : 110, 0);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    }
+    static lv_point_t xh[2][2];
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *ln = lv_line_create(s_retro_panel);
+        if (i == 0) {
+            xh[i][0].x = cx - r; xh[i][0].y = cy;
+            xh[i][1].x = cx + r; xh[i][1].y = cy;
+        } else {
+            xh[i][0].x = cx; xh[i][0].y = cy - r;
+            xh[i][1].x = cx; xh[i][1].y = cy + r;
+        }
+        lv_line_set_points(ln, xh[i], 2);
+        lv_obj_set_style_line_width(ln, 1, 0);
+        lv_obj_set_style_line_color(ln, RET_COL_DIM, 0);
+        lv_obj_set_style_line_opa(ln, 70, 0);
+    }
+
+    /* compass letters */
+    static const char *dirs[4] = { "N", "E", "S", "W" };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *l = make_label(s_retro_panel, &lv_font_montserrat_16, RET_COL_DIM);
+        lv_label_set_text(l, dirs[i]);
+        int dx = (i == 1) ? r + 8 : (i == 3) ? -r - 18 : -5;
+        int dy = (i == 0) ? -r - 20 : (i == 2) ? r + 4 : -10;
+        lv_obj_set_pos(l, cx + dx, cy + dy);
+    }
+
+    /* rotating beam: leading edge bright, trail fading out */
+    for (int k = RETRO_TRAIL - 1; k >= 0; k--) {
+        s_retro_beam[k] = lv_line_create(s_retro_panel);
+        lv_obj_set_style_line_width(s_retro_beam[k], k == 0 ? 2 : 3, 0);
+        lv_obj_set_style_line_color(s_retro_beam[k], RET_COL_BEAM, 0);
+        lv_obj_set_style_line_opa(s_retro_beam[k],
+                                  k == 0 ? 255 : 150 - k * 14, 0);
+    }
+
+    /* home dot */
+    lv_obj_t *home = lv_obj_create(s_retro_panel);
+    lv_obj_set_size(home, 6, 6);
+    lv_obj_set_pos(home, cx - 3, cy - 3);
+    lv_obj_set_style_radius(home, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(home, RET_COL_BEAM, 0);
+    lv_obj_set_style_border_width(home, 0, 0);
+    lv_obj_clear_flag(home, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* blips + callsign ghosts */
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        s_retro_blips[i] = lv_obj_create(s_retro_panel);
+        lv_obj_set_size(s_retro_blips[i], 7, 7);
+        lv_obj_set_style_radius(s_retro_blips[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(s_retro_blips[i], RET_COL_BEAM, 0);
+        lv_obj_set_style_border_width(s_retro_blips[i], 0, 0);
+        lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+        s_retro_lbls[i] = make_label(s_retro_panel, &font_pl_14, RET_COL_BEAM);
+        lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    s_retro_info = make_label(s_retro_panel, &font_pl_14, RET_COL_DIM);
+    lv_obj_align(s_retro_info, LV_ALIGN_TOP_RIGHT, -10, 6);
+
+    lv_timer_create(retro_timer_cb, RETRO_TICK_MS, NULL);
 }
 
 static void build_stats_panel(lv_obj_t *scr)
@@ -1889,6 +2222,7 @@ void ui_init(void)
     build_map_panel(scr);
     build_radar_panel(scr);
     build_stats_panel(scr);
+    build_retro_panel(scr);
 
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);

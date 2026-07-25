@@ -21,6 +21,7 @@ idf_component_register(
         "regcountry.c"
         "flight_task.c"
         "geocode.c"
+        "rainviewer.c"
         "img_plane.c"
         "jpeg_dec.c"
         "lang.c"

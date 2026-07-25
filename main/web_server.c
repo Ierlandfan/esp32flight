@@ -155,6 +155,9 @@ static const char INDEX_HTML[] =
 "<label><input type='checkbox' id='c_cls3'> military</label>"
 "<label><input type='checkbox' id='c_cls4'> other</label>"
 "</div><div class='help'>Show only the selected classes. Military comes from the community aircraft database; class of others from the ADS-B emitter category.</div></div>"
+"<div><label>Rain radar overlay</label><select id='c_rain_overlay'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Precipitation from RainViewer blended over the radar and maps.</div></div>"
+"<div><label>Screensaver style</label><select id='c_amb_style'><option value='0'>sky map</option><option value='1'>retro radar</option></select></div>"
 "<div><label>Altitude from (ft, 0 = off)</label><input id='c_alt_min_ft' type='number'></div>"
 "<div><label>Altitude to (ft, 0 = off)</label><input id='c_alt_max_ft' type='number'></div>"
 "<div><label>Airport (ICAO or IATA)</label><input id='c_filter_airport' placeholder='KRK'>"
@@ -307,6 +310,8 @@ static const char INDEX_HTML[] =
 "c.fixed=document.getElementById('c_fixed').value==='1';"
 "c.hide_ground=document.getElementById('c_hide_ground').value==='1';"
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
+"c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
+"c.amb_style=+document.getElementById('c_amb_style').value;"
 "c.lat=+document.getElementById('c_lat').value;c.lon=+document.getElementById('c_lon').value;"
 "c.radius_nm=+document.getElementById('c_radius_nm').value;"
 "c.theme=+document.getElementById('c_theme').value;c.lang=+document.getElementById('c_lang').value;"
@@ -426,6 +431,8 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "radius_nm", c->radius_nm);
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
+    cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
     cJSON_AddStringToObject(root, "ntfy_topic", c->ntfy_topic);
@@ -489,6 +496,12 @@ static esp_err_t config_post(httpd_req_t *req)
     const cJSON *j;
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "fixed")))) {
         c->use_fixed_loc = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "rain_overlay")))) {
+        c->rain_overlay = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "amb_style")))) {
+        c->amb_style = j->valueint == 1 ? 1 : 0;
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "hide_ground")))) {
         c->hide_ground = cJSON_IsTrue(j);

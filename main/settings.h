@@ -38,6 +38,8 @@ typedef struct {
     /* keep new fields at the end: the app build persists this struct as a
      * versioned blob and reads old files as a prefix */
     uint8_t show_classes;     /* bitmask of flight_class_t, FCLS_ALL_MASK = all */
+    bool    rain_overlay;     /* RainViewer precipitation layer on maps/radar */
+    uint8_t amb_style;        /* screensaver: 0 = map, 1 = retro radar */
 } settings_t;
 
 /* Load from NVS (menuconfig values as first-boot defaults). Call once at

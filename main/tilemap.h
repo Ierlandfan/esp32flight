@@ -22,5 +22,11 @@ bool tilemap_render(uint16_t *dst, int dst_w, int dst_h,
                     double lon_min, double lon_max,
                     tile_view_t *out_view);
 
+/* Precipitation only, over black: the retro radar's weather echo. */
+bool tilemap_render_rain(uint16_t *dst, int dst_w, int dst_h,
+                         double lat_min, double lat_max,
+                         double lon_min, double lon_max,
+                         tile_view_t *out_view);
+
 /* Project WGS84 to view pixel coordinates. */
 void tilemap_project(const tile_view_t *v, double lat, double lon, int *x, int *y);

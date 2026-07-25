@@ -34,6 +34,7 @@ int main(int argc, char **argv)
     tzset();
 
     int shot_ms = 0;
+    int view = -1;
     const char *shot_path = "apkflight-shot.bmp";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--shot") == 0) {
@@ -41,6 +42,8 @@ int main(int argc, char **argv)
             if (i + 1 < argc) {
                 shot_path = argv[++i];
             }
+        } else if (strcmp(argv[i], "--view") == 0 && i + 1 < argc) {
+            view = atoi(argv[++i]);   /* 0 detail .. 4 retro, for screenshots */
         } else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
             int w = 0, h = 0;   /* e.g. --size 1280x800: tablet layout test */
             if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
@@ -75,6 +78,9 @@ int main(int argc, char **argv)
     STEP("ui_init");
     if (lvgl_port_lock(-1)) {
         ui_init();
+        if (view >= 0) {
+            ui_set_view(view);
+        }
         lvgl_port_unlock();
     }
 
