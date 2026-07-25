@@ -25,7 +25,7 @@
 
 ## Quick start
 
-1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35), its 4.3" sibling, or a **Guition JC8048W550** (~$20) and a USB cable.
+1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (about $35), its 4.3" sibling, or a **Guition JC8048W550** (about $20) and a USB cable.
 2. Open **[the browser installer](https://theqkash.github.io/esp32flight/)** in Chrome or Edge, click *Install*, pick the serial port. One firmware fits both boards, it detects the hardware at boot.
 3. Tap the gear icon, pick your 2.4 GHz Wi-Fi from the scan list, save. The device locates itself by IP (or type any city) and starts tracking.
 
