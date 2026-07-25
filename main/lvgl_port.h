@@ -21,8 +21,14 @@ extern "C" {
  * LVGL related parameters, can be adjusted by users
  *
  */
+#if CONFIG_IDF_TARGET_ESP32P4
+/* M5Stack Tab5: 5" 1280x720 (landscape UI over the portrait MIPI-DSI panel) */
+#define LVGL_PORT_H_RES             (1280)
+#define LVGL_PORT_V_RES             (720)
+#else
 #define LVGL_PORT_H_RES             (800)
 #define LVGL_PORT_V_RES             (480)
+#endif
 #define LVGL_PORT_TICK_PERIOD_MS    (CONFIG_EXAMPLE_LVGL_PORT_TICK)
 
 /**
@@ -127,6 +133,12 @@ extern "C" {
  *      - Others: Fail
  */
 esp_err_t lvgl_port_init(esp_lcd_panel_handle_t lcd_handle, esp_lcd_touch_handle_t tp_handle);
+
+#if CONFIG_IDF_TARGET_ESP32P4
+/* Tab5 (MIPI-DSI): block until the last draw_bitmap DMA transfer landed;
+ * implemented in tab5_lcd_port.c */
+void tab5_lcd_wait_trans_done(void);
+#endif
 
 /**
  * @brief Take LVGL mutex

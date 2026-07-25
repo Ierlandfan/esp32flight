@@ -1742,7 +1742,9 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_clear_flag(s_detail_content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
 
-#ifdef APKFLIGHT
+/* The app build and the Tab5 (1280x720) get the big type tier; the big
+ * fonts are only compiled for those targets. */
+#if defined(APKFLIGHT) || defined(CONFIG_IDF_TARGET_ESP32P4)
     s_big = DTL_VEXT >= 160;
     s_f_code = s_big ? &lv_font_montserrat_44 : &lv_font_montserrat_32;
     s_f_val = s_big ? &lv_font_montserrat_28 : &lv_font_montserrat_20;

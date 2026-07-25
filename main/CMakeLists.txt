@@ -1,7 +1,15 @@
+# Board bring-up is per chip: the S3 boards (Waveshare/Guition) share the RGB
+# port with runtime autodetect, the ESP32-P4 (M5Stack Tab5) has a MIPI-DSI port.
+if(IDF_TARGET STREQUAL "esp32p4")
+    set(BOARD_PORT_SRC "tab5_lcd_port.c" "tab5/esp_lcd_st7123.c")
+else()
+    set(BOARD_PORT_SRC "waveshare_rgb_lcd_port.c")
+endif()
+
 idf_component_register(
     SRCS
         "main.c"
-        "waveshare_rgb_lcd_port.c"
+        "${BOARD_PORT_SRC}"
         "lvgl_port.c"
         "geo_math.c"
         "http_util.c"
@@ -41,7 +49,7 @@ idf_component_register(
         "font_pl_14.c"
         "font_pl_16.c"
         "font_pl_20.c"
-    INCLUDE_DIRS "."
+    INCLUDE_DIRS "." "tab5"
     REQUIRES esp_wifi esp_http_client esp_http_server esp-tls nvs_flash json spiffs esp_netif app_update mqtt
 )
 

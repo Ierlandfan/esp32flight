@@ -5,10 +5,13 @@
  */
 
 #include "freertos/FreeRTOS.h"
+#include "sdkconfig.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_rgb.h"
+#if !CONFIG_IDF_TARGET_ESP32P4
+#include "esp_lcd_panel_rgb.h"   /* RGB peripheral exists only on the S3 boards */
+#endif
 #include "esp_lcd_touch.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -361,6 +364,11 @@ void flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color
     /* Just copy data from the color map to the RGB frame buffer */
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
 
+#if CONFIG_IDF_TARGET_ESP32P4
+    /* MIPI-DSI transfers run async over DMA2D; wait before LVGL reuses the
+     * draw buffer */
+    tab5_lcd_wait_trans_done();
+#endif
     lv_disp_flush_ready(drv); // Mark the display flush as complete
 }
 
@@ -408,7 +416,14 @@ static lv_disp_t *display_init(esp_lcd_panel_handle_t panel_handle)
 
     ESP_LOGD(TAG, "Register display driver to LVGL");
     lv_disp_drv_init(&disp_drv); // Initialize the display driver
-#if EXAMPLE_LVGL_PORT_ROTATION_90 || EXAMPLE_LVGL_PORT_ROTATION_270
+#if CONFIG_IDF_TARGET_ESP32P4
+    /* Tab5: the DSI panel is native portrait 720x1280; LVGL renders the
+     * landscape UI and software-rotates into panel space */
+    disp_drv.hor_res = LVGL_PORT_V_RES;
+    disp_drv.ver_res = LVGL_PORT_H_RES;
+    disp_drv.rotated = LV_DISP_ROT_90;
+    disp_drv.sw_rotate = 1;
+#elif EXAMPLE_LVGL_PORT_ROTATION_90 || EXAMPLE_LVGL_PORT_ROTATION_270
     disp_drv.hor_res = LVGL_PORT_V_RES; // Set horizontal resolution for rotation
     disp_drv.ver_res = LVGL_PORT_H_RES; // Set vertical resolution for rotation
 #else

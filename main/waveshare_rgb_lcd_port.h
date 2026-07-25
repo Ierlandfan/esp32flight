@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "sdkconfig.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -12,7 +13,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_rgb.h"
+#if !CONFIG_IDF_TARGET_ESP32P4
+#include "esp_lcd_panel_rgb.h"   /* RGB peripheral exists only on the S3 boards */
+#endif
 #include "esp_lcd_touch_gt911.h"
 #include "lvgl_port.h"
 
@@ -67,3 +70,8 @@ void *waveshare_lcd_get_fb(void);
 /* Framebuffer dimensions (fixed 800x480 on the panel; the app build may
  * render a larger canvas). */
 void waveshare_lcd_get_res(int *w, int *h);
+
+#if CONFIG_IDF_TARGET_ESP32P4
+/* Tab5 (MIPI-DSI): block until the last draw_bitmap DMA transfer landed. */
+void tab5_lcd_wait_trans_done(void);
+#endif
