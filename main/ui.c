@@ -484,6 +484,14 @@ static lv_obj_t *make_panel(lv_obj_t *parent)
     return p;
 }
 
+/* Basemap credit line; RainViewer joins it when the rain layer is on. */
+static const char *map_attribution(void)
+{
+    return settings_get()->rain_overlay
+        ? "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO \xC2\xB7 \xC2\xA9 RainViewer"
+        : "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO";
+}
+
 /* List marker color per aircraft class (liner keeps the accent). */
 static lv_color_t class_color(flight_class_t fc)
 {
@@ -1062,7 +1070,7 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_label_set_text(s_radar_info, "");
 
     lv_obj_t *rattr = make_label(s_radar_panel, &font_pl_14, COL_DIM);
-    lv_label_set_text(rattr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(rattr, map_attribution());
     lv_obj_align(rattr, LV_ALIGN_BOTTOM_LEFT, 6, -2);
 
     s_radar_range = make_label(s_radar_panel, &font_pl_14, COL_DIM);
@@ -1630,7 +1638,7 @@ static void amb_show(void)
     lv_label_set_text(s_amb_clock, "");
 
     lv_obj_t *attr = make_label(s_amb, &font_pl_14, lv_color_hex(0x777777));
-    lv_label_set_text(attr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(attr, map_attribution());
     lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
 
     s_amb_wx = make_label(s_amb, &font_pl_16, lv_color_hex(0xdddddd));

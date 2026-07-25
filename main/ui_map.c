@@ -12,6 +12,7 @@
 #include "geo_math.h"
 #include "lang.h"
 #include "lvgl_port.h"
+#include "settings.h"
 #include "tilemap.h"
 #include "trails.h"
 
@@ -393,7 +394,9 @@ static void build_content(void)
     lv_obj_t *attr = lv_label_create(s_overlay);
     lv_obj_set_style_text_font(attr, &font_pl_14, 0);
     lv_obj_set_style_text_color(attr, lv_color_hex(0x9a9a9a), 0);
-    lv_label_set_text(attr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(attr, settings_get()->rain_overlay
+        ? "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO \xC2\xB7 \xC2\xA9 RainViewer"
+        : "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
     lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -12, -4);
 }
 
