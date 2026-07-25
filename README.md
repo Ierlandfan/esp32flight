@@ -19,9 +19,10 @@
 
 | | |
 |---|---|
-| ![flight details](docs/detail-light.png) | ![forest theme](docs/detail-forest.png) |
-| ![ambient mode with map](docs/ambient-mode.png) | ![radar view](docs/radar.png) |
-| ![route map](docs/route-map.png) | ![aircraft photo](docs/photo.png) |
+| ![flight details](docs/detail.png) | ![forest theme](docs/detail-forest.png) |
+| ![radar view](docs/radar.png) | ![retro radar with rain](docs/retro.png) |
+| ![ambient mode with rain radar](docs/ambient-mode.png) | ![route map](docs/route-map.png) |
+| ![aircraft photo](docs/photo.png) | ![web panel](docs/web-panel.png) |
 
 ## Quick start
 
