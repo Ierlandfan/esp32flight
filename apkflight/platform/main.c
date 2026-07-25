@@ -5,6 +5,8 @@
 
 #include "lvgl.h"
 #include "app_port.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #ifdef __ANDROID__
 #include <SDL.h>
@@ -27,6 +29,18 @@ void android_glue_init(void);
 #include "wifi_mgr.h"
 
 /* Same boot sequence as esp32flight's app_main, on SDL. */
+
+static int s_deferred_view = -1;
+
+static void deferred_view_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(20000));
+    if (lvgl_port_lock(-1)) {
+        ui_set_view(s_deferred_view);
+        lvgl_port_unlock();
+    }
+    vTaskDelete(NULL);
+}
 
 int main(int argc, char **argv)
 {
@@ -78,10 +92,15 @@ int main(int argc, char **argv)
     STEP("ui_init");
     if (lvgl_port_lock(-1)) {
         ui_init();
-        if (view >= 0) {
+        if (view >= 0 && view < 5) {
             ui_set_view(view);
         }
         lvgl_port_unlock();
+    }
+    if (view >= 5) {
+        /* overlays need a selected flight; give the radar 20 s to find one */
+        s_deferred_view = view;
+        xTaskCreate(deferred_view_task, "dview", 8192, NULL, 3, NULL);
     }
 
     STEP("start tasks");

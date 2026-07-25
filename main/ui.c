@@ -461,6 +461,21 @@ static void mode_click_cb(lv_event_t *e)
 
 void ui_set_view(int mode)
 {
+    /* 5 and 6 are screenshot helpers for the desktop build: overlays that
+     * normally need a tap (route map / photo of the selected flight) */
+    if (mode == 5 || mode == 6) {
+        if (s_selected >= 0 && s_selected < s_shown_count) {
+            const shown_flight_t *sf = &s_shown[s_selected];
+            const route_info_t *rt =
+                sf->route.callsign[0] && sf->route.valid ? &sf->route : NULL;
+            if (mode == 5) {
+                ui_map_open(&sf->ac, rt);
+            } else {
+                ui_photo_open(sf->ac.hex, sf->ac.callsign);
+            }
+        }
+        return;
+    }
     apply_view(mode);
 }
 

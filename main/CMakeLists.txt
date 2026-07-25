@@ -51,4 +51,9 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE LV_LVGL_H_INCLUDE_SIMPLE=1)
 idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
 target_compile_options(${lvgl_lib} PRIVATE -Wno-format)
 
-spiffs_create_partition_image(assets ../assets FLASH_IN_PROJECT)
+if(CONFIG_ESPTOOLPY_FLASHSIZE_8MB)
+    # curated asset set built by tools/make_assets_8mb.sh
+    spiffs_create_partition_image(assets ../assets-8mb FLASH_IN_PROJECT)
+else()
+    spiffs_create_partition_image(assets ../assets FLASH_IN_PROJECT)
+endif()

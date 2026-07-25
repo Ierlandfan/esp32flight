@@ -5,10 +5,27 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "http_util.h"
+#include "lvgl_port.h"
 
 static const char *TAG = "logos";
 
 #define LOGO_CACHE_SIZE 40
+
+/* Logos missing from the bundled set (small-flash builds carry only the
+ * most common carriers) are fetched on demand from the companion repo and
+ * live in the same RAM cache. Misses are remembered so an airline without
+ * any logo is asked about exactly once per session. */
+#define LOGO_FETCH_URL  "https://raw.githubusercontent.com/theqkash/esp32flight-logos/main/logos/%s.png"
+#define LOGO_MISS_MAX   64
+#define LOGO_MAX_BYTES  (64 * 1024)
+
+static char s_miss[LOGO_MISS_MAX][4];
+static int  s_miss_n;
+static char s_fetching[4];
+static volatile bool s_fetch_busy;
 
 typedef struct {
     char         icao[4];
@@ -40,6 +57,66 @@ esp_err_t logos_init(void)
     return ESP_OK;
 }
 
+static bool miss_known(const char *icao)
+{
+    for (int i = 0; i < s_miss_n; i++) {
+        if (strcmp(s_miss[i], icao) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void miss_remember(const char *icao)
+{
+    if (s_miss_n < LOGO_MISS_MAX && !miss_known(icao)) {
+        strlcpy(s_miss[s_miss_n++], icao, 4);
+    }
+}
+
+static void cache_put(const char *icao, uint8_t *data, size_t size);
+
+static void logo_fetch_task(void *arg)
+{
+    char url[128];
+    snprintf(url, sizeof(url), LOGO_FETCH_URL, s_fetching);
+
+    char *buf = heap_caps_malloc(LOGO_MAX_BYTES, MALLOC_CAP_SPIRAM);
+    size_t len = 0;
+    esp_err_t err = buf == NULL ? ESP_ERR_NO_MEM
+                                : http_get_to_buffer(url, buf, LOGO_MAX_BYTES, &len);
+    if (err == ESP_OK && len > 8 && buf[0] == (char)0x89) {   /* PNG magic */
+        uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+        if (data != NULL) {
+            memcpy(data, buf, len);
+            /* the UI reads the cache under the LVGL lock; insert under it
+             * too, or an eviction could free a descriptor mid-render */
+            if (lvgl_port_lock(-1)) {
+                cache_put(s_fetching, data, len);
+                lvgl_port_unlock();
+            }
+            ESP_LOGI(TAG, "%s fetched (%u B)", s_fetching, (unsigned)len);
+        }
+    } else {
+        miss_remember(s_fetching);   /* 404 or offline: don't retry this one */
+    }
+    free(buf);
+    s_fetch_busy = false;
+    vTaskDelete(NULL);
+}
+
+static void logo_fetch_want(const char *icao)
+{
+    if (s_fetch_busy || miss_known(icao)) {
+        return;
+    }
+    s_fetch_busy = true;
+    strlcpy(s_fetching, icao, sizeof(s_fetching));
+    if (xTaskCreate(logo_fetch_task, "logo_fetch", 6144, NULL, 3, NULL) != pdPASS) {
+        s_fetch_busy = false;
+    }
+}
+
 const lv_img_dsc_t *logos_get(const char *airline_icao)
 {
     if (airline_icao == NULL || strlen(airline_icao) != 3) {
@@ -58,6 +135,7 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
     snprintf(path, sizeof(path), "/assets/logos/%s.png", airline_icao);
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
+        logo_fetch_want(airline_icao);   /* not bundled: try the online set */
         return NULL;
     }
     fseek(f, 0, SEEK_END);
@@ -80,6 +158,17 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
         return NULL;
     }
 
+    cache_put(airline_icao, data, size);
+    for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
+        if (s_cache[i].used && strcmp(s_cache[i].icao, airline_icao) == 0) {
+            return &s_cache[i].dsc;
+        }
+    }
+    return NULL;
+}
+
+static void cache_put(const char *icao, uint8_t *data, size_t size)
+{
     /* Evict LRU slot */
     int slot = 0;
     uint32_t oldest = UINT32_MAX;
@@ -99,7 +188,7 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
 
     logo_entry_t *e = &s_cache[slot];
     memset(e, 0, sizeof(*e));
-    strlcpy(e->icao, airline_icao, sizeof(e->icao));
+    strlcpy(e->icao, icao, sizeof(e->icao));
     e->data = data;
     e->used = true;
     e->last_used = s_tick;
@@ -108,5 +197,4 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
     e->dsc.header.cf = LV_IMG_CF_RAW_ALPHA;
     e->dsc.data = e->data;
     e->dsc.data_size = size;
-    return &e->dsc;
 }
