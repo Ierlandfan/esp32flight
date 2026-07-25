@@ -79,7 +79,7 @@ void settings_load(void)
     }
 
     int32_t radius = 0;
-    if (nvs_get_i32(h, "radius_nm", &radius) == ESP_OK && radius >= 5 && radius <= 250) {
+    if (nvs_get_i32(h, "radius_nm", &radius) == ESP_OK && radius >= 1 && radius <= 250) {
         s_settings.radius_nm = radius;
     }
     uint8_t hide = 0;

@@ -141,8 +141,8 @@ static const char INDEX_HTML[] =
 "<div class='help'>Auto locates the device by its internet address at boot. Pick fixed to watch a different area.</div></div>"
 "<div><label>Latitude</label><input id='c_lat' type='number' step='0.0001'></div>"
 "<div><label>Longitude</label><input id='c_lon' type='number' step='0.0001'></div>"
-"<div><label>Radius (nautical miles, 5-250)</label><input id='c_radius_nm' type='number'>"
-"<div class='help'>Search radius around the location. 54 nm is about 100 km.</div></div>"
+"<div><label>Radius (nautical miles, 1-250)</label><input id='c_radius_nm' type='number'>"
+"<div class='help'>Search radius around the location. 54 nm is about 100 km; a radius of 1-2 nm shows just what passes overhead.</div></div>"
 "</div></div>"
 "<div class='cfgcard'><h4>Filters</h4><div class='grid2'>"
 "<div><label>Hide ground traffic</label><select id='c_hide_ground'><option value='0'>no</option><option value='1'>yes</option></select>"
@@ -547,7 +547,7 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "radius_nm")))) {
         int r = (int)j->valuedouble;
-        if (r >= 5 && r <= 250) {
+        if (r >= 1 && r <= 250) {
             c->radius_nm = r;
         }
     }

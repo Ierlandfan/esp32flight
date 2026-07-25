@@ -508,7 +508,7 @@ void ui_settings_open(void)
     s_slider_radius = lv_slider_create(p);
     lv_obj_set_size(s_slider_radius, 420, 16);
     lv_obj_set_pos(s_slider_radius, 0, 258);
-    lv_slider_set_range(s_slider_radius, 10, 250);
+    lv_slider_set_range(s_slider_radius, 1, 250);
     lv_slider_set_value(s_slider_radius, cfg->radius_nm, LV_ANIM_OFF);
     lv_obj_add_event_cb(s_slider_radius, radius_cb, LV_EVENT_VALUE_CHANGED, NULL);
     s_radius_label = add_label(p, "", 440, 254);

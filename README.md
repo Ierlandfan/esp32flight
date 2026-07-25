@@ -37,7 +37,7 @@ No board at hand? The same radar also ships as an [Android app](#android-app).
 
 **On the screen**
 
-- Live flight list within a configurable radius (10 to 250 NM): airline logo, type, altitude with trend arrow, speed, distance; the 40 nearest of up to 80 tracked
+- Live flight list within a configurable radius (1 to 250 NM): airline logo, type, altitude with trend arrow, speed, distance; the 40 nearest of up to 80 tracked
 - Flight details: airline, route with cities, country flags and local airport times, progress bar, ETA and local arrival time, squawk, ADS-B category, aircraft photo (planespotters.net)
 - Spotter line: which way to look (compass + elevation) and a flyover prediction ("passes you in ~3 min at 1.2 km")
 - Four views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR)
