@@ -213,21 +213,35 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
 
 /* Fetch one RainViewer tile and alpha-blend it over dst. Failures are
  * non-fatal: rain is a garnish, not the map. */
+/* RainViewer serves real data only up to this zoom; above it the API
+ * returns a "Zoom Level Not Supported" placeholder tile (verified
+ * empirically: z8+ responses are a constant 1.4 KB plate). For closer
+ * views we fetch the z7 parent and magnify the right quadrant. */
+#define RAIN_MAX_Z 7
+
 static void blit_rain_tile(esp_http_client_handle_t client, tile_sink_t *sink,
                            const char *frame, uint16_t *dst, int dst_w, int dst_h,
                            int z, int tx, int ty, int ox, int oy)
 {
+    int shift = z > RAIN_MAX_Z ? z - RAIN_MAX_Z : 0;
+    int zc = z - shift;
+    int ptx = tx >> shift;
+    int pty = ty >> shift;
+    /* this tile's quadrant inside the parent tile, in parent pixels */
+    int sub_x = (tx - (ptx << shift)) * (TILE_PX >> shift);
+    int sub_y = (ty - (pty << shift)) * (TILE_PX >> shift);
+
     uint32_t key = 0x80000000u |
                    (((uint32_t)rainviewer_generation() & 0xF) << 27) |
-                   (((uint32_t)z & 0xF) << 23) |
-                   (((uint32_t)tx & 0x7FF) << 12) | ((uint32_t)ty & 0xFFF);
+                   (((uint32_t)zc & 0xF) << 23) |
+                   (((uint32_t)ptx & 0x7FF) << 12) | ((uint32_t)pty & 0xFFF);
     uint32_t clen = 0;
     const uint8_t *fetch_buf = tcache_get(key, &clen);
     size_t len = clen;
 
     if (fetch_buf == NULL) {
         char url[224];
-        snprintf(url, sizeof(url), "%s/256/%d/%d/%d/2/1_1.png", frame, z, tx, ty);
+        snprintf(url, sizeof(url), "%s/256/%d/%d/%d/2/1_1.png", frame, zc, ptx, pty);
         sink->len = 0;
         esp_http_client_set_url(client, url);
         esp_err_t err = esp_http_client_perform(client);
@@ -246,18 +260,26 @@ static void blit_rain_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
         return;
     }
-    for (int y = 0; y < (int)h; y++) {
+    for (int y = 0; y < TILE_PX; y++) {
         int dy = oy + y;
         if (dy < 0 || dy >= dst_h) {
             continue;
         }
-        const unsigned char *src = rgba + (size_t)y * w * 4;
-        for (int x = 0; x < (int)w; x++) {
+        int sy = sub_y + (y >> shift);
+        if (sy >= (int)h) {
+            continue;
+        }
+        const unsigned char *src = rgba + (size_t)sy * w * 4;
+        for (int x = 0; x < TILE_PX; x++) {
             int dx = ox + x;
             if (dx < 0 || dx >= dst_w) {
                 continue;
             }
-            const unsigned char *pc = src + x * 4;
+            int sx = sub_x + (x >> shift);
+            if (sx >= (int)w) {
+                continue;
+            }
+            const unsigned char *pc = src + sx * 4;
             int a = pc[3] * 3 / 4;      /* keep the basemap readable */
             if (a < 10) {
                 continue;
