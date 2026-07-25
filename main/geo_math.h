@@ -25,6 +25,13 @@ void geo_gc_point(double lat1, double lon1, double lat2, double lon2,
 /* Sanity check for callsign-based route lookups: is the aircraft's position
  * anywhere near the origin->destination great circle? Catches stale database
  * entries (e.g. a callsign reused on a different continent). */
+/* Corridor + direction-of-flight test; track_deg < 0 or low ground speed
+ * skips the direction part. */
+bool geo_route_plausible_dir(double orig_lat, double orig_lon,
+                             double dest_lat, double dest_lon,
+                             double cur_lat, double cur_lon,
+                             float track_deg, float gs_kts);
+
 bool geo_route_plausible(double orig_lat, double orig_lon,
                          double dest_lat, double dest_lon,
                          double cur_lat, double cur_lon);

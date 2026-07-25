@@ -321,18 +321,20 @@ static void hexdb_fallback(char *buf, route_info_t *slot)
 }
 
 static bool route_fits_position(const route_info_t *rt,
-                                double ac_lat, double ac_lon, bool has_pos)
+                                double ac_lat, double ac_lon, bool has_pos,
+                                float track_deg, float gs_kts)
 {
     if (!rt->valid || !has_pos) {
         return rt->valid;
     }
-    return geo_route_plausible(rt->origin.lat, rt->origin.lon,
-                               rt->destination.lat, rt->destination.lon,
-                               ac_lat, ac_lon);
+    return geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
+                                   rt->destination.lat, rt->destination.lon,
+                                   ac_lat, ac_lon, track_deg, gs_kts);
 }
 
 const route_info_t *routes_fetch(const char *callsign,
-                                 double ac_lat, double ac_lon, bool has_pos)
+                                 double ac_lat, double ac_lon, bool has_pos,
+                                 float track_deg, float gs_kts)
 {
     const route_info_t *cached = routes_get_cached(callsign);
     if (cached != NULL) {
@@ -386,7 +388,7 @@ const route_info_t *routes_fetch(const char *callsign,
         }
     }
 
-    if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
+    if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts)) {
         ESP_LOGW(TAG, "%s: adsbdb route %s->%s doesn't fit position, trying hexdb",
                  callsign, slot->origin.icao, slot->destination.icao);
         slot->valid = false;
@@ -395,7 +397,7 @@ const route_info_t *routes_fetch(const char *callsign,
     }
     if (!slot->valid) {
         lol_routeset(buf, slot, ac_lat, ac_lon, has_pos);
-        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
+        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts)) {
             ESP_LOGW(TAG, "%s: routeset %s->%s doesn't fit position",
                      callsign, slot->origin.icao, slot->destination.icao);
             slot->valid = false;
@@ -403,7 +405,7 @@ const route_info_t *routes_fetch(const char *callsign,
     }
     if (!slot->valid) {
         hexdb_fallback(buf, slot);
-        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
+        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts)) {
             ESP_LOGW(TAG, "%s: hexdb route %s->%s doesn't fit position either",
                      callsign, slot->origin.icao, slot->destination.icao);
             slot->valid = false;

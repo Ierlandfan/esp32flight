@@ -139,8 +139,10 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Location</h4><div class='grid2'>"
 "<div><label>Location mode</label><select id='c_fixed'><option value='0'>auto (IP geolocation)</option><option value='1'>fixed coordinates</option></select>"
 "<div class='help'>Auto locates the device by its internet address at boot. Pick fixed to watch a different area.</div></div>"
-"<div><label>Latitude</label><input id='c_lat' type='number' step='0.0001'></div>"
-"<div><label>Longitude</label><input id='c_lon' type='number' step='0.0001'></div>"
+"<div><label>City search</label><input id='c_city' placeholder='type a city, press Enter'>"
+"<div id='c_cityres' class='help'></div></div>"
+"<div><label>Latitude</label><input id='c_lat' inputmode='decimal' placeholder='51.1079'></div>"
+"<div><label>Longitude</label><input id='c_lon' inputmode='decimal' placeholder='17.0385'></div>"
 "<div><label>Radius (nautical miles, 1-250)</label><input id='c_radius_nm' type='number'>"
 "<div class='help'>Search radius around the location. 54 nm is about 100 km; a radius of 1-2 nm shows just what passes overhead.</div></div>"
 "</div></div>"
@@ -288,6 +290,19 @@ static const char INDEX_HTML[] =
 "<td>${f.airline||'<span class=dim>-</span>'}</td><td>${f.type||''}</td><td>${rt}</td><td>${pr}</td>"
 "<td>${f.alt_ft?f.alt_ft.toLocaleString()+' ft':'gnd'}</td><td>${f.gs_kt} kt</td><td>${f.dist_km} km</td></tr>`;"
 "}).join('');}catch(e){}}"
+"document.addEventListener('keydown',async e=>{"
+"if(e.target.id!=='c_city'||e.key!=='Enter')return;e.preventDefault();"
+"const q=e.target.value.trim();if(!q)return;"
+"const box=document.getElementById('c_cityres');box.textContent='searching...';"
+"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5');"
+"const d=await r.json();const res=d.results||[];"
+"if(!res.length){box.textContent='no matches';return}"
+"box.innerHTML=res.map((c,i)=>`<a href='#' data-i='${i}'>${c.name}, ${c.country_code} (${c.admin1||''})</a>`).join(' \u00B7 ');"
+"box.querySelectorAll('a').forEach(a=>a.onclick=ev=>{ev.preventDefault();const c=res[+a.dataset.i];"
+"document.getElementById('c_lat').value=c.latitude.toFixed(4);"
+"document.getElementById('c_lon').value=c.longitude.toFixed(4);"
+"document.getElementById('c_fixed').value='1';box.textContent=`set to ${c.name}`;});"
+"}catch(err){box.textContent='search failed'}});"
 "async function loadCfg(){try{const r=await fetch('/api/config');const c=await r.json();"
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
@@ -312,7 +327,9 @@ static const char INDEX_HTML[] =
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
 "c.amb_style=+document.getElementById('c_amb_style').value;"
-"c.lat=+document.getElementById('c_lat').value;c.lon=+document.getElementById('c_lon').value;"
+"const num=v=>parseFloat(String(v).replace(',','.'));"
+"const la=num(document.getElementById('c_lat').value),lo=num(document.getElementById('c_lon').value);"
+"if(isFinite(la)&&Math.abs(la)<=90)c.lat=la;if(isFinite(lo)&&Math.abs(lo)<=180)c.lon=lo;"
 "c.radius_nm=+document.getElementById('c_radius_nm').value;"
 "c.theme=+document.getElementById('c_theme').value;c.lang=+document.getElementById('c_lang').value;"
 "const st=document.getElementById('cfgstat');st.textContent='saving...';"
@@ -539,10 +556,12 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "alt_max_ft")))) {
         c->alt_max_ft = (int)j->valuedouble;
     }
-    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat")))) {
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat"))) &&
+        j->valuedouble >= -90.0 && j->valuedouble <= 90.0) {
         c->lat = j->valuedouble;
     }
-    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lon")))) {
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lon"))) &&
+        j->valuedouble >= -180.0 && j->valuedouble <= 180.0) {
         c->lon = j->valuedouble;
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "radius_nm")))) {

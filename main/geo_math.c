@@ -93,6 +93,36 @@ bool geo_route_plausible(double orig_lat, double orig_lon,
     return detour <= direct * 1.3 + 150.0;
 }
 
+bool geo_route_plausible_dir(double orig_lat, double orig_lon,
+                             double dest_lat, double dest_lon,
+                             double cur_lat, double cur_lon,
+                             float track_deg, float gs_kts)
+{
+    if (!geo_route_plausible(orig_lat, orig_lon, dest_lat, dest_lon,
+                             cur_lat, cur_lon)) {
+        return false;
+    }
+    /* The corridor test cannot tell the outbound leg from the return leg
+     * (same great circle, opposite direction) - the classic stale-database
+     * failure on shuttle routes. En route, the ground track has to point
+     * roughly at the destination. Skip the check at low speed (holds,
+     * approaches), close to either airport (SIDs/patterns) and when no
+     * track is known. */
+    if (gs_kts < 100.0f || track_deg < 0.0f) {
+        return true;
+    }
+    if (geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon) < 80.0 ||
+        geo_haversine_km(cur_lat, cur_lon, orig_lat, orig_lon) < 50.0) {
+        return true;
+    }
+    double want = geo_bearing_deg(cur_lat, cur_lon, dest_lat, dest_lon);
+    double diff = fabs((double)track_deg - want);
+    if (diff > 180.0) {
+        diff = 360.0 - diff;
+    }
+    return diff <= 100.0;
+}
+
 double geo_progress(double orig_lat, double orig_lon,
                     double dest_lat, double dest_lon,
                     double cur_lat, double cur_lon)

@@ -2605,9 +2605,10 @@ void ui_update(const aircraft_list_t *list)
         s_shown[i].ac = list->ac[i];
         const route_info_t *rt = routes_get_cached(list->ac[i].callsign);
         if (rt != NULL && rt->valid && list->ac[i].has_pos &&
-            !geo_route_plausible(rt->origin.lat, rt->origin.lon,
-                                 rt->destination.lat, rt->destination.lon,
-                                 list->ac[i].lat, list->ac[i].lon)) {
+            !geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
+                                     rt->destination.lat, rt->destination.lon,
+                                     list->ac[i].lat, list->ac[i].lon,
+                                     list->ac[i].track_deg, list->ac[i].gs_kts)) {
             /* Stale/reused callsign in the route DB - don't show nonsense. */
             rt = NULL;
         }
