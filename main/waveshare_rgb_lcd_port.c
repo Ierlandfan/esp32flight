@@ -53,7 +53,7 @@ static const board_cfg_t k_guition = {
     .has_ch422g = false,
     .bl_gpio = 2,
     .tp_rst_gpio = 38,
-    .tp_mirror = true,
+    .tp_mirror = false,
 };
 
 static const board_cfg_t *s_board = &k_waveshare;
