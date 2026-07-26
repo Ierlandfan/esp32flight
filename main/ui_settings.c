@@ -593,25 +593,25 @@ void ui_settings_open(void)
     add_label(p, L()->amb_idle_lbl, 0, 226);
     snprintf(buf, sizeof(buf), "%d", cfg->ambient_idle_min);
     s_ta_amb_idle = add_textarea(p, 630, 220, 110, buf, false);
-    add_label(p, L()->amb_style_lbl, 380, 176);
-    s_dd_amb_style = add_dropdown(p, 380, 220, 220, NULL);
+    add_label(p, L()->amb_style_lbl, 0, 282);
+    s_dd_amb_style = add_dropdown(p, 520, 276, 220, NULL);
     lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
     lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */
-    int nety = 282;
+    int nety = 338;
 #else
-    add_section(p, L()->sec_webpanel, 282);
-    s_ta_webpass = add_textarea(p, 0, 314, 360, cfg->web_pass, false);
-    add_hint(p, L()->lbl_webpass, 0, 360, 360);
+    add_section(p, L()->sec_webpanel, 338);
+    s_ta_webpass = add_textarea(p, 0, 370, 360, cfg->web_pass, false);
+    add_hint(p, L()->lbl_webpass, 0, 416, 360);
 
-    add_section(p, L()->sec_updates, 394);
-    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 426, cfg->ota_enabled);
+    add_section(p, L()->sec_updates, 450);
+    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 482, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 472);
+    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 528);
     lv_obj_set_style_text_font(hint, &font_pl_14, 0);
-    int nety = 520;
+    int nety = 576;
 #endif
 
     char netbuf[120] = "";

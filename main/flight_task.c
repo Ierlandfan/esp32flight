@@ -623,7 +623,8 @@ static void flight_task(void *arg)
                 const char *cs = list->ac[i].callsign;
                 if (cs[0] != '\0' && routes_get_cached(cs) == NULL) {
                     routes_fetch(cs, list->ac[i].lat, list->ac[i].lon, list->ac[i].has_pos,
-                                 list->ac[i].track_deg, list->ac[i].gs_kts);
+                                 list->ac[i].track_deg, list->ac[i].gs_kts,
+                                 list->ac[i].baro_rate_fpm);
                     lookups++;
                     vTaskDelay(pdMS_TO_TICKS(250));
                 }

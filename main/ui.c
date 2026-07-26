@@ -2608,7 +2608,8 @@ void ui_update(const aircraft_list_t *list)
             !geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
                                      rt->destination.lat, rt->destination.lon,
                                      list->ac[i].lat, list->ac[i].lon,
-                                     list->ac[i].track_deg, list->ac[i].gs_kts)) {
+                                     list->ac[i].track_deg, list->ac[i].gs_kts,
+                                     list->ac[i].baro_rate_fpm)) {
             /* Stale/reused callsign in the route DB - don't show nonsense. */
             rt = NULL;
         }

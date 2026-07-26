@@ -88,18 +88,36 @@ bool geo_route_plausible(double orig_lat, double orig_lon,
     double direct = geo_haversine_km(orig_lat, orig_lon, dest_lat, dest_lon);
     double detour = geo_haversine_km(orig_lat, orig_lon, cur_lat, cur_lon) +
                     geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon);
-    /* Real flights fly close to the great circle; allow 30% + 150 km slack
-     * for departures, holdings and weather deviations. */
-    return detour <= direct * 1.3 + 150.0;
+    /* Real flights fly close to the great circle. The slack scales with
+     * the leg: 22% covers weather reroutes on long hauls, the 60 km floor
+     * covers patterns around short domestic hops - a flat +150 km used to
+     * make the corridor wider than Poland on WRO-GDN-class routes. */
+    double slack = direct * 0.22;
+    if (slack < 60.0) {
+        slack = 60.0;
+    }
+    return detour <= direct + slack;
 }
 
 bool geo_route_plausible_dir(double orig_lat, double orig_lon,
                              double dest_lat, double dest_lon,
                              double cur_lat, double cur_lon,
-                             float track_deg, float gs_kts)
+                             float track_deg, float gs_kts, int vrate_fpm)
 {
     if (!geo_route_plausible(orig_lat, orig_lon, dest_lat, dest_lon,
                              cur_lat, cur_lon)) {
+        return false;
+    }
+    /* Vertical asymmetry: nobody descends onto their claimed ORIGIN or
+     * climbs out of their claimed DESTINATION. Catches the reversed
+     * shuttle leg right at the airport, where the track test must stay
+     * quiet because of SIDs and patterns. */
+    double from_orig = geo_haversine_km(cur_lat, cur_lon, orig_lat, orig_lon);
+    double to_dest = geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon);
+    if (vrate_fpm < -400 && from_orig < 60.0 && to_dest > 150.0) {
+        return false;
+    }
+    if (vrate_fpm > 400 && to_dest < 60.0 && from_orig > 150.0) {
         return false;
     }
     /* The corridor test cannot tell the outbound leg from the return leg

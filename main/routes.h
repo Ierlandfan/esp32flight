@@ -14,7 +14,7 @@ const route_info_t *routes_get_cached(const char *callsign);
  * shown. Call from a network task, never from the UI. */
 const route_info_t *routes_fetch(const char *callsign,
                                  double ac_lat, double ac_lon, bool has_pos,
-                                 float track_deg, float gs_kts);
+                                 float track_deg, float gs_kts, int vrate_fpm);
 
 /* Inject an authoritative route (e.g. from FlightAware live data) for a
  * callsign: airports resolved from the bundled database. Overwrites a

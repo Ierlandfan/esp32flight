@@ -101,7 +101,7 @@ Enter your broker URI as **MQTT broker**, e.g. `mqtt://user:password@192.168.1.1
 <details>
 <summary><b>FlightAware flight numbers and routes</b></summary>
 
-By default flights show radio callsigns (`RYR638T`). A free FlightAware AeroAPI key adds the commercial flight number (`FR4238`) next to it and uses the live origin/destination as an extra route source. Create a **Personal** key at [flightaware.com/aeroapi](https://www.flightaware.com/commercial/aeroapi/) and paste it into **FlightAware API key**. Results are cached, so the free monthly credit is more than enough.
+By default flights show radio callsigns (`RYR638T`). A free FlightAware AeroAPI key adds the commercial flight number (`FR4238`) next to it and uses the live origin/destination as an extra route source. FlightAware serves actual flight plans, so with a key set the routes become authoritative - the stale shuttle-route entries that community databases sometimes serve stop mattering. Create a **Personal** key at [flightaware.com/aeroapi](https://www.flightaware.com/commercial/aeroapi/) and paste it into **FlightAware API key**. Results are cached, so the free monthly credit is more than enough.
 </details>
 
 <details>
