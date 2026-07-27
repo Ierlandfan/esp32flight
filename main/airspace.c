@@ -49,6 +49,7 @@ static bool type_wanted(int type)
 
 static void parse_airspaces(const char *json, double home_lat, double home_lon)
 {
+    s_count = 0;   /* renderer reads from another task; hide during rewrite */
     cJSON *root = cJSON_Parse(json);
     const cJSON *items = cJSON_GetObjectItem(root, "items");
     int n = 0;
@@ -60,8 +61,13 @@ static void parse_airspaces(const char *json, double home_lat, double home_lon)
         }
         const cJSON *geom = cJSON_GetObjectItem(it, "geometry");
         const cJSON *coords = geom != NULL ? cJSON_GetObjectItem(geom, "coordinates") : NULL;
-        /* Polygon: coordinates[0] = outer ring of [lon, lat] pairs */
+        /* Polygon: coordinates[0] = outer ring of [lon, lat] pairs.
+           MultiPolygon nests one level deeper; take its first polygon. */
         const cJSON *ring = coords != NULL ? coords->child : NULL;
+        if (ring != NULL && ring->child != NULL && ring->child->child != NULL &&
+            cJSON_IsArray(ring->child->child)) {
+            ring = ring->child;
+        }
         if (ring == NULL) {
             continue;
         }

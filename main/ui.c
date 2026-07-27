@@ -2492,7 +2492,7 @@ static void render_stats_panel(void)
     char daysum[64];
     dailystats_summary(daysum, sizeof(daysum), L()->avg_word, L()->best_word);
     lv_label_set_text(s_sv_days, daysum);
-    char mt[160];
+    char mt[200];
     if (settings_get()->metar_decoded) {
         metar_decoded(mt, sizeof(mt));
     } else {

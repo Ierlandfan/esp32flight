@@ -137,6 +137,14 @@ const char *metar_decoded(char *out, size_t n)
                           cfg->metric_units ? gkt * 1.852f : gkt);
             continue;
         }
+        if (strncmp(tok, "VRB", 3) == 0 && sscanf(tok + 3, "%2d%3s", &sp, un) == 2 &&
+            (strcmp(un, "KT") == 0 || strcmp(un, "MPS") == 0)) {
+            float kt = strcmp(un, "MPS") == 0 ? sp * 1.944f : (float)sp;
+            o += snprintf(out + o, n - o, "%s VRB %.0f%s", L()->mtr_wind,
+                          cfg->metric_units ? kt * 1.852f : kt,
+                          cfg->metric_units ? " km/h" : " kt");
+            continue;
+        }
         if (sscanf(tok, "%3d%2d%3s", &d, &sp, un) == 3 &&
             (strcmp(un, "KT") == 0 || strcmp(un, "MPS") == 0)) {
             if (sp == 0) {
@@ -155,7 +163,7 @@ const char *metar_decoded(char *out, size_t n)
             continue;
         }
         if (tl == 4 && sscanf(tok, "%4d", &d) == 1 && strcmp(tok, "9999") != 0 &&
-            idx <= 5) {
+            idx <= 6) {
             o += snprintf(out + o, n - o, " \xC2\xB7 %s %.1f km", L()->mtr_vis,
                           d / 1000.0);
             continue;

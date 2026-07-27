@@ -337,6 +337,7 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
 #endif
     /* ota_enabled is injected live by the /api/state handler, not cached here */
 
+    cJSON_AddBoolToObject(root, "metric", settings_get()->metric_units);
     iss_state_t iss;
     if (extras_get_iss(&iss)) {
         cJSON *ji = cJSON_AddObjectToObject(root, "iss");

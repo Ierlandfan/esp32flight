@@ -46,6 +46,7 @@ static char s_active_key[48];
 static double s_home_lat, s_home_lon;
 static double s_box_lat, s_box_lon;   /* box center the subscription used */
 static volatile bool s_subscribed;
+static volatile int64_t s_last_frame;   /* stream health watchdog */
 
 static void lock(void)
 {
@@ -166,6 +167,7 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *e
     /* aisstream serves JSON in binary frames (opcode 2) */
     if (event_id == WEBSOCKET_EVENT_DATA && (ev->op_code == 0x1 || ev->op_code == 0x2) &&
         ev->data_len > 0 && ev->payload_offset == 0) {
+        s_last_frame = esp_timer_get_time();
         /* frames are small JSON messages; ignore fragmented oversize ones */
         char *json = malloc(ev->data_len + 1);
         if (json != NULL) {
@@ -237,6 +239,13 @@ void ships_poll(double home_lat, double home_lon)
         s_box_lon = home_lon;
         ws_start();
     }
+    /* a healthy subscription near a coast never goes quiet for long;
+       silence means the server dropped us without closing - reconnect */
+    if (s_ws != NULL && s_subscribed &&
+        esp_timer_get_time() - s_last_frame > 5LL * 60 * 1000 * 1000) {
+        ESP_LOGW(TAG, "stream quiet for 5 min, reconnecting");
+        ws_stop();
+    }
     if (s_ws != NULL && !s_subscribed && esp_websocket_client_is_connected(s_ws)) {
         char sub[320];
         snprintf(sub, sizeof(sub),
@@ -248,6 +257,7 @@ void ships_poll(double home_lat, double home_lon)
         if (esp_websocket_client_send_text(s_ws, sub, strlen(sub),
                                            pdMS_TO_TICKS(5000)) >= 0) {
             s_subscribed = true;
+            s_last_frame = esp_timer_get_time();
             ESP_LOGI(TAG, "subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
         }
     }
