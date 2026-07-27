@@ -47,6 +47,11 @@ typedef struct {
     bool    airspace_enabled; /* openAIP airspace outlines (needs openaip_key) */
     char    openaip_key[64];  /* openAIP client id */
     char    ais_key[48];      /* aisstream.io API key */
+    bool    metric_units;     /* m + km/h instead of ft + kt */
+    bool    metar_decoded;    /* human-readable METAR instead of raw */
+    bool    follow_mode;      /* stick to the selected aircraft, no auto-cycle */
+    char    fav_name[3][24];  /* favorite locations, empty name = free slot */
+    double  fav_lat[3], fav_lon[3];
 } settings_t;
 
 /* Load from NVS (menuconfig values as first-boot defaults). Call once at

@@ -1,4 +1,5 @@
 #include "lang.h"
+#include <string.h>
 #include "lvgl.h"
 #include "settings.h"
 
@@ -64,6 +65,12 @@ static const lang_t k_en = {
     .hint_ais = "Free key at aisstream.io, needed for the ship layer",
     .sec_notify = "NOTIFICATIONS", .sec_datasrc = "DATA SOURCES", .sec_smart = "SMART HOME",
     .lm_planes = "Planes", .lm_ships = "Ships", .lm_all = "All",
+    .ship_dest = "DESTINATION", .ship_pos = "POSITION",
+    .units_lbl = "Units", .units_opts = "Aviation (ft, kt)\nMetric (m, km/h)",
+    .metar_lbl = "METAR", .metar_opts = "Raw\nDecoded",
+    .follow_lbl = "Auto-cycle through flights",
+    .mtr_wind = "wind", .mtr_gust = "gusts", .mtr_calm = "calm",
+    .mtr_vis = "vis", .mtr_cavok = "vis >10 km, no clouds",
     .amb_style_lbl = "Screensaver style",
     .amb_style_opts = "Sky map\nRetro radar",
     .apr_fmt = "landing %s ~%d min",
@@ -149,6 +156,12 @@ static const lang_t k_pl = {
     .hint_ais = "Darmowy klucz na aisstream.io, potrzebny do warstwy statków",
     .sec_notify = "POWIADOMIENIA", .sec_datasrc = "ŹRÓDŁA DANYCH", .sec_smart = "SMART HOME",
     .lm_planes = "Samoloty", .lm_ships = "Statki", .lm_all = "Wszystko",
+    .ship_dest = "CEL", .ship_pos = "POZYCJA",
+    .units_lbl = "Jednostki", .units_opts = "Lotnicze (ft, kt)\nMetryczne (m, km/h)",
+    .metar_lbl = "METAR", .metar_opts = "Surowy\nOpisowy",
+    .follow_lbl = "Auto-przełączanie lotów",
+    .mtr_wind = "wiatr", .mtr_gust = "porywy", .mtr_calm = "cisza",
+    .mtr_vis = "widz.", .mtr_cavok = "widz. >10 km, bez chmur",
     .amb_style_lbl = "Styl wygaszacza",
     .amb_style_opts = "Mapa nieba\nRetro radar",
     .apr_fmt = "lądowanie %s ~%d min",
@@ -197,4 +210,30 @@ const char *lang_compass(int deg)
 {
     static const char *dirs[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
     return dirs[((deg % 360) + 382) / 45 % 8];
+}
+
+/* METAR weather-group tokens, localized. Order matters: prefixes first. */
+const char *lang_metar_wx(const char *code, int lang_pl)
+{
+    static const struct { const char *c, *en, *pl; } k[] = {
+        { "TS", "thunderstorm", "burza" },
+        { "SH", "showers", "przelotnie" },
+        { "FZ", "freezing", "marznące" },
+        { "RA", "rain", "deszcz" },
+        { "DZ", "drizzle", "mżawka" },
+        { "SN", "snow", "śnieg" },
+        { "GR", "hail", "grad" },
+        { "GS", "small hail", "krupa" },
+        { "FG", "fog", "mgła" },
+        { "BR", "mist", "zamglenie" },
+        { "HZ", "haze", "opar" },
+        { "FU", "smoke", "dym" },
+        { "VC", "nearby", "w pobliżu" },
+    };
+    for (unsigned i = 0; i < sizeof(k) / sizeof(k[0]); i++) {
+        if (strncmp(code, k[i].c, 2) == 0) {
+            return lang_pl ? k[i].pl : k[i].en;
+        }
+    }
+    return NULL;
 }

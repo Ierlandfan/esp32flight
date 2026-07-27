@@ -11,6 +11,7 @@
 #include "fonts.h"
 #include "geo_math.h"
 #include "lang.h"
+#include "units.h"
 #include "lvgl_port.h"
 #include "settings.h"
 #include "tilemap.h"
@@ -364,8 +365,10 @@ static void build_content(void)
                  rt->destination.city[0] ? rt->destination.city : rt->destination.name,
                  tail);
     } else {
-        snprintf(foot, sizeof(foot), "%d ft   %.0f kt   %s",
-                 ac->alt_baro_ft, (double)ac->gs_kts, L()->route_unknown);
+        char ua[20], us[20];
+        snprintf(foot, sizeof(foot), "%s   %s   %s",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)), L()->route_unknown);
     }
     lv_obj_t *fl = lv_label_create(s_overlay);
     lv_obj_set_style_text_font(fl, &font_pl_16, 0);

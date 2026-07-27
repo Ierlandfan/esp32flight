@@ -44,6 +44,7 @@ static lv_obj_t *s_sw_cls[FCLS_COUNT];
 static lv_obj_t *s_sw_rain;
 static lv_obj_t *s_sw_airsp, *s_sw_iss, *s_sw_sonde, *s_sw_ships, *s_sw_taf;
 static lv_obj_t *s_ta_oaip, *s_ta_ais;
+static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle;
 static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
@@ -324,6 +325,9 @@ static void save_cb(lv_event_t *e)
     cfg->taf_enabled = lv_obj_has_state(s_sw_taf, LV_STATE_CHECKED);
     strlcpy(cfg->openaip_key, lv_textarea_get_text(s_ta_oaip), sizeof(cfg->openaip_key));
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
+    cfg->metric_units = lv_dropdown_get_selected(s_dd_units) == 1;
+    cfg->metar_decoded = lv_dropdown_get_selected(s_dd_metar) == 1;
+    cfg->follow_mode = !lv_obj_has_state(s_sw_cycle, LV_STATE_CHECKED);
     strlcpy(cfg->watch_regs, lv_textarea_get_text(s_ta_watch), sizeof(cfg->watch_regs));
     strlcpy(cfg->ntfy_topic, lv_textarea_get_text(s_ta_ntfy), sizeof(cfg->ntfy_topic));
     strlcpy(cfg->mqtt_uri, lv_textarea_get_text(s_ta_mqtt), sizeof(cfg->mqtt_uri));
@@ -643,8 +647,17 @@ void ui_settings_open(void)
     s_dd_lang = add_dropdown(p, 220, 54, 180, NULL);
     lv_dropdown_set_options(s_dd_lang, "English\nPolski");
     lv_dropdown_set_selected(s_dd_lang, cfg->lang == 1 ? 1 : 0);
+    add_label(p, L()->units_lbl, 440, 30);
+    s_dd_units = add_dropdown(p, 440, 54, 300, NULL);
+    lv_dropdown_set_options(s_dd_units, L()->units_opts);
+    lv_dropdown_set_selected(s_dd_units, cfg->metric_units ? 1 : 0);
 
     add_section(p, L()->sec_screen, 122);
+    add_label(p, L()->metar_lbl, 600, 30);
+    s_dd_metar = add_dropdown(p, 600, 54, 140, NULL);
+    lv_dropdown_set_options(s_dd_metar, L()->metar_opts);
+    lv_dropdown_set_selected(s_dd_metar, cfg->metar_decoded ? 1 : 0);
+    s_sw_cycle = add_switch(p, L()->follow_lbl, 0, 206, !cfg->follow_mode);
     s_sw_night = add_switch(p, L()->night_lbl, 0, 154, cfg->night_enabled);
     add_label(p, L()->night_from, 380, 148);
     snprintf(buf, sizeof(buf), "%02d:%02d", cfg->night_start_min / 60, cfg->night_start_min % 60);
@@ -652,28 +665,28 @@ void ui_settings_open(void)
     add_label(p, L()->night_to, 510, 148);
     snprintf(buf, sizeof(buf), "%02d:%02d", cfg->night_end_min / 60, cfg->night_end_min % 60);
     s_ta_night_to = add_textarea(p, 510, 172, 110, buf, false);
-    add_label(p, L()->amb_idle_lbl, 0, 226);
+    add_label(p, L()->amb_idle_lbl, 0, 278);
     snprintf(buf, sizeof(buf), "%d", cfg->ambient_idle_min);
-    s_ta_amb_idle = add_textarea(p, 630, 220, 110, buf, false);
-    add_label(p, L()->amb_style_lbl, 0, 282);
-    s_dd_amb_style = add_dropdown(p, 520, 276, 220, NULL);
+    s_ta_amb_idle = add_textarea(p, 630, 272, 110, buf, false);
+    add_label(p, L()->amb_style_lbl, 0, 334);
+    s_dd_amb_style = add_dropdown(p, 520, 328, 220, NULL);
     lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
     lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */
-    int nety = 338;
+    int nety = 390;
 #else
-    add_section(p, L()->sec_webpanel, 338);
-    s_ta_webpass = add_textarea(p, 0, 370, 360, cfg->web_pass, false);
-    add_hint(p, L()->lbl_webpass, 0, 416, 360);
+    add_section(p, L()->sec_webpanel, 390);
+    s_ta_webpass = add_textarea(p, 0, 422, 360, cfg->web_pass, false);
+    add_hint(p, L()->lbl_webpass, 0, 468, 360);
 
-    add_section(p, L()->sec_updates, 450);
-    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 482, cfg->ota_enabled);
+    add_section(p, L()->sec_updates, 502);
+    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 534, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 528);
+    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 580);
     lv_obj_set_style_text_font(hint, &font_pl_14, 0);
-    int nety = 576;
+    int nety = 628;
 #endif
 
     char netbuf[120] = "";

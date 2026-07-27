@@ -51,6 +51,11 @@ typedef struct {
     const char *lbl_oaip, *hint_oaip, *lbl_ais, *hint_ais;
     const char *sec_notify, *sec_datasrc, *sec_smart;
     const char *lm_planes, *lm_ships, *lm_all;   /* list content toggle */
+    const char *ship_dest, *ship_pos;            /* ship detail tiles */
+    const char *units_lbl, *units_opts;          /* aviation vs metric */
+    const char *metar_lbl, *metar_opts;          /* raw vs decoded */
+    const char *follow_lbl;                      /* stick to selected flight */
+    const char *mtr_wind, *mtr_gust, *mtr_calm, *mtr_vis, *mtr_cavok;
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;
@@ -77,3 +82,5 @@ const char *lang_weather_desc(int code);
 
 /* 8-sector compass label ("NW") for a bearing in degrees. */
 const char *lang_compass(int deg);
+
+const char *lang_metar_wx(const char *code, int lang_pl);

@@ -19,6 +19,7 @@
 #include "obslog.h"
 #include "alertlog.h"
 #include "settings.h"
+#include "airports.h"
 #include "ui.h"
 #include "flight_model.h"
 #include "waveshare_rgb_lcd_port.h"
@@ -144,8 +145,10 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Location</h4><div class='grid2'>"
 "<div><label>Location mode</label><select id='c_fixed'><option value='0'>auto (IP geolocation)</option><option value='1'>fixed coordinates</option></select>"
 "<div class='help'>Auto locates the device by its internet address at boot. Pick fixed to watch a different area.</div></div>"
-"<div><label>City search</label><input id='c_city' placeholder='type a city, press Enter'>"
+"<div><label>City or airport code</label><input id='c_city' placeholder='city name, EPGD or GDN, Enter'>"
 "<div id='c_cityres' class='help'></div></div>"
+"<div><label>Favorite locations</label><div id='favbox' class='help'></div>"
+"<div class='help'>Save the coordinates above under a name and switch with one click. Three slots.</div></div>"
 "<div><label>Latitude</label><input id='c_lat' inputmode='decimal' placeholder='51.1079'></div>"
 "<div><label>Longitude</label><input id='c_lon' inputmode='decimal' placeholder='17.0385'></div>"
 "<div><label>Radius (nautical miles, 1-250)</label><input id='c_radius_nm' type='number'>"
@@ -198,6 +201,10 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Display</h4><div class='grid2'>"
 "<div><label>Theme</label><select id='c_theme'><option value='0'>Dark</option><option value='1'>Light</option><option value='2'>Black</option><option value='3'>Nord</option><option value='4'>Solarized</option><option value='5'>Purple</option><option value='6'>Forest</option></select></div>"
 "<div><label>Language</label><select id='c_lang'><option value='0'>English</option><option value='1'>Polski</option></select></div>"
+"<div><label>Units</label><select id='c_metric_units'><option value='0'>aviation (ft, kt)</option><option value='1'>metric (m, km/h)</option></select></div>"
+"<div><label>METAR style</label><select id='c_metar_decoded'><option value='0'>raw</option><option value='1'>decoded</option></select></div>"
+"<div><label>Auto-cycle flights</label><select id='c_follow_mode'><option value='0'>on (default)</option><option value='1'>off, follow selection</option></select>"
+"<div class='help'>Off keeps the selected flight on screen until you pick another one.</div></div>"
 "<div><label>Map screensaver after (minutes, 0 = off)</label><input id='c_ambient_idle_min' type='number'>"
 "<div class='help'>Full-screen map of your area after this many idle minutes. Tap to return.</div></div>"
 "<div><label>Night mode</label><select id='c_night_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
@@ -321,6 +328,12 @@ static const char INDEX_HTML[] =
 "if(e.target.id!=='c_city'||e.key!=='Enter')return;e.preventDefault();"
 "const q=e.target.value.trim();if(!q)return;"
 "const box=document.getElementById('c_cityres');box.textContent='searching...';"
+"if(/^[a-z]{3,4}$/i.test(q)){try{const ar=await fetch('/api/airport?code='+q);"
+"if(ar.ok){const ap=await ar.json();"
+"document.getElementById('c_lat').value=ap.lat.toFixed(4);"
+"document.getElementById('c_lon').value=ap.lon.toFixed(4);"
+"document.getElementById('c_fixed').value='1';"
+"box.textContent=`airport ${ap.icao}${ap.iata?' / '+ap.iata:''}: ${ap.city}`;return;}}catch(err){}}"
 "try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5');"
 "const d=await r.json();const res=d.results||[];"
 "if(!res.length){box.textContent='no matches';return}"
@@ -330,6 +343,20 @@ static const char INDEX_HTML[] =
 "document.getElementById('c_lon').value=c.longitude.toFixed(4);"
 "document.getElementById('c_fixed').value='1';box.textContent=`set to ${c.name}`;});"
 "}catch(err){box.textContent='search failed'}});"
+"let favs=[[],[],[]];"
+"function favRender(){const b=document.getElementById('favbox');"
+"b.innerHTML=favs.map((f,i)=>f&&f.name?`<div>${f.name} (${(+f.lat).toFixed(2)}, ${(+f.lon).toFixed(2)}) `+"
+"`<a href='#' data-a='use' data-i='${i}'>use</a> \u00B7 <a href='#' data-a='del' data-i='${i}'>clear</a></div>`"
+":`<div>slot ${i+1}: <a href='#' data-a='save' data-i='${i}'>save current</a></div>`).join('');"
+"b.querySelectorAll('a').forEach(a=>a.onclick=ev=>{ev.preventDefault();const i=+a.dataset.i;"
+"if(a.dataset.a==='use'){document.getElementById('c_lat').value=(+favs[i].lat).toFixed(4);"
+"document.getElementById('c_lon').value=(+favs[i].lon).toFixed(4);document.getElementById('c_fixed').value='1';}"
+"else if(a.dataset.a==='del'){favs[i]={};favRender();}"
+"else{const la=parseFloat(String(document.getElementById('c_lat').value).replace(',','.'));"
+"const lo=parseFloat(String(document.getElementById('c_lon').value).replace(',','.'));"
+"if(!isFinite(la)||!isFinite(lo)){alert('Set coordinates first');return;}"
+"const nm=prompt('Name this location:','')||'';if(!nm)return;"
+"favs[i]={name:nm,lat:la,lon:lo};favRender();}});}"
 "async function loadCfg(){try{const r=await fetch('/api/config');const c=await r.json();"
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
@@ -338,6 +365,7 @@ static const char INDEX_HTML[] =
 "const mm=v=>`${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`;"
 "document.getElementById('c_night_start').value=mm(c.night_start_min||1380);"
 "document.getElementById('c_night_end').value=mm(c.night_end_min||390);"
+"favs=(c.favs||[]).map(f=>f&&f.name?f:{});favRender();"
 "document.getElementById('cfgsave').disabled=false;}catch(e){}}"
 "async function saveCfg(){const c={};"
 "['ssid','pass','web_pass','ntfy_topic','mqtt_uri','fa_key','watch_regs','webhook_url','local_adsb','filter_airport','openaip_key','ais_key'].forEach(k=>{const v=document.getElementById('c_'+k).value;if((k!=='pass'&&k!=='web_pass')||v)c[k]=v;});"
@@ -354,6 +382,8 @@ static const char INDEX_HTML[] =
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
 "['taf','iss','sonde','ships','airspace'].forEach(k=>c[k+'_enabled']=document.getElementById('c_'+k+'_enabled').value==='1');"
+"['metric_units','metar_decoded','follow_mode'].forEach(k=>c[k]=document.getElementById('c_'+k).value==='1');"
+"c.favs=favs.map(f=>f&&f.name?f:{name:'',lat:0,lon:0});"
 "c.amb_style=+document.getElementById('c_amb_style').value;"
 "const num=v=>parseFloat(String(v).replace(',','.'));"
 "const la=num(document.getElementById('c_lat').value),lo=num(document.getElementById('c_lon').value);"
@@ -504,6 +534,17 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "airspace_enabled", c->airspace_enabled);
     cJSON_AddStringToObject(root, "openaip_key", c->openaip_key);
     cJSON_AddStringToObject(root, "ais_key", c->ais_key);
+    cJSON_AddBoolToObject(root, "metric_units", c->metric_units);
+    cJSON_AddBoolToObject(root, "metar_decoded", c->metar_decoded);
+    cJSON_AddBoolToObject(root, "follow_mode", c->follow_mode);
+    cJSON *jf = cJSON_AddArrayToObject(root, "favs");
+    for (int f = 0; f < 3; f++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "name", c->fav_name[f]);
+        cJSON_AddNumberToObject(e, "lat", c->fav_lat[f]);
+        cJSON_AddNumberToObject(e, "lon", c->fav_lon[f]);
+        cJSON_AddItemToArray(jf, e);
+    }
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
@@ -608,6 +649,34 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     set_str_field(root, "openaip_key", c->openaip_key, sizeof(c->openaip_key));
     set_str_field(root, "ais_key", c->ais_key, sizeof(c->ais_key));
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "metric_units")))) {
+        c->metric_units = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "metar_decoded")))) {
+        c->metar_decoded = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "follow_mode")))) {
+        c->follow_mode = cJSON_IsTrue(j);
+    }
+    const cJSON *jfav = cJSON_GetObjectItem(root, "favs");
+    if (cJSON_IsArray(jfav)) {
+        for (int f = 0; f < 3; f++) {
+            const cJSON *e = cJSON_GetArrayItem((cJSON *)jfav, f);
+            const cJSON *nm = e ? cJSON_GetObjectItem(e, "name") : NULL;
+            const cJSON *la = e ? cJSON_GetObjectItem(e, "lat") : NULL;
+            const cJSON *lo = e ? cJSON_GetObjectItem(e, "lon") : NULL;
+            if (cJSON_IsString(nm) && nm->valuestring[0] &&
+                cJSON_IsNumber(la) && cJSON_IsNumber(lo) &&
+                la->valuedouble >= -90 && la->valuedouble <= 90 &&
+                lo->valuedouble >= -180 && lo->valuedouble <= 180) {
+                strlcpy(c->fav_name[f], nm->valuestring, sizeof(c->fav_name[f]));
+                c->fav_lat[f] = la->valuedouble;
+                c->fav_lon[f] = lo->valuedouble;
+            } else {
+                c->fav_name[f][0] = '\0';
+            }
+        }
+    }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat"))) &&
         j->valuedouble >= -90.0 && j->valuedouble <= 90.0) {
         c->lat = j->valuedouble;
@@ -691,6 +760,28 @@ static esp_err_t alerts_get(httpd_req_t *req)
 }
 
 #ifndef APKFLIGHT
+/* airport-code location lookup for the panel (ICAO or IATA) */
+static esp_err_t airport_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    char q[32] = "", code[8] = "";
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK ||
+        httpd_query_key_value(q, "code", code, sizeof(code)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "code=EPGD or GDN");
+    }
+    airport_t ap;
+    if (!airports_lookup_any(code, &ap)) {
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "unknown airport");
+    }
+    char json[256];
+    snprintf(json, sizeof(json),
+             "{\"icao\":\"%s\",\"iata\":\"%s\",\"city\":\"%s\","
+             "\"lat\":%.6f,\"lon\":%.6f}",
+             ap.icao, ap.iata, ap.city, ap.lat, ap.lon);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, json);
+}
+
 /* undocumented helper for remote screenshots: /view?m=N switches the view */
 static esp_err_t view_get(httpd_req_t *req)
 {
@@ -857,6 +948,7 @@ void web_server_start(void)
         { .uri = "/screen.bmp", .method = HTTP_GET, .handler = screen_get },
 #ifndef APKFLIGHT
         { .uri = "/view", .method = HTTP_GET, .handler = view_get },
+        { .uri = "/api/airport", .method = HTTP_GET, .handler = airport_get },
 #endif
         { .uri = "/metrics", .method = HTTP_GET, .handler = metrics_get },
         { .uri = "/ota", .method = HTTP_POST, .handler = ota_post },

@@ -265,30 +265,73 @@ static void blit_rain_tile(esp_http_client_handle_t client, tile_sink_t *sink,
         if (dy < 0 || dy >= dst_h) {
             continue;
         }
-        int sy = sub_y + (y >> shift);
+        /* source row in parent pixels, 8.8 fixed point for bilinear */
+        int fy = (sub_y << 8) + ((y << 8) >> shift);
+        int sy = fy >> 8;
         if (sy >= (int)h) {
             continue;
         }
-        const unsigned char *src = rgba + (size_t)sy * w * 4;
+        int wy = fy & 0xFF;
+        int sy1 = sy + 1 < (int)h ? sy + 1 : sy;
+        const unsigned char *row0 = rgba + (size_t)sy * w * 4;
+        const unsigned char *row1 = rgba + (size_t)sy1 * w * 4;
         for (int x = 0; x < TILE_PX; x++) {
             int dx = ox + x;
             if (dx < 0 || dx >= dst_w) {
                 continue;
             }
-            int sx = sub_x + (x >> shift);
+            int fx = (sub_x << 8) + ((x << 8) >> shift);
+            int sx = fx >> 8;
             if (sx >= (int)w) {
                 continue;
             }
-            const unsigned char *pc = src + sx * 4;
-            int a = pc[3] * 3 / 4;      /* keep the basemap readable */
+            int a, cr, cg, cb;
+            if (shift == 0) {
+                const unsigned char *pc = row0 + sx * 4;
+                a = pc[3];
+                cr = pc[0];
+                cg = pc[1];
+                cb = pc[2];
+            } else {
+                /* bilinear with premultiplied color so transparent
+                   neighbours do not darken the echo edges */
+                int wx = fx & 0xFF;
+                int sx1 = sx + 1 < (int)w ? sx + 1 : sx;
+                const unsigned char *p00 = row0 + sx * 4;
+                const unsigned char *p01 = row0 + sx1 * 4;
+                const unsigned char *p10 = row1 + sx * 4;
+                const unsigned char *p11 = row1 + sx1 * 4;
+                int w00 = (256 - wx) * (256 - wy);
+                int w01 = wx * (256 - wy);
+                int w10 = (256 - wx) * wy;
+                int w11 = wx * wy;
+                a = (p00[3] * w00 + p01[3] * w01 + p10[3] * w10 + p11[3] * w11) >> 16;
+                if (a > 0) {
+                    cr = (p00[0] * p00[3] * (w00 >> 4) + p01[0] * p01[3] * (w01 >> 4) +
+                          p10[0] * p10[3] * (w10 >> 4) + p11[0] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    cg = (p00[1] * p00[3] * (w00 >> 4) + p01[1] * p01[3] * (w01 >> 4) +
+                          p10[1] * p10[3] * (w10 >> 4) + p11[1] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    cb = (p00[2] * p00[3] * (w00 >> 4) + p01[2] * p01[3] * (w01 >> 4) +
+                          p10[2] * p10[3] * (w10 >> 4) + p11[2] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    if (cr > 255) cr = 255;
+                    if (cg > 255) cg = 255;
+                    if (cb > 255) cb = 255;
+                } else {
+                    cr = cg = cb = 0;
+                }
+            }
+            a = a * 3 / 4;      /* keep the basemap readable */
             if (a < 10) {
                 continue;
             }
             uint16_t bg = dst[(size_t)dy * dst_w + dx];
             int br = (bg >> 11) << 3, bgc = ((bg >> 5) & 0x3F) << 2, bb = (bg & 0x1F) << 3;
-            int r = (pc[0] * a + br * (255 - a)) / 255;
-            int g = (pc[1] * a + bgc * (255 - a)) / 255;
-            int b = (pc[2] * a + bb * (255 - a)) / 255;
+            int r = (cr * a + br * (255 - a)) / 255;
+            int g = (cg * a + bgc * (255 - a)) / 255;
+            int b = (cb * a + bb * (255 - a)) / 255;
             dst[(size_t)dy * dst_w + dx] =
                 ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         }

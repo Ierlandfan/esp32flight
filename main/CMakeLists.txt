@@ -18,6 +18,7 @@ idf_component_register(
         "dailystats.c"
         "faflight.c"
         "metar.c"
+        "units.c"
         "extras.c"
         "ships.c"
         "airspace.c"

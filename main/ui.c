@@ -23,6 +23,7 @@
 #include "regcountry.h"
 #include "routes.h"
 #include "metar.h"
+#include "units.h"
 #include "extras.h"
 #include "ships.h"
 #include "airspace.h"
@@ -96,6 +97,12 @@ static lv_obj_t *s_list_rows[MAX_SHOWN];
 static lv_obj_t *s_list_mode_btnm;
 static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
 static int s_list_plane_rows;    /* rows currently showing aircraft */
+static ship_t s_row_ships[MAX_SHOWN];        /* ships behind list rows */
+static int s_row_ship_count;
+static ship_t s_marker_ships[40];            /* ships behind map markers */
+static lv_obj_t *s_ship_pop, *s_ship_pop_name, *s_ship_pop_sub, *s_ship_pop_info;
+static lv_obj_t *s_ship_content, *s_ship_name, *s_ship_sub, *s_ship_vals[6];
+static uint32_t s_sel_ship_mmsi;             /* 0 = no ship selected */
 
 /* the list toggle also decides what the radar/map draws */
 static bool view_shows_planes(void);
@@ -185,6 +192,7 @@ static lv_obj_t *s_gear_label;
 static lv_obj_t *s_radar_panel;
 static lv_obj_t *s_radar_dots[MAX_AIRCRAFT];
 static lv_obj_t *s_radar_info;
+static lv_obj_t *s_radar_bub, *s_radar_blogo;
 static lv_obj_t *s_radar_range;
 static lv_obj_t *s_radar_img;
 static lv_obj_t *s_radar_rings[3];
@@ -396,6 +404,71 @@ static void clock_timer_cb(lv_timer_t *t)
 }
 
 static void render_list_rows(void);
+static const char *ship_type_word(uint8_t t);
+static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color);
+
+static void ship_pop_close_cb(lv_event_t *e)
+{
+    lv_obj_add_flag(s_ship_pop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void ship_popup_show(const ship_t *sh)
+{
+    if (s_ship_pop == NULL) {
+        s_ship_pop = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_ship_pop, 430, 210);
+        lv_obj_center(s_ship_pop);
+        lv_obj_set_style_bg_color(s_ship_pop, COL_ROW, 0);
+        lv_obj_set_style_border_color(s_ship_pop, lv_color_hex(0x4fd1c5), 0);
+        lv_obj_set_style_border_width(s_ship_pop, 2, 0);
+        lv_obj_set_style_radius(s_ship_pop, 14, 0);
+        lv_obj_set_style_pad_all(s_ship_pop, 18, 0);
+        lv_obj_set_style_shadow_width(s_ship_pop, 24, 0);
+        lv_obj_set_style_shadow_opa(s_ship_pop, LV_OPA_40, 0);
+        lv_obj_clear_flag(s_ship_pop, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(s_ship_pop, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(s_ship_pop, ship_pop_close_cb, LV_EVENT_CLICKED, NULL);
+
+        s_ship_pop_name = make_label(s_ship_pop, &lv_font_montserrat_28, COL_TEXT);
+        lv_obj_align(s_ship_pop_name, LV_ALIGN_TOP_LEFT, 0, -4);
+        s_ship_pop_sub = make_label(s_ship_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
+        lv_obj_align(s_ship_pop_sub, LV_ALIGN_TOP_LEFT, 0, 34);
+        s_ship_pop_info = make_label(s_ship_pop, &font_pl_16, COL_DIM);
+        lv_obj_align(s_ship_pop_info, LV_ALIGN_TOP_LEFT, 0, 72);
+    }
+    char nm[28];
+    if (sh->name[0]) {
+        strlcpy(nm, sh->name, sizeof(nm));
+    } else {
+        snprintf(nm, sizeof(nm), "MMSI %lu", (unsigned long)sh->mmsi);
+    }
+    lv_label_set_text(s_ship_pop_name, nm);
+    char sub[64];
+    if (sh->dest[0]) {
+        snprintf(sub, sizeof(sub), "%s  " LV_SYMBOL_RIGHT "  %s",
+                 ship_type_word(sh->stype), sh->dest);
+    } else {
+        strlcpy(sub, ship_type_word(sh->stype), sizeof(sub));
+    }
+    lv_label_set_text(s_ship_pop_sub, sub);
+    char info[160];
+    snprintf(info, sizeof(info),
+             "%.1f kt   %d\xC2\xB0 %s   %.1f km\n"
+             "MMSI %lu\n%.4f, %.4f",
+             (double)sh->sog_kt, (int)sh->cog_deg, lang_compass((int)sh->cog_deg),
+             (double)sh->dist_km, (unsigned long)sh->mmsi, sh->lat, sh->lon);
+    lv_label_set_text(s_ship_pop_info, info);
+    lv_obj_clear_flag(s_ship_pop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_ship_pop);
+}
+
+static void ship_marker_cb(lv_event_t *e)
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i >= 0 && i < 40) {
+        ship_popup_show(&s_marker_ships[i]);
+    }
+}
 
 static void list_mode_cb(lv_event_t *e)
 {
@@ -404,16 +477,29 @@ static void list_mode_cb(lv_event_t *e)
         return;
     }
     s_list_mode = (uint8_t)id;
+    if (s_list_mode == 0) {
+        s_sel_ship_mmsi = 0;
+    }
     render_list_rows();
     render_right();
 }
 
 static void row_click_cb(lv_event_t *e)
 {
-    if ((intptr_t)lv_event_get_user_data(e) >= s_list_plane_rows) {
-        return;   /* ship row: no flight to select */
+    intptr_t idx = (intptr_t)lv_event_get_user_data(e);
+    if (idx >= s_list_plane_rows) {
+        int si = (int)(idx - s_list_plane_rows);
+        if (si < s_row_ship_count) {
+            s_sel_ship_mmsi = s_row_ships[si].mmsi;
+            render_list_selection();
+            if (s_view_mode != VIEW_DETAIL) {
+                lv_timer_reset(s_cycle_timer);
+            }
+            render_right();
+        }
+        return;
     }
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    s_sel_ship_mmsi = 0;
     if (idx >= 0 && idx < s_shown_count) {
         s_selected = idx;
         strlcpy(s_selected_hex, s_shown[idx].ac.hex, sizeof(s_selected_hex));
@@ -427,7 +513,7 @@ static void row_click_cb(lv_event_t *e)
 
 static void cycle_timer_cb(lv_timer_t *t)
 {
-    if (s_shown_count == 0) {
+    if (s_shown_count == 0 || settings_get()->follow_mode) {
         return;
     }
     s_selected = (s_selected + 1) % s_shown_count;
@@ -550,7 +636,6 @@ static void build_header(lv_obj_t *scr)
     lv_obj_t *hdr = make_panel(scr);
     lv_obj_set_size(hdr, SCR_W, HEADER_H);
     lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x0e1424), 0);
 
     s_weather_label = make_label(hdr, &font_pl_20, COL_ACCENT);
     lv_obj_set_width(s_weather_label, 340);
@@ -1004,15 +1089,19 @@ static void render_map_panel(void)
                                             rt->destination.lat, rt->destination.lon);
         char eta[40];
         format_eta(eta, sizeof(eta), remaining, ac->gs_kts);
-        snprintf(buf, sizeof(buf), "%d ft   %.0f kt   %d%%, %.0f km to go   %s",
-                 ac->alt_baro_ft, (double)ac->gs_kts,
+        char ua[20], us[20];
+        snprintf(buf, sizeof(buf), "%s   %s   %d%%, %.0f km to go   %s",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)),
                  (int)(prog * 100.0), remaining, eta);
         lv_label_set_text(s_mb_stats, buf);
     } else {
         lv_label_set_text(s_mb_route, L()->route_unknown);
         lv_bar_set_value(s_mb_bar, 0, LV_ANIM_OFF);
-        snprintf(buf, sizeof(buf), "%d ft   %.0f kt   %.1f km away",
-                 ac->alt_baro_ft, (double)ac->gs_kts,
+        char ua[20], us[20];
+        snprintf(buf, sizeof(buf), "%s   %s   %.1f km away",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)),
                  ac->dist_nm >= 0 ? ac->dist_nm * 1.852 : 0.0);
         lv_label_set_text(s_mb_stats, buf);
     }
@@ -1090,6 +1179,26 @@ static void radar_tiles_want(void)
     }
 }
 
+static void radar_dot_cb(lv_event_t *e)
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i < 0 || i >= s_all_count || s_all[i].callsign[0] == '\0') {
+        return;
+    }
+    for (int j = 0; j < s_shown_count; j++) {
+        if (strcmp(s_shown[j].ac.callsign, s_all[i].callsign) == 0) {
+            s_sel_ship_mmsi = 0;
+            s_selected = j;
+            strlcpy(s_selected_hex, s_shown[j].ac.hex, sizeof(s_selected_hex));
+            render_list_selection();
+            lv_obj_scroll_to_view(s_list_rows[j], LV_ANIM_ON);
+            render_radar_panel();
+            lv_timer_reset(s_cycle_timer);
+            return;
+        }
+    }
+}
+
 static void build_radar_panel(lv_obj_t *scr)
 {
     s_radar_panel = make_panel(scr);
@@ -1127,13 +1236,31 @@ static void build_radar_panel(lv_obj_t *scr)
 
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         s_radar_dots[i] = plane_img(s_radar_panel);
+        lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(s_radar_dots[i], 8);
+        lv_obj_add_event_cb(s_radar_dots[i], radar_dot_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
     }
 
-    s_radar_info = make_label(s_radar_panel, &font_pl_14, COL_TEXT);
-    lv_obj_set_style_bg_color(s_radar_info, COL_PANEL, 0);
-    lv_obj_set_style_bg_opa(s_radar_info, LV_OPA_80, 0);
-    lv_obj_set_style_pad_all(s_radar_info, 6, 0);
-    lv_obj_set_style_radius(s_radar_info, 6, 0);
+    s_radar_bub = lv_obj_create(s_radar_panel);
+    lv_obj_set_size(s_radar_bub, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(s_radar_bub, COL_PANEL, 0);
+    lv_obj_set_style_bg_opa(s_radar_bub, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(s_radar_bub, 0, 0);
+    lv_obj_set_style_pad_all(s_radar_bub, 6, 0);
+    lv_obj_set_style_pad_column(s_radar_bub, 8, 0);
+    lv_obj_set_style_radius(s_radar_bub, 6, 0);
+    lv_obj_set_flex_flow(s_radar_bub, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_radar_bub, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+    s_radar_blogo = lv_img_create(s_radar_bub);
+    lv_img_set_pivot(s_radar_blogo, 0, 0);
+    lv_img_set_zoom(s_radar_blogo, 256 * 36 / 90);
+    lv_img_set_size_mode(s_radar_blogo, LV_IMG_SIZE_MODE_REAL);
+    lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+    s_radar_info = make_label(s_radar_bub, &font_pl_14, COL_TEXT);
     lv_label_set_text(s_radar_info, "");
 
     lv_obj_t *rattr = make_label(s_radar_panel, &font_pl_14, COL_DIM);
@@ -1307,6 +1434,10 @@ static void render_radar_extras(bool map_mode, int radius_nm)
         }
         for (int i = 0; i < MAX_SHIP_MARKERS; i++) {
             s_x_ship_dot[i] = extra_dot(lv_color_hex(0x4fd1c5), 9, 2);
+            lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_ext_click_area(s_x_ship_dot[i], 10);
+            lv_obj_add_event_cb(s_x_ship_dot[i], ship_marker_cb, LV_EVENT_CLICKED,
+                                (void *)(intptr_t)i);
             s_x_ship_lbl[i] = extra_lbl(lv_color_hex(0x4fd1c5));
         }
     }
@@ -1368,6 +1499,7 @@ static void render_radar_extras(bool map_mode, int radius_nm)
             continue;
         }
         lv_obj_set_pos(s_x_ship_dot[drawn], x - 4, y - 4);
+        s_marker_ships[drawn] = shp[i];
         lv_label_set_text(s_x_ship_lbl[drawn],
                           shp[i].name[0] ? shp[i].name : "ship");
         lv_obj_set_pos(s_x_ship_lbl[drawn], x + 8, y - 8);
@@ -1460,15 +1592,26 @@ static void render_radar_panel(void)
                          selac->callsign[0] ? selac->callsign : selac->hex,
                          L()->ground, selac->dist_nm * 1.852);
             } else {
-                snprintf(info, sizeof(info), "%s\n%d ft  %.0f kt  %.1f km",
+                char ua[20], us[20];
+                snprintf(info, sizeof(info), "%s\n%s  %s  %.1f km",
                          selac->callsign[0] ? selac->callsign : selac->hex,
-                         selac->alt_baro_ft, (double)selac->gs_kts,
+                         units_alt(selac->alt_baro_ft, ua, sizeof(ua)),
+                         units_speed(selac->gs_kts, us, sizeof(us)),
                          selac->dist_nm * 1.852);
             }
             lv_label_set_text(s_radar_info, info);
+            const char *lcode = airline_code(selac, &s_shown[s_selected].route);
+            const lv_img_dsc_t *ldsc = lcode ? logos_get(lcode) : NULL;
+            if (ldsc != NULL) {
+                lv_img_set_src(s_radar_blogo, ldsc);
+                lv_obj_clear_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+            }
+            lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
             int lx = x + 12, ly = y - 10;
-            if (lx > RADAR_W - 150) {
-                lx = x - 150;
+            if (lx > RADAR_W - 190) {
+                lx = x - 190;
             }
             if (ly < 0) {
                 ly = 0;
@@ -1476,11 +1619,12 @@ static void render_radar_panel(void)
             if (ly > RADAR_H - 60) {
                 ly = RADAR_H - 60;
             }
-            lv_obj_set_pos(s_radar_info, lx, ly);
+            lv_obj_set_pos(s_radar_bub, lx, ly);
         }
     }
-    if (!planes_on || s_selected < 0 || s_selected >= s_shown_count) {
-        lv_label_set_text(s_radar_info, "");
+    if (!planes_on || s_selected < 0 || s_selected >= s_shown_count ||
+        selac == NULL) {
+        lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
     }
     render_radar_extras(map_mode, radius_nm);
     render_airspaces(map_mode);
@@ -1701,15 +1845,17 @@ static void render_ambient(void)
             char txt[96];
             const route_info_t *rt = routes_get_cached(s_all[sel].callsign);
             if (rt != NULL && rt->valid) {
-                snprintf(txt, sizeof(txt), "%s\n%s " LV_SYMBOL_RIGHT " %s\n%d ft",
+                char ua[20];
+                snprintf(txt, sizeof(txt), "%s\n%s " LV_SYMBOL_RIGHT " %s\n%s",
                          s_all[sel].callsign,
                          rt->origin.iata[0] ? rt->origin.iata : rt->origin.icao,
                          rt->destination.iata[0] ? rt->destination.iata
                                                  : rt->destination.icao,
-                         s_all[sel].alt_ft);
+                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
             } else {
-                snprintf(txt, sizeof(txt), "%s\n%d ft", s_all[sel].callsign,
-                         s_all[sel].alt_ft);
+                char ua[20];
+                snprintf(txt, sizeof(txt), "%s\n%s", s_all[sel].callsign,
+                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
             }
             lv_label_set_text(s_amb_selbub, txt);
             lv_coord_t x, y;
@@ -2324,9 +2470,9 @@ static void render_stats_panel(void)
     char buf[48];
     snprintf(buf, sizeof(buf), "%d", s_stats_snap.unique);
     lv_label_set_text(s_sv_vals[0], buf);
-    snprintf(buf, sizeof(buf), "%d ft", s_stats_snap.max_alt_ft);
+    units_alt(s_stats_snap.max_alt_ft, buf, sizeof(buf));
     lv_label_set_text(s_sv_vals[1], buf);
-    snprintf(buf, sizeof(buf), "%.0f kt", (double)s_stats_snap.max_gs_kt);
+    units_speed(s_stats_snap.max_gs_kt, buf, sizeof(buf));
     lv_label_set_text(s_sv_vals[2], buf);
     snprintf(buf, sizeof(buf), "%.0f km", (double)s_stats_snap.max_dist_km);
     lv_label_set_text(s_sv_vals[3], buf);
@@ -2347,10 +2493,14 @@ static void render_stats_panel(void)
     dailystats_summary(daysum, sizeof(daysum), L()->avg_word, L()->best_word);
     lv_label_set_text(s_sv_days, daysum);
     char mt[160];
-    strlcpy(mt, metar_get(), sizeof(mt));
-    char *rmk = strstr(mt, " RMK");
-    if (rmk != NULL) {
-        *rmk = '\0';    /* remarks are noise on a one-line display */
+    if (settings_get()->metar_decoded) {
+        metar_decoded(mt, sizeof(mt));
+    } else {
+        strlcpy(mt, metar_get(), sizeof(mt));
+        char *rmk = strstr(mt, " RMK");
+        if (rmk != NULL) {
+            *rmk = '\0';    /* remarks are noise on a one-line display */
+        }
     }
     lv_label_set_text(s_sv_metar, mt);
 
@@ -2512,7 +2662,8 @@ static void build_detail(lv_obj_t *scr)
     s_extra_label = make_label(s_detail_content, s_f_small, COL_DIM);
     lv_obj_set_pos(s_extra_label, 0, 378 + DTL_VEXT);
     lv_obj_set_width(s_extra_label, DTL_W);
-    lv_label_set_long_mode(s_extra_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(s_extra_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_anim_speed(s_extra_label, 12, 0);
 
     make_stat(grid, 0, 0, L()->st_alt, &s_stat_vals[0]);
     make_stat(grid, 1, 0, L()->st_speed, &s_stat_vals[1]);
@@ -2523,6 +2674,37 @@ static void build_detail(lv_obj_t *scr)
     s_reg_flag = lv_img_create(regbox);
     lv_obj_align(s_reg_flag, LV_ALIGN_TOP_RIGHT, 0, -2);
     lv_obj_add_flag(s_reg_flag, LV_OBJ_FLAG_HIDDEN);
+
+    /* ship detail: same panel, own content shown when a ship is selected */
+    s_ship_content = lv_obj_create(panel);
+    lv_obj_set_size(s_ship_content, SCR_W - LIST_W, SCR_H - HEADER_H);
+    lv_obj_set_pos(s_ship_content, 0, 0);
+    lv_obj_set_style_bg_opa(s_ship_content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_ship_content, 0, 0);
+    lv_obj_set_style_pad_all(s_ship_content, 16, 0);
+    lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+
+    s_ship_name = make_label(s_ship_content, s_f_code, COL_TEXT);
+    lv_obj_set_pos(s_ship_name, 0, 0);
+    lv_obj_set_width(s_ship_name, DTL_W);
+    lv_label_set_long_mode(s_ship_name, LV_LABEL_LONG_DOT);
+    s_ship_sub = make_label(s_ship_content, s_f_name, lv_color_hex(0x4fd1c5));
+    lv_obj_set_pos(s_ship_sub, 0, s_big ? 62 : 48);
+
+    lv_obj_t *sgrid = lv_obj_create(s_ship_content);
+    lv_obj_set_size(sgrid, DTL_W + 10, s_big ? 172 : 130);
+    lv_obj_set_pos(sgrid, 0, s_big ? 130 : 104);
+    lv_obj_set_style_bg_opa(sgrid, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(sgrid, 0, 0);
+    lv_obj_set_style_pad_all(sgrid, 0, 0);
+    lv_obj_clear_flag(sgrid, LV_OBJ_FLAG_SCROLLABLE);
+    make_stat(sgrid, 0, 0, L()->st_speed, &s_ship_vals[0]);
+    make_stat(sgrid, 1, 0, L()->st_track, &s_ship_vals[1]);
+    make_stat(sgrid, 2, 0, L()->st_dist, &s_ship_vals[2]);
+    make_stat(sgrid, 0, 1, L()->ship_dest, &s_ship_vals[3]);
+    make_stat(sgrid, 1, 1, "MMSI", &s_ship_vals[4]);
+    make_stat(sgrid, 2, 1, L()->ship_pos, &s_ship_vals[5]);
 }
 
 void ui_init(void)
@@ -2634,13 +2816,71 @@ void ui_set_weather(const char *text)
 static void render_list_selection(void)
 {
     for (int i = 0; i < MAX_SHOWN; i++) {
-        bool sel = i < s_list_plane_rows && i == s_selected;
+        bool sel;
+        if (i < s_list_plane_rows) {
+            sel = i == s_selected && s_sel_ship_mmsi == 0;
+        } else {
+            int si = i - s_list_plane_rows;
+            sel = si < s_row_ship_count && s_sel_ship_mmsi != 0 &&
+                  s_row_ships[si].mmsi == s_sel_ship_mmsi;
+        }
         lv_obj_set_style_bg_color(s_list_rows[i], sel ? COL_ROW_SEL : COL_ROW, 0);
     }
 }
 
+/* fresh data for the selected ship; clears the selection when it is gone */
+static bool sel_ship_get(ship_t *out)
+{
+    if (s_sel_ship_mmsi == 0) {
+        return false;
+    }
+    for (int i = 0; i < s_row_ship_count; i++) {
+        if (s_row_ships[i].mmsi == s_sel_ship_mmsi) {
+            *out = s_row_ships[i];
+            return true;
+        }
+    }
+    s_sel_ship_mmsi = 0;
+    return false;
+}
+
 static void render_detail(void)
 {
+    ship_t sh;
+    if (sel_ship_get(&sh)) {
+        lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+        char nm[28];
+        if (sh.name[0]) {
+            strlcpy(nm, sh.name, sizeof(nm));
+        } else {
+            snprintf(nm, sizeof(nm), "MMSI %lu", (unsigned long)sh.mmsi);
+        }
+        lv_label_set_text(s_ship_name, nm);
+        lv_label_set_text(s_ship_sub, ship_type_word(sh.stype));
+        char v[40];
+        if (settings_get()->metric_units) {
+            snprintf(v, sizeof(v), "%.0f km/h", (double)(sh.sog_kt * 1.852f));
+        } else {
+            snprintf(v, sizeof(v), "%.1f kt", (double)sh.sog_kt);
+        }
+        lv_label_set_text(s_ship_vals[0], v);
+        snprintf(v, sizeof(v), "%d\xC2\xB0 %s", (int)sh.cog_deg,
+                 lang_compass((int)sh.cog_deg));
+        lv_label_set_text(s_ship_vals[1], v);
+        snprintf(v, sizeof(v), "%.1f km", (double)sh.dist_km);
+        lv_label_set_text(s_ship_vals[2], v);
+        lv_label_set_text(s_ship_vals[3], sh.dest[0] ? sh.dest : "-");
+        snprintf(v, sizeof(v), "%lu", (unsigned long)sh.mmsi);
+        lv_label_set_text(s_ship_vals[4], v);
+        snprintf(v, sizeof(v), "%.3f %.3f", sh.lat, sh.lon);
+        lv_label_set_text(s_ship_vals[5], v);
+        return;
+    }
+    if (s_ship_content != NULL) {
+        lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+    }
     if (s_selected < 0 || s_selected >= s_shown_count) {
         lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
@@ -2778,12 +3018,12 @@ static void render_detail(void)
     if (ac->on_ground) {
         lv_label_set_text(s_stat_vals[0], L()->ground);
     } else {
-        snprintf(buf, sizeof(buf), "%d ft", ac->alt_baro_ft);
+        units_alt(ac->alt_baro_ft, buf, sizeof(buf));
         lv_label_set_text(s_stat_vals[0], buf);
     }
-    snprintf(buf, sizeof(buf), "%.0f kt", (double)ac->gs_kts);
+    units_speed(ac->gs_kts, buf, sizeof(buf));
     lv_label_set_text(s_stat_vals[1], buf);
-    snprintf(buf, sizeof(buf), "%+d fpm", ac->baro_rate_fpm);
+    units_vrate(ac->baro_rate_fpm, buf, sizeof(buf));
     lv_label_set_text(s_stat_vals[2], buf);
     snprintf(buf, sizeof(buf), "%.1f km", ac->dist_nm >= 0 ? ac->dist_nm * 1.852 : 0.0);
     lv_label_set_text(s_stat_vals[3], buf);
@@ -2797,12 +3037,12 @@ static void render_detail(void)
     }
     if (ac->category[0]) {
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s %s",
-                       el ? "   \xC2\xB7   " : "", L()->cat_word, ac->category);
+                       el ? "  \xC2\xB7  " : "", L()->cat_word, ac->category);
     }
     flight_class_t fc = flight_class(ac);
     if (fc != FCLS_LINER) {
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                       el ? "   \xC2\xB7   " : "", L()->cls_names[fc]);
+                       el ? "  \xC2\xB7  " : "", L()->cls_names[fc]);
     }
     if (rt != NULL && rt->valid && !ac->on_ground && ac->gs_kts > 80 &&
         rt->destination.tz_known) {
@@ -2818,7 +3058,7 @@ static void render_detail(void)
             snprintf(hh, sizeof(hh), "%02d:%02d", tm.tm_hour, tm.tm_min);
             snprintf(af, sizeof(af), L()->arr_fmt, hh);
             el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                           el ? "   \xC2\xB7   " : "", af);
+                           el ? "  \xC2\xB7  " : "", af);
         }
     }
     char apt[8];
@@ -2832,7 +3072,7 @@ static void render_detail(void)
         char ap[64];
         snprintf(ap, sizeof(ap), L()->apr_fmt, where, eta_min);
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                       el ? "   \xC2\xB7   " : "", ap);
+                       el ? "  \xC2\xB7  " : "", ap);
     }
     lv_label_set_text(s_extra_label, extra);
 
@@ -2992,6 +3232,10 @@ static void render_list_rows(void)
     }
     int n_planes = (mode == 1) ? 0 : s_shown_count;
     s_list_plane_rows = n_planes;
+    s_row_ship_count = n_ships < MAX_SHOWN ? n_ships : MAX_SHOWN;
+    if (s_row_ship_count > 0) {
+        memcpy(s_row_ships, ships, s_row_ship_count * sizeof(ship_t));
+    }
 
     for (int i = 0; i < MAX_SHOWN; i++) {
         if (i >= n_planes && i - n_planes < n_ships) {
@@ -3011,8 +3255,10 @@ static void render_list_rows(void)
             lv_label_set_text(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
             lv_obj_set_style_text_color(typechip, lv_color_hex(0x4fd1c5), 0);
             char info[64];
-            snprintf(info, sizeof(info), "%s  %.1f kt  %.1f km",
-                     ship_type_word(sh->stype), (double)sh->sog_kt, (double)sh->dist_km);
+            char us[20];
+            snprintf(info, sizeof(info), "%s  %s  %.1f km",
+                     ship_type_word(sh->stype),
+                     units_speed(sh->sog_kt, us, sizeof(us)), (double)sh->dist_km);
             lv_label_set_text(lv_obj_get_child(row, 2), info);
             lv_obj_add_flag(lv_obj_get_child(row, 3), LV_OBJ_FLAG_HIDDEN);
             continue;
@@ -3042,8 +3288,10 @@ static void render_list_rows(void)
                 } else if (ac->baro_rate_fpm < -300) {
                     trend = LV_SYMBOL_DOWN " ";
                 }
-                snprintf(info, sizeof(info), "%s%d ft  %.0f kt  %.1f km",
-                         trend, ac->alt_baro_ft, (double)ac->gs_kts, ac->dist_nm * 1.852);
+                char ua[20], us[20];
+                snprintf(info, sizeof(info), "%s%s  %s  %.1f km",
+                         trend, units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                         units_speed(ac->gs_kts, us, sizeof(us)), ac->dist_nm * 1.852);
             }
             lv_label_set_text(lv_obj_get_child(row, 2), info);
 
