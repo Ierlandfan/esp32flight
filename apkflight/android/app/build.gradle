@@ -29,7 +29,7 @@ android {
         applicationId 'pl.theqkash.esp32flight'
         minSdk 21
         targetSdk 35
-        versionCode 2
+        versionCode 3
         versionName espfVer
         externalNativeBuild {
             ndkBuild {

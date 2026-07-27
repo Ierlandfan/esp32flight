@@ -41,11 +41,14 @@ No board at hand? The same radar also ships as an [Android app](#android-app).
 - Live flight list within a configurable radius (1 to 250 NM): airline logo, type, altitude with trend arrow, speed, distance; the 40 nearest of up to 80 tracked
 - Flight details: airline, route with cities, country flags and local airport times, progress bar, ETA and local arrival time, squawk, ADS-B category, aircraft photo (planespotters.net)
 - Spotter line: which way to look (compass + elevation) and a flyover prediction ("passes you in ~3 min at 1.2 km")
-- Four views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR)
+- Five views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR raw or decoded), retro CRT radar
+- Optional extra objects on the radar: the ISS when it crosses your area, weather balloons from the SondeHub network, AIS ships (own free key) with a full detail card (type, destination, speed), and airspace outlines (CTR/TMA/danger, own free openAIP key)
+- List content toggle when ships are on: planes only, ships only or everything; tap any plane or ship on the map for details
+- Aviation or metric units (ft/kt or m and km/h), one switch
 - Full-screen route map with the great-circle track, swipe pan and zoom, flight trails
 - Map screensaver after idle: your observation circle, every aircraft in range, clock and weather; tap a plane for its route
 - Aircraft class filter: pick any mix of airliners, light aircraft, helicopters, military and others; the class colors the type code in the list
-- Night mode, 7 color themes, English and Polish UI, all settings on the touchscreen
+- Night mode, 7 color themes, English and Polish UI, all settings on the touchscreen; auto-cycling can be turned off to follow one flight
 
 **Data**
 
@@ -139,7 +142,7 @@ Everything the panel shows is plain HTTP on port 80. The full reference with exa
 
 With a panel password set, every endpoint requires Basic Auth: `curl -u admin:PASSWORD ...`
 
-## Data sources (all free, no API keys)
+## Data sources (free; the two marked layers take your own free key)
 
 | What | Source |
 |---|---|
@@ -148,7 +151,11 @@ With a panel password set, every endpoint requires Basic Auth: `curl -u admin:PA
 | Map tiles | [CARTO basemaps](https://carto.com/basemaps) with data (c) [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors |
 | Precipitation radar (optional overlay) | [RainViewer](https://www.rainviewer.com/api.html) |
 | Geocoding, weather, timezones | [Open-Meteo](https://open-meteo.com) |
-| METAR | [aviationweather.gov](https://aviationweather.gov) (NOAA) |
+| METAR + TAF | [aviationweather.gov](https://aviationweather.gov) (NOAA) |
+| ISS position | [wheretheiss.at](https://wheretheiss.at) |
+| Radiosondes | [SondeHub](https://sondehub.org) community network |
+| Ships (AIS, optional, own free key) | [aisstream.io](https://aisstream.io) |
+| Airspace outlines (optional, own free key) | [openAIP](https://www.openaip.net) |
 | IP geolocation | [ip-api.com](https://ip-api.com) |
 | Aircraft photos | [planespotters.net](https://www.planespotters.net) via adsbdb |
 | Airline logos | [sexym0nk3y/airline-logos](https://github.com/sexym0nk3y/airline-logos), [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos), served on demand from [esp32flight-logos](https://github.com/theqkash/esp32flight-logos) |
