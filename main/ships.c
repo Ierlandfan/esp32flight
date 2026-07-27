@@ -45,6 +45,7 @@ static esp_websocket_client_handle_t s_ws;
 static char s_active_key[48];
 static double s_home_lat, s_home_lon;
 static double s_box_lat, s_box_lon;   /* box center the subscription used */
+static volatile bool s_subscribed;
 
 static void lock(void)
 {
@@ -59,14 +60,50 @@ static void unlock(void)
     xSemaphoreGive(s_mux);
 }
 
-static void store_report(const cJSON *root)
+/* voyage data arrives separately; merge it into a known ship's slot */
+static void store_static(const cJSON *ssd)
+{
+    const cJSON *id = cJSON_GetObjectItem(ssd, "UserID");
+    if (!cJSON_IsNumber(id)) {
+        return;
+    }
+    uint32_t mmsi = (uint32_t)id->valuedouble;
+    lock();
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (s_ships[i].mmsi != mmsi || s_ships[i].seen_us == 0) {
+            continue;
+        }
+        const cJSON *de = cJSON_GetObjectItem(ssd, "Destination");
+        if (cJSON_IsString(de) && de->valuestring[0] != '\0') {
+            strlcpy(s_ships[i].dest, de->valuestring, sizeof(s_ships[i].dest));
+            for (int k = (int)strlen(s_ships[i].dest) - 1;
+                 k >= 0 && s_ships[i].dest[k] == ' '; k--) {
+                s_ships[i].dest[k] = '\0';
+            }
+        }
+        const cJSON *ty = cJSON_GetObjectItem(ssd, "Type");
+        if (cJSON_IsNumber(ty)) {
+            s_ships[i].stype = (uint8_t)ty->valuedouble;
+        }
+        break;
+    }
+    unlock();
+}
+
+static void store_report(const cJSON *root, const char *raw)
 {
     const cJSON *msg = cJSON_GetObjectItem(root, "Message");
+    const cJSON *ssd = msg != NULL ? cJSON_GetObjectItem(msg, "ShipStaticData") : NULL;
+    if (ssd != NULL) {
+        store_static(ssd);
+        return;
+    }
     const cJSON *pr = msg != NULL ? cJSON_GetObjectItem(msg, "PositionReport") : NULL;
     const cJSON *meta = cJSON_GetObjectItem(root, "MetaData");
     const cJSON *la = pr != NULL ? cJSON_GetObjectItem(pr, "Latitude") : NULL;
     const cJSON *lo = pr != NULL ? cJSON_GetObjectItem(pr, "Longitude") : NULL;
     if (!cJSON_IsNumber(la) || !cJSON_IsNumber(lo)) {
+        ESP_LOGW(TAG, "unexpected frame: %.120s", raw);
         return;
     }
     uint32_t mmsi = 0;
@@ -87,6 +124,11 @@ static void store_report(const cJSON *root)
             oldest = s_ships[i].seen_us;
             slot = &s_ships[i];
         }
+    }
+    if (slot->mmsi != mmsi) {
+        slot->dest[0] = '\0';
+        slot->stype = 0;
+        slot->name[0] = '\0';
     }
     slot->mmsi = mmsi;
     slot->lat = la->valuedouble;
@@ -111,18 +153,19 @@ static void store_report(const cJSON *root)
 static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_websocket_event_data_t *ev = event_data;
+    if (event_id == WEBSOCKET_EVENT_DISCONNECTED || event_id == WEBSOCKET_EVENT_ERROR) {
+        s_subscribed = false;
+        ESP_LOGW(TAG, "websocket %s", event_id == WEBSOCKET_EVENT_ERROR ? "error" : "disconnected");
+    }
     if (event_id == WEBSOCKET_EVENT_CONNECTED) {
-        char sub[320];
-        snprintf(sub, sizeof(sub),
-                 "{\"APIKey\":\"%s\",\"BoundingBoxes\":[[[%.3f,%.3f],[%.3f,%.3f]]],"
-                 "\"FilterMessageTypes\":[\"PositionReport\"]}",
-                 s_active_key,
-                 s_box_lat - BOX_LAT, s_box_lon - BOX_LON,
-                 s_box_lat + BOX_LAT, s_box_lon + BOX_LON);
-        esp_websocket_client_send_text(s_ws, sub, strlen(sub), pdMS_TO_TICKS(5000));
-        ESP_LOGI(TAG, "connected, subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
-    } else if (event_id == WEBSOCKET_EVENT_DATA && ev->op_code == 0x1 &&
-               ev->data_len > 0 && ev->payload_offset == 0) {
+        /* the subscription is sent from ships_poll: sending from this
+           handler runs inside the client task and the send can deadlock */
+        s_subscribed = false;
+        ESP_LOGI(TAG, "connected");
+    }
+    /* aisstream serves JSON in binary frames (opcode 2) */
+    if (event_id == WEBSOCKET_EVENT_DATA && (ev->op_code == 0x1 || ev->op_code == 0x2) &&
+        ev->data_len > 0 && ev->payload_offset == 0) {
         /* frames are small JSON messages; ignore fragmented oversize ones */
         char *json = malloc(ev->data_len + 1);
         if (json != NULL) {
@@ -130,7 +173,7 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *e
             json[ev->data_len] = '\0';
             cJSON *root = cJSON_Parse(json);
             if (root != NULL) {
-                store_report(root);
+                store_report(root, json);
                 cJSON_Delete(root);
             }
             free(json);
@@ -193,6 +236,20 @@ void ships_poll(double home_lat, double home_lon)
         s_box_lat = home_lat;
         s_box_lon = home_lon;
         ws_start();
+    }
+    if (s_ws != NULL && !s_subscribed && esp_websocket_client_is_connected(s_ws)) {
+        char sub[320];
+        snprintf(sub, sizeof(sub),
+                 "{\"APIKey\":\"%s\",\"BoundingBoxes\":[[[%.3f,%.3f],[%.3f,%.3f]]],"
+                 "\"FilterMessageTypes\":[\"PositionReport\",\"ShipStaticData\"]}",
+                 s_active_key,
+                 s_box_lat - BOX_LAT, s_box_lon - BOX_LON,
+                 s_box_lat + BOX_LAT, s_box_lon + BOX_LON);
+        if (esp_websocket_client_send_text(s_ws, sub, strlen(sub),
+                                           pdMS_TO_TICKS(5000)) >= 0) {
+            s_subscribed = true;
+            ESP_LOGI(TAG, "subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
+        }
     }
 }
 

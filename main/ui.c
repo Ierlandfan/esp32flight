@@ -93,6 +93,9 @@ static lv_obj_t *s_status_label;
 static lv_obj_t *s_weather_label;
 static lv_obj_t *s_list_panel;
 static lv_obj_t *s_list_rows[MAX_SHOWN];
+static lv_obj_t *s_list_mode_btnm;
+static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
+static int s_list_plane_rows;    /* rows currently showing aircraft */
 
 /* Right-panel view modes */
 #define VIEW_DETAIL 0
@@ -388,8 +391,23 @@ static void clock_timer_cb(lv_timer_t *t)
     }
 }
 
+static void render_list_rows(void);
+
+static void list_mode_cb(lv_event_t *e)
+{
+    uint16_t id = lv_btnmatrix_get_selected_btn(lv_event_get_target(e));
+    if (id > 2) {
+        return;
+    }
+    s_list_mode = (uint8_t)id;
+    render_list_rows();
+}
+
 static void row_click_cb(lv_event_t *e)
 {
+    if ((intptr_t)lv_event_get_user_data(e) >= s_list_plane_rows) {
+        return;   /* ship row: no flight to select */
+    }
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
     if (idx >= 0 && idx < s_shown_count) {
         s_selected = idx;
@@ -576,6 +594,32 @@ static void build_list(lv_obj_t *scr)
     lv_obj_set_flex_flow(s_list_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_list_panel, LV_DIR_VER);
+
+    static const char *lm_map[4];
+    lm_map[0] = L()->lm_planes;
+    lm_map[1] = L()->lm_ships;
+    lm_map[2] = L()->lm_all;
+    lm_map[3] = "";
+    s_list_mode_btnm = lv_btnmatrix_create(s_list_panel);
+    lv_btnmatrix_set_map(s_list_mode_btnm, lm_map);
+    lv_btnmatrix_set_one_checked(s_list_mode_btnm, true);
+    lv_btnmatrix_set_btn_ctrl_all(s_list_mode_btnm, LV_BTNMATRIX_CTRL_CHECKABLE);
+    lv_btnmatrix_set_btn_ctrl(s_list_mode_btnm, 0, LV_BTNMATRIX_CTRL_CHECKED);
+    lv_obj_set_size(s_list_mode_btnm, LIST_W - 16 - 8, 40);
+    lv_obj_set_style_bg_opa(s_list_mode_btnm, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_list_mode_btnm, 0, 0);
+    lv_obj_set_style_pad_all(s_list_mode_btnm, 0, 0);
+    lv_obj_set_style_pad_gap(s_list_mode_btnm, 4, 0);
+    lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ROW, LV_PART_ITEMS);
+    lv_obj_set_style_text_color(s_list_mode_btnm, COL_DIM, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ACCENT,
+                              LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(s_list_mode_btnm, COL_BG,
+                                LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_radius(s_list_mode_btnm, 8, LV_PART_ITEMS);
+    lv_obj_set_style_text_font(s_list_mode_btnm, &font_pl_14, LV_PART_ITEMS);
+    lv_obj_add_event_cb(s_list_mode_btnm, list_mode_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
 
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
@@ -1098,11 +1142,23 @@ static void build_radar_panel(lv_obj_t *scr)
 
 /* ---------- optional extra objects: ISS, radiosondes, AIS ships ---------- */
 
-#define MAX_SHIP_MARKERS 10
+#define MAX_SHIP_MARKERS 40
 
 static lv_obj_t *s_x_iss_dot, *s_x_iss_lbl, *s_x_iss_status;
 static lv_obj_t *s_x_sonde_dot[MAX_SONDES], *s_x_sonde_lbl[MAX_SONDES];
 static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS];
+
+/* 64-slot ship array is too big for a task stack; both users of this
+   buffer run in the LVGL task, so one shared PSRAM block is enough */
+static ship_t *ui_ship_buf(void)
+{
+    static ship_t *buf;
+    if (buf == NULL) {
+        buf = heap_caps_malloc(MAX_SHIPS * sizeof(ship_t),
+                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    return buf;
+}
 
 static lv_obj_t *extra_dot(lv_color_t color, int size, int radius)
 {
@@ -1273,10 +1329,12 @@ static void render_radar_extras(bool map_mode, int radius_nm)
                                 map_mode, radius_nm, &x, &y);
         if (show) {
             lv_obj_set_pos(s_x_sonde_dot[i], x - 5, y - 5);
-            lv_label_set_text_fmt(s_x_sonde_lbl[i], "%s %s%.1f km",
-                                  sondes[i].type[0] ? sondes[i].type : "sonde",
-                                  sondes[i].vel_v >= 0 ? LV_SYMBOL_UP " " : LV_SYMBOL_DOWN " ",
-                                  (double)(sondes[i].alt_m / 1000.0f));
+            char slbl[48];
+            snprintf(slbl, sizeof(slbl), "%s %s%.1f km",
+                     sondes[i].type[0] ? sondes[i].type : "sonde",
+                     sondes[i].vel_v >= 0 ? LV_SYMBOL_UP " " : LV_SYMBOL_DOWN " ",
+                     (double)(sondes[i].alt_m / 1000.0f));
+            lv_label_set_text(s_x_sonde_lbl[i], slbl);
             lv_obj_set_pos(s_x_sonde_lbl[i], x + 8, y - 8);
             lv_obj_clear_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
@@ -1286,8 +1344,8 @@ static void render_radar_extras(bool map_mode, int radius_nm)
         }
     }
 
-    ship_t shp[MAX_SHIPS];
-    int nsh = ships_get(shp, MAX_SHIPS);
+    ship_t *shp = ui_ship_buf();
+    int nsh = shp != NULL ? ships_get(shp, MAX_SHIPS) : 0;
     int drawn = 0;
     for (int i = 0; i < nsh && drawn < MAX_SHIP_MARKERS; i++) {
         if (!radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
@@ -2559,8 +2617,9 @@ void ui_set_weather(const char *text)
 
 static void render_list_selection(void)
 {
-    for (int i = 0; i < s_shown_count; i++) {
-        lv_obj_set_style_bg_color(s_list_rows[i], i == s_selected ? COL_ROW_SEL : COL_ROW, 0);
+    for (int i = 0; i < MAX_SHOWN; i++) {
+        bool sel = i < s_list_plane_rows && i == s_selected;
+        lv_obj_set_style_bg_color(s_list_rows[i], sel ? COL_ROW_SEL : COL_ROW, 0);
     }
 }
 
@@ -2868,8 +2927,81 @@ void ui_update(const aircraft_list_t *list)
         strlcpy(s_selected_hex, s_shown[0].ac.hex, sizeof(s_selected_hex));
     }
 
+    render_list_rows();
+
+    render_list_selection();
+    render_right();
+    render_ambient();
+}
+
+static const char *ship_type_word(uint8_t t)
+{
+    if (t == 30) return "FISHING";
+    if (t == 31 || t == 32 || t == 52) return "TUG";
+    if (t == 35) return "MILITARY";
+    if (t == 36) return "SAIL";
+    if (t == 37) return "PLEASURE";
+    if (t >= 60 && t <= 69) return "PASSENGER";
+    if (t >= 70 && t <= 79) return "CARGO";
+    if (t >= 80 && t <= 89) return "TANKER";
+    return "SHIP";
+}
+
+static void render_list_rows(void)
+{
+    bool ships_on = settings_get()->ships_enabled;
+    if (s_list_mode_btnm != NULL) {
+        if (ships_on) {
+            lv_obj_clear_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    uint8_t mode = ships_on ? s_list_mode : 0;
+
+    ship_t *ships = ui_ship_buf();
+    int n_ships = 0;
+    if (mode != 0 && ships != NULL) {
+        n_ships = ships_get(ships, MAX_SHIPS);
+        /* nearest first */
+        for (int i = 1; i < n_ships; i++) {
+            ship_t tmp = ships[i];
+            int j = i - 1;
+            while (j >= 0 && ships[j].dist_km > tmp.dist_km) {
+                ships[j + 1] = ships[j];
+                j--;
+            }
+            ships[j + 1] = tmp;
+        }
+    }
+    int n_planes = (mode == 1) ? 0 : s_shown_count;
+    s_list_plane_rows = n_planes;
+
     for (int i = 0; i < MAX_SHOWN; i++) {
-        if (i < s_shown_count) {
+        if (i >= n_planes && i - n_planes < n_ships) {
+            const ship_t *sh = &ships[i - n_planes];
+            lv_obj_t *row = s_list_rows[i];
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_t *cs_label = lv_obj_get_child(row, 0);
+            char nm[24];
+            if (sh->name[0]) {
+                strlcpy(nm, sh->name, sizeof(nm));
+            } else {
+                snprintf(nm, sizeof(nm), "%lu", (unsigned long)sh->mmsi);
+            }
+            lv_label_set_text(cs_label, nm);
+            lv_obj_set_style_text_color(cs_label, lv_color_hex(0x4fd1c5), 0);
+            lv_obj_t *typechip = lv_obj_get_child(row, 1);
+            lv_label_set_text(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
+            lv_obj_set_style_text_color(typechip, lv_color_hex(0x4fd1c5), 0);
+            char info[64];
+            snprintf(info, sizeof(info), "%s  %.1f kt  %.1f km",
+                     ship_type_word(sh->stype), (double)sh->sog_kt, (double)sh->dist_km);
+            lv_label_set_text(lv_obj_get_child(row, 2), info);
+            lv_obj_add_flag(lv_obj_get_child(row, 3), LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        if (i < n_planes) {
             const aircraft_t *ac = &s_shown[i].ac;
             lv_obj_t *row = s_list_rows[i];
             lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
@@ -2912,8 +3044,4 @@ void ui_update(const aircraft_list_t *list)
             lv_obj_add_flag(s_list_rows[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
-
-    render_list_selection();
-    render_right();
-    render_ambient();
 }

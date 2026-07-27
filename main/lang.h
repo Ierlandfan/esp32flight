@@ -50,6 +50,7 @@ typedef struct {
     const char *iss_lbl, *sonde_lbl, *ships_lbl, *airspace_lbl, *taf_lbl;
     const char *lbl_oaip, *hint_oaip, *lbl_ais, *hint_ais;
     const char *sec_notify, *sec_datasrc, *sec_smart;
+    const char *lm_planes, *lm_ships, *lm_all;   /* list content toggle */
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;

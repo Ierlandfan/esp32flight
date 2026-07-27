@@ -363,8 +363,12 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
             cJSON_AddItemToArray(jsn, e);
         }
     }
-    ship_t ships[MAX_SHIPS];
-    int n_ships = ships_get(ships, MAX_SHIPS);
+    static ship_t *ships;
+    if (ships == NULL) {
+        ships = heap_caps_malloc(MAX_SHIPS * sizeof(ship_t),
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    int n_ships = ships != NULL ? ships_get(ships, MAX_SHIPS) : 0;
     if (n_ships > 0) {
         cJSON *jsh = cJSON_AddArrayToObject(root, "ships");
         for (int i = 0; i < n_ships; i++) {

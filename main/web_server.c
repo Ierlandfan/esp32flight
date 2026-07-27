@@ -19,6 +19,7 @@
 #include "obslog.h"
 #include "alertlog.h"
 #include "settings.h"
+#include "ui.h"
 #include "flight_model.h"
 #include "waveshare_rgb_lcd_port.h"
 
@@ -689,6 +690,24 @@ static esp_err_t alerts_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+#ifndef APKFLIGHT
+/* undocumented helper for remote screenshots: /view?m=N switches the view */
+static esp_err_t view_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    char q[32] = "", val[8] = "";
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "m", val, sizeof(val)) == ESP_OK) {
+        if (lvgl_port_lock(1000)) {
+            ui_set_view(atoi(val));
+            lvgl_port_unlock();
+        }
+        return httpd_resp_sendstr(req, "ok");
+    }
+    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "m=0..6");
+}
+#endif
+
 static esp_err_t ota_post(httpd_req_t *req)
 {
     AUTH_GUARD(req);
@@ -836,6 +855,9 @@ void web_server_start(void)
         { .uri = "/api/log", .method = HTTP_GET, .handler = log_get },
         { .uri = "/api/alerts", .method = HTTP_GET, .handler = alerts_get },
         { .uri = "/screen.bmp", .method = HTTP_GET, .handler = screen_get },
+#ifndef APKFLIGHT
+        { .uri = "/view", .method = HTTP_GET, .handler = view_get },
+#endif
         { .uri = "/metrics", .method = HTTP_GET, .handler = metrics_get },
         { .uri = "/ota", .method = HTTP_POST, .handler = ota_post },
     };

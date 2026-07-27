@@ -14,15 +14,16 @@
 
 static const char *TAG = "airspace";
 
-#define FETCH_DIST_M   70000
+#define FETCH_DIST_M   50000   /* openAIP caps dist at 50 km */
 #define RETRY_US       (30LL * 60 * 1000 * 1000)
-#define BUF_SIZE       (160 * 1024)
+#define BUF_SIZE       (400 * 1024)
 
 static airspace_t *s_asp;     /* PSRAM, MAX_AIRSPACES entries */
 static int s_count;
-static double s_fetch_lat = 999, s_fetch_lon = 999;
+static double s_try_lat = 999, s_try_lon = 999;
 static int64_t s_last_try = -RETRY_US;
-static char s_fetch_key[64];
+static char s_try_key[64];
+static bool s_ok;             /* last fetch for s_try location and key succeeded */
 
 /* openAIP numeric airspace types, the handful worth naming on screen */
 const char *airspace_type_str(int type)
@@ -115,16 +116,21 @@ void airspace_poll(double home_lat, double home_lon)
         s_count = 0;
         return;
     }
-    bool moved = geo_haversine_km(s_fetch_lat, s_fetch_lon, home_lat, home_lon) > 25.0;
-    bool rekeyed = strcmp(s_fetch_key, cfg->openaip_key) != 0;
-    if (!moved && !rekeyed) {
+    bool moved = geo_haversine_km(s_try_lat, s_try_lon, home_lat, home_lon) > 25.0;
+    bool rekeyed = strcmp(s_try_key, cfg->openaip_key) != 0;
+    if (s_ok && !moved && !rekeyed) {
         return;
     }
+    /* after a failed attempt wait out the retry window, even for a new key:
+       hammering the API every poll cycle trips its rate limit */
     int64_t now = esp_timer_get_time();
-    if (now - s_last_try < RETRY_US && !rekeyed) {
+    if (now - s_last_try < RETRY_US) {
         return;
     }
     s_last_try = now;
+    s_try_lat = home_lat;
+    s_try_lon = home_lon;
+    strlcpy(s_try_key, cfg->openaip_key, sizeof(s_try_key));
 
     if (s_asp == NULL) {
         s_asp = heap_caps_calloc(MAX_AIRSPACES, sizeof(airspace_t),
@@ -144,11 +150,10 @@ void airspace_poll(double home_lat, double home_lon)
     if (http_get_to_buffer_hdr(url, buf, BUF_SIZE, NULL,
                                "x-openaip-api-key", cfg->openaip_key) == ESP_OK) {
         parse_airspaces(buf, home_lat, home_lon);
-        s_fetch_lat = home_lat;
-        s_fetch_lon = home_lon;
-        strlcpy(s_fetch_key, cfg->openaip_key, sizeof(s_fetch_key));
+        s_ok = true;
     } else {
-        ESP_LOGW(TAG, "fetch failed (bad key or offline), retry in 30 min");
+        s_ok = false;
+        ESP_LOGW(TAG, "fetch failed (rate limit, bad key or offline), retry in 30 min");
     }
     heap_caps_free(buf);
 }
