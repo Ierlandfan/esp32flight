@@ -97,6 +97,7 @@ static lv_obj_t *s_list_rows[MAX_SHOWN];
 static lv_obj_t *s_list_mode_btnm;
 static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
 static int s_list_plane_rows;    /* rows currently showing aircraft */
+static int s_row_plane_idx[MAX_SHOWN];   /* row -> s_shown index */
 static ship_t s_row_ships[MAX_SHOWN];        /* ships behind list rows */
 static int s_row_ship_count;
 static ship_t s_marker_ships[40];            /* ships behind map markers */
@@ -409,6 +410,17 @@ static void clock_timer_cb(lv_timer_t *t)
 
 static void render_list_rows(void);
 static const char *ship_type_word(uint8_t t);
+static bool radar_view_filter(double lat, double lon, float dist_km);
+
+static int row_of_shown(int shown_idx)
+{
+    for (int r = 0; r < s_list_plane_rows; r++) {
+        if (s_row_plane_idx[r] == shown_idx) {
+            return r;
+        }
+    }
+    return -1;
+}
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color);
 
 static void ship_pop_close_cb(lv_event_t *e)
@@ -504,9 +516,9 @@ static void row_click_cb(lv_event_t *e)
         return;
     }
     s_sel_ship_mmsi = 0;
-    if (idx >= 0 && idx < s_shown_count) {
-        s_selected = idx;
-        strlcpy(s_selected_hex, s_shown[idx].ac.hex, sizeof(s_selected_hex));
+    if (idx >= 0 && idx < s_list_plane_rows) {
+        s_selected = s_row_plane_idx[idx];
+        strlcpy(s_selected_hex, s_shown[s_selected].ac.hex, sizeof(s_selected_hex));
         render_list_selection();
         if (s_view_mode != VIEW_DETAIL) {
             lv_timer_reset(s_cycle_timer);
@@ -525,7 +537,10 @@ static void cycle_timer_cb(lv_timer_t *t)
     render_list_selection();
     render_right();
     /* keep the cycled aircraft visible in the list */
-    lv_obj_scroll_to_view(s_list_rows[s_selected], LV_ANIM_ON);
+    int row = row_of_shown(s_selected);
+    if (row >= 0) {
+        lv_obj_scroll_to_view(s_list_rows[row], LV_ANIM_ON);
+    }
 }
 
 static void apply_view(int mode)
@@ -1165,6 +1180,7 @@ static void radar_tiles_task(void *arg)
             lv_obj_invalidate(s_radar_img);
             if (s_view_mode == VIEW_RADAR) {
                 render_radar_panel();
+                render_list_rows();
             }
         }
         lvgl_port_unlock();
@@ -1237,7 +1253,10 @@ static void radar_dot_cb(lv_event_t *e)
             s_selected = j;
             strlcpy(s_selected_hex, s_shown[j].ac.hex, sizeof(s_selected_hex));
             render_list_selection();
-            lv_obj_scroll_to_view(s_list_rows[j], LV_ANIM_ON);
+            int row = row_of_shown(j);
+            if (row >= 0) {
+                lv_obj_scroll_to_view(s_list_rows[row], LV_ANIM_ON);
+            }
             render_radar_panel();
             lv_timer_reset(s_cycle_timer);
             return;
@@ -3040,7 +3059,7 @@ static void render_list_selection(void)
     for (int i = 0; i < MAX_SHOWN; i++) {
         bool sel;
         if (i < s_list_plane_rows) {
-            sel = i == s_selected && s_sel_ship_mmsi == 0;
+            sel = s_row_plane_idx[i] == s_selected && s_sel_ship_mmsi == 0;
         } else {
             int si = i - s_list_plane_rows;
             sel = si < s_row_ship_count && s_sel_ship_mmsi != 0 &&
@@ -3425,6 +3444,17 @@ static const char *ship_type_word(uint8_t t)
     return "SHIP";
 }
 
+/* on the radar map view the list mirrors the visible frame */
+static bool radar_view_filter(double lat, double lon, float dist_km)
+{
+    if (s_view_mode != VIEW_RADAR || !s_radar_view_ok) {
+        return true;
+    }
+    int x, y;
+    return radar_place(lat, lon, dist_km, true,
+                       settings_get()->radius_nm, &x, &y);
+}
+
 static void render_list_rows(void)
 {
     bool ships_on = settings_get()->ships_enabled;
@@ -3452,11 +3482,21 @@ static void render_list_rows(void)
             ships[j + 1] = tmp;
         }
     }
-    int n_planes = (mode == 1) ? 0 : s_shown_count;
+    int n_planes = 0;
+    if (mode != 1) {
+        for (int i = 0; i < s_shown_count && n_planes < MAX_SHOWN; i++) {
+            if (radar_view_filter(s_shown[i].ac.lat, s_shown[i].ac.lon,
+                                  (float)(s_shown[i].ac.dist_nm * 1.852))) {
+                s_row_plane_idx[n_planes++] = i;
+            }
+        }
+    }
     s_list_plane_rows = n_planes;
-    s_row_ship_count = n_ships < MAX_SHOWN ? n_ships : MAX_SHOWN;
-    if (s_row_ship_count > 0) {
-        memcpy(s_row_ships, ships, s_row_ship_count * sizeof(ship_t));
+    s_row_ship_count = 0;
+    for (int i = 0; i < n_ships && s_row_ship_count < MAX_SHOWN; i++) {
+        if (radar_view_filter(ships[i].lat, ships[i].lon, ships[i].dist_km)) {
+            s_row_ships[s_row_ship_count++] = ships[i];
+        }
     }
 
     for (int i = 0; i < MAX_SHOWN; i++) {
@@ -3486,7 +3526,7 @@ static void render_list_rows(void)
             continue;
         }
         if (i < n_planes) {
-            const aircraft_t *ac = &s_shown[i].ac;
+            const aircraft_t *ac = &s_shown[s_row_plane_idx[i]].ac;
             lv_obj_t *row = s_list_rows[i];
             lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
 
@@ -3518,7 +3558,7 @@ static void render_list_rows(void)
             lv_label_set_text(lv_obj_get_child(row, 2), info);
 
             lv_obj_t *logo_img = lv_obj_get_child(row, 3);
-            const char *code = airline_code(ac, &s_shown[i].route);
+            const char *code = airline_code(ac, &s_shown[s_row_plane_idx[i]].route);
             const lv_img_dsc_t *logo = code ? logos_get(code) : NULL;
             if (logo != NULL) {
                 lv_img_set_src(logo_img, logo);
