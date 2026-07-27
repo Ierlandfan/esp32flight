@@ -1364,10 +1364,10 @@ static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS]
 
 /* overlapping ship labels collapse into count badges with a tap-list */
 #define MAX_SHIP_GROUPS 8
-#define GRP_MEMBERS     14
+#define GRP_MEMBERS     48
 #define CLUSTER_PX      46
 static lv_obj_t *s_x_grp[MAX_SHIP_GROUPS];
-static ship_t s_grp_ships[MAX_SHIP_GROUPS][GRP_MEMBERS];
+static ship_t (*s_grp_ships)[GRP_MEMBERS];   /* PSRAM, MAX_SHIP_GROUPS rows */
 static int s_grp_count[MAX_SHIP_GROUPS];
 static lv_obj_t *s_grp_pop;
 static ship_t s_pop_ships[GRP_MEMBERS];
@@ -1544,8 +1544,17 @@ static void ship_group_cb(lv_event_t *e)
     if (g < 0 || g >= MAX_SHIP_GROUPS || s_grp_count[g] == 0) {
         return;
     }
-    s_pop_count = s_grp_count[g];
+    s_pop_count = s_grp_count[g] < GRP_MEMBERS ? s_grp_count[g] : GRP_MEMBERS;
     memcpy(s_pop_ships, s_grp_ships[g], s_pop_count * sizeof(ship_t));
+    for (int i = 1; i < s_pop_count; i++) {
+        ship_t tmp = s_pop_ships[i];
+        int j = i - 1;
+        while (j >= 0 && s_pop_ships[j].dist_km > tmp.dist_km) {
+            s_pop_ships[j + 1] = s_pop_ships[j];
+            j--;
+        }
+        s_pop_ships[j + 1] = tmp;
+    }
 
     if (s_grp_pop == NULL) {
         s_grp_pop = lv_obj_create(lv_layer_top());
@@ -1701,49 +1710,112 @@ static void render_radar_extras(bool map_mode, int radius_nm)
             placed++;
         }
     }
-    int drawn = 0, groups = 0;
+    if (s_grp_ships == NULL) {
+        s_grp_ships = heap_caps_malloc(MAX_SHIP_GROUPS * sizeof(*s_grp_ships),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    /* pass 1: proximity groups; pass 2: merge groups whose badges
+       would overlap; then emit singles + badges */
+    static int gid[MAX_SHIPS];
+    static long gx[MAX_SHIPS], gy[MAX_SHIPS];
+    static int gcnt[MAX_SHIPS];
+    int ng = 0;
     for (int i = 0; i < placed; i++) {
-        if (used[i]) {
+        gid[i] = -1;
+    }
+    for (int i = 0; i < placed; i++) {
+        if (gid[i] >= 0) {
             continue;
         }
-        int members[GRP_MEMBERS];
+        gid[i] = ng;
+        gx[ng] = px[i];
+        gy[ng] = py[i];
+        gcnt[ng] = 1;
+        for (int j = i + 1; j < placed; j++) {
+            if (gid[j] < 0 &&
+                abs(px[j] - (int)(gx[ng] / gcnt[ng])) < CLUSTER_PX &&
+                abs(py[j] - (int)(gy[ng] / gcnt[ng])) < CLUSTER_PX) {
+                gid[j] = ng;
+                gx[ng] += px[j];
+                gy[ng] += py[j];
+                gcnt[ng]++;
+            }
+        }
+        ng++;
+    }
+    /* merge until no two multi-ship badges overlap (badge ~120x40 px) */
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (int a = 0; a < ng && !merged; a++) {
+            if (gcnt[a] < 2) {
+                continue;
+            }
+            for (int b = a + 1; b < ng; b++) {
+                if (gcnt[b] < 1 || (gcnt[b] == 1 && gcnt[a] == 1)) {
+                    continue;
+                }
+                if (gcnt[b] >= 2 || gcnt[a] >= 2) {
+                    int ax = (int)(gx[a] / gcnt[a]), ay = (int)(gy[a] / gcnt[a]);
+                    int bx = (int)(gx[b] / gcnt[b]), by = (int)(gy[b] / gcnt[b]);
+                    if (abs(ax - bx) < 124 && abs(ay - by) < 42) {
+                        for (int i = 0; i < placed; i++) {
+                            if (gid[i] == b) {
+                                gid[i] = a;
+                            }
+                        }
+                        gx[a] += gx[b];
+                        gy[a] += gy[b];
+                        gcnt[a] += gcnt[b];
+                        gcnt[b] = 0;
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    int drawn = 0, groups = 0;
+    for (int g = 0; g < ng; g++) {
+        if (gcnt[g] == 0) {
+            continue;
+        }
+        if (gcnt[g] == 1) {
+            for (int i = 0; i < placed && drawn < MAX_SHIP_MARKERS; i++) {
+                if (gid[i] != g) {
+                    continue;
+                }
+                const ship_t *sh1 = &shp[placed_idx[i]];
+                lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
+                s_marker_ships[drawn] = *sh1;
+                lv_label_set_text(s_x_ship_lbl[drawn],
+                                  sh1->name[0] ? sh1->name : "ship");
+                lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + 8, py[i] - 8);
+                lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
+                drawn++;
+                break;
+            }
+            continue;
+        }
+        if (groups >= MAX_SHIP_GROUPS || s_grp_ships == NULL) {
+            continue;
+        }
         int m = 0;
-        members[m++] = i;
-        for (int j = i + 1; j < placed && m < GRP_MEMBERS; j++) {
-            if (!used[j] && abs(px[j] - px[i]) < CLUSTER_PX &&
-                abs(py[j] - py[i]) < CLUSTER_PX) {
-                members[m++] = j;
-                used[j] = true;
+        for (int i = 0; i < placed; i++) {
+            if (gid[i] == g && m < GRP_MEMBERS) {
+                s_grp_ships[groups][m++] = shp[placed_idx[i]];
             }
         }
-        used[i] = true;
-        if (m == 1 && drawn < MAX_SHIP_MARKERS) {
-            const ship_t *sh1 = &shp[placed_idx[i]];
-            lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
-            s_marker_ships[drawn] = *sh1;
-            lv_label_set_text(s_x_ship_lbl[drawn],
-                              sh1->name[0] ? sh1->name : "ship");
-            lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + 8, py[i] - 8);
-            lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
-            drawn++;
-        } else if (m > 1 && groups < MAX_SHIP_GROUPS) {
-            long cx = 0, cy = 0;
-            for (int k = 0; k < m; k++) {
-                s_grp_ships[groups][k] = shp[placed_idx[members[k]]];
-                cx += px[members[k]];
-                cy += py[members[k]];
-            }
-            s_grp_count[groups] = m;
-            lv_obj_t *bl = lv_obj_get_child(s_x_grp[groups], 0);
-            lv_label_set_text_fmt(bl, "%s \xC2\xB7 %d", L()->lm_ships, m);
-            lv_obj_update_layout(s_x_grp[groups]);
-            lv_obj_set_pos(s_x_grp[groups],
-                           (int)(cx / m) - lv_obj_get_width(s_x_grp[groups]) / 2,
-                           (int)(cy / m) - 15);
-            lv_obj_clear_flag(s_x_grp[groups], LV_OBJ_FLAG_HIDDEN);
-            groups++;
-        }
+        s_grp_count[groups] = m;
+        lv_obj_t *bl = lv_obj_get_child(s_x_grp[groups], 0);
+        lv_label_set_text_fmt(bl, "%s \xC2\xB7 %d", L()->lm_ships, gcnt[g]);
+        lv_obj_update_layout(s_x_grp[groups]);
+        lv_obj_set_pos(s_x_grp[groups],
+                       (int)(gx[g] / gcnt[g]) - lv_obj_get_width(s_x_grp[groups]) / 2,
+                       (int)(gy[g] / gcnt[g]) - 15);
+        lv_obj_clear_flag(s_x_grp[groups], LV_OBJ_FLAG_HIDDEN);
+        groups++;
     }
     for (int i = drawn; i < MAX_SHIP_MARKERS; i++) {
         lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_HIDDEN);
