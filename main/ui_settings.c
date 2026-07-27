@@ -242,7 +242,31 @@ static void ota_unlock_cb(lv_event_t *e)
 static int parse_hhmm(const char *txt, int fallback)
 {
     int h = 0, m = 0;
-    if (sscanf(txt, "%d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) {
+    /* the on-screen numeric keypad has no colon, so 21:00, 21.00,
+       2100, 830 and a bare 21 all have to parse */
+    if (sscanf(txt, "%d:%d", &h, &m) != 2 && sscanf(txt, "%d.%d", &h, &m) != 2) {
+        char d[6];
+        int n = 0;
+        for (const char *c = txt; *c; c++) {
+            if (*c >= '0' && *c <= '9') {
+                if (n >= (int)sizeof(d) - 1) return fallback;
+                d[n++] = *c;
+            } else if (*c != ' ') {
+                return fallback;
+            }
+        }
+        if (n == 0) return fallback;
+        d[n] = 0;
+        if (n <= 2) {
+            h = atoi(d);
+            m = 0;
+        } else {
+            m = atoi(d + n - 2);
+            d[n - 2] = 0;
+            h = atoi(d);
+        }
+    }
+    if (h >= 0 && h < 24 && m >= 0 && m < 60) {
         return h * 60 + m;
     }
     return fallback;
@@ -279,6 +303,13 @@ static void save_cb(lv_event_t *e)
                                       cfg->night_start_min);
     cfg->night_end_min = parse_hhmm(lv_textarea_get_text(s_ta_night_to),
                                     cfg->night_end_min);
+    char hhmm[16];
+    snprintf(hhmm, sizeof(hhmm), "%02d:%02d",
+             cfg->night_start_min / 60, cfg->night_start_min % 60);
+    lv_textarea_set_text(s_ta_night_from, hhmm);
+    snprintf(hhmm, sizeof(hhmm), "%02d:%02d",
+             cfg->night_end_min / 60, cfg->night_end_min % 60);
+    lv_textarea_set_text(s_ta_night_to, hhmm);
     cfg->ambient_idle_min = atoi(lv_textarea_get_text(s_ta_amb_idle));
     cfg->rain_overlay = lv_obj_has_state(s_sw_rain, LV_STATE_CHECKED);
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
