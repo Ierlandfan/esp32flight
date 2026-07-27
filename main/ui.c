@@ -97,6 +97,10 @@ static lv_obj_t *s_list_mode_btnm;
 static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
 static int s_list_plane_rows;    /* rows currently showing aircraft */
 
+/* the list toggle also decides what the radar/map draws */
+static bool view_shows_planes(void);
+static bool view_shows_ships(void);
+
 /* Right-panel view modes */
 #define VIEW_DETAIL 0
 #define VIEW_MAP    1
@@ -401,6 +405,7 @@ static void list_mode_cb(lv_event_t *e)
     }
     s_list_mode = (uint8_t)id;
     render_list_rows();
+    render_right();
 }
 
 static void row_click_cb(lv_event_t *e)
@@ -1148,6 +1153,16 @@ static lv_obj_t *s_x_iss_dot, *s_x_iss_lbl, *s_x_iss_status;
 static lv_obj_t *s_x_sonde_dot[MAX_SONDES], *s_x_sonde_lbl[MAX_SONDES];
 static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS];
 
+static bool view_shows_planes(void)
+{
+    return !(settings_get()->ships_enabled && s_list_mode == 1);
+}
+
+static bool view_shows_ships(void)
+{
+    return settings_get()->ships_enabled && s_list_mode != 0;
+}
+
 /* 64-slot ship array is too big for a task stack; both users of this
    buffer run in the LVGL task, so one shared PSRAM block is enough */
 static ship_t *ui_ship_buf(void)
@@ -1345,7 +1360,7 @@ static void render_radar_extras(bool map_mode, int radius_nm)
     }
 
     ship_t *shp = ui_ship_buf();
-    int nsh = shp != NULL ? ships_get(shp, MAX_SHIPS) : 0;
+    int nsh = (shp != NULL && view_shows_ships()) ? ships_get(shp, MAX_SHIPS) : 0;
     int drawn = 0;
     for (int i = 0; i < nsh && drawn < MAX_SHIP_MARKERS; i++) {
         if (!radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
@@ -1406,8 +1421,9 @@ static void render_radar_panel(void)
 
     const aircraft_t *selac = (s_selected >= 0 && s_selected < s_shown_count)
                                   ? &s_shown[s_selected].ac : NULL;
+    bool planes_on = view_shows_planes();
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
-        if (i >= s_all_count || s_all[i].dist_nm < 0) {
+        if (!planes_on || i >= s_all_count || s_all[i].dist_nm < 0) {
             lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -1463,7 +1479,7 @@ static void render_radar_panel(void)
             lv_obj_set_pos(s_radar_info, lx, ly);
         }
     }
-    if (s_selected < 0 || s_selected >= s_shown_count) {
+    if (!planes_on || s_selected < 0 || s_selected >= s_shown_count) {
         lv_label_set_text(s_radar_info, "");
     }
     render_radar_extras(map_mode, radius_nm);
