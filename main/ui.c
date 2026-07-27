@@ -98,9 +98,9 @@ static lv_obj_t *s_list_mode_btnm;
 static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
 static int s_list_plane_rows;    /* rows currently showing aircraft */
 static int s_row_plane_idx[MAX_SHOWN];   /* row -> s_shown index */
-static ship_t s_row_ships[MAX_SHOWN];        /* ships behind list rows */
+static ship_t *s_row_ships;                  /* PSRAM, ships behind list rows */
 static int s_row_ship_count;
-static ship_t s_marker_ships[40];            /* ships behind map markers */
+static ship_t *s_marker_ships;               /* PSRAM, ships behind map markers */
 static lv_obj_t *s_ship_pop, *s_ship_pop_name, *s_ship_pop_sub, *s_ship_pop_info;
 static lv_obj_t *s_ship_content, *s_ship_name, *s_ship_sub, *s_ship_vals[6];
 static uint32_t s_sel_ship_mmsi;             /* 0 = no ship selected */
@@ -481,7 +481,7 @@ static void ship_popup_show(const ship_t *sh)
 static void ship_marker_cb(lv_event_t *e)
 {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
-    if (i >= 0 && i < 40) {
+    if (s_marker_ships != NULL && i >= 0 && i < 40) {
         ship_popup_show(&s_marker_ships[i]);
     }
 }
@@ -1370,7 +1370,7 @@ static lv_obj_t *s_x_grp[MAX_SHIP_GROUPS];
 static ship_t (*s_grp_ships)[GRP_MEMBERS];   /* PSRAM, MAX_SHIP_GROUPS rows */
 static int s_grp_count[MAX_SHIP_GROUPS];
 static lv_obj_t *s_grp_pop;
-static ship_t s_pop_ships[GRP_MEMBERS];
+static ship_t *s_pop_ships;                  /* PSRAM */
 static int s_pop_count;
 
 static bool view_shows_planes(void)
@@ -1542,6 +1542,9 @@ static void ship_group_cb(lv_event_t *e)
 {
     int g = (int)(intptr_t)lv_event_get_user_data(e);
     if (g < 0 || g >= MAX_SHIP_GROUPS || s_grp_count[g] == 0) {
+        return;
+    }
+    if (s_pop_ships == NULL) {
         return;
     }
     s_pop_count = s_grp_count[g] < GRP_MEMBERS ? s_grp_count[g] : GRP_MEMBERS;
@@ -1786,6 +1789,9 @@ static void render_radar_extras(bool map_mode, int radius_nm)
                     continue;
                 }
                 const ship_t *sh1 = &shp[placed_idx[i]];
+                if (s_marker_ships == NULL) {
+                    break;
+                }
                 lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
                 s_marker_ships[drawn] = *sh1;
                 lv_label_set_text(s_x_ship_lbl[drawn],
@@ -3022,6 +3028,14 @@ static void build_detail(lv_obj_t *scr)
 
 void ui_init(void)
 {
+    /* ship bookkeeping is bulky; keep it out of internal RAM */
+    s_row_ships = heap_caps_calloc(MAX_SHOWN, sizeof(ship_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_marker_ships = heap_caps_calloc(40, sizeof(ship_t),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_pop_ships = heap_caps_calloc(GRP_MEMBERS, sizeof(ship_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_bg_color(scr, COL_BG, 0);
 
@@ -3565,7 +3579,7 @@ static void render_list_rows(void)
     }
     s_list_plane_rows = n_planes;
     s_row_ship_count = 0;
-    for (int i = 0; i < n_ships && s_row_ship_count < MAX_SHOWN; i++) {
+    for (int i = 0; s_row_ships != NULL && i < n_ships && s_row_ship_count < MAX_SHOWN; i++) {
         if (radar_view_filter(ships[i].lat, ships[i].lon, ships[i].dist_km)) {
             s_row_ships[s_row_ship_count++] = ships[i];
         }
