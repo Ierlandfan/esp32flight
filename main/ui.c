@@ -1280,6 +1280,17 @@ static lv_obj_t *s_x_iss_dot, *s_x_iss_lbl, *s_x_iss_status;
 static lv_obj_t *s_x_sonde_dot[MAX_SONDES], *s_x_sonde_lbl[MAX_SONDES];
 static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS];
 
+/* overlapping ship labels collapse into count badges with a tap-list */
+#define MAX_SHIP_GROUPS 8
+#define GRP_MEMBERS     14
+#define CLUSTER_PX      46
+static lv_obj_t *s_x_grp[MAX_SHIP_GROUPS];
+static ship_t s_grp_ships[MAX_SHIP_GROUPS][GRP_MEMBERS];
+static int s_grp_count[MAX_SHIP_GROUPS];
+static lv_obj_t *s_grp_pop;
+static ship_t s_pop_ships[GRP_MEMBERS];
+static int s_pop_count;
+
 static bool view_shows_planes(void)
 {
     return !(settings_get()->ships_enabled && s_list_mode == 1);
@@ -1421,6 +1432,78 @@ static void render_airspaces(bool map_mode)
     }
 }
 
+static void grp_pop_close_cb(lv_event_t *e)
+{
+    lv_obj_add_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void grp_row_cb(lv_event_t *e)
+{
+    int k = (int)(intptr_t)lv_event_get_user_data(e);
+    lv_obj_add_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+    if (k >= 0 && k < s_pop_count) {
+        ship_popup_show(&s_pop_ships[k]);
+    }
+}
+
+static void ship_group_cb(lv_event_t *e)
+{
+    int g = (int)(intptr_t)lv_event_get_user_data(e);
+    if (g < 0 || g >= MAX_SHIP_GROUPS || s_grp_count[g] == 0) {
+        return;
+    }
+    s_pop_count = s_grp_count[g];
+    memcpy(s_pop_ships, s_grp_ships[g], s_pop_count * sizeof(ship_t));
+
+    if (s_grp_pop == NULL) {
+        s_grp_pop = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_grp_pop, 470, 330);
+        lv_obj_center(s_grp_pop);
+        lv_obj_set_style_bg_color(s_grp_pop, COL_ROW, 0);
+        lv_obj_set_style_border_color(s_grp_pop, lv_color_hex(0x4fd1c5), 0);
+        lv_obj_set_style_border_width(s_grp_pop, 2, 0);
+        lv_obj_set_style_radius(s_grp_pop, 14, 0);
+        lv_obj_set_style_pad_all(s_grp_pop, 12, 0);
+        lv_obj_set_style_pad_row(s_grp_pop, 4, 0);
+        lv_obj_set_flex_flow(s_grp_pop, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_scroll_dir(s_grp_pop, LV_DIR_VER);
+        lv_obj_add_event_cb(s_grp_pop, grp_pop_close_cb, LV_EVENT_CLICKED, NULL);
+    }
+    lv_obj_clean(s_grp_pop);
+    lv_obj_t *title = make_label(s_grp_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
+    lv_label_set_text_fmt(title, "%s \xC2\xB7 %d", L()->lm_ships, s_pop_count);
+    for (int k = 0; k < s_pop_count; k++) {
+        lv_obj_t *row = lv_obj_create(s_grp_pop);
+        lv_obj_set_size(row, LV_PCT(100), 44);
+        lv_obj_set_style_bg_color(row, COL_PANEL, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_radius(row, 8, 0);
+        lv_obj_set_style_pad_all(row, 8, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, grp_row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
+        lv_obj_t *nm = make_label(row, &font_pl_16, COL_TEXT);
+        char nb[26];
+        if (s_pop_ships[k].name[0]) {
+            strlcpy(nb, s_pop_ships[k].name, sizeof(nb));
+        } else {
+            snprintf(nb, sizeof(nb), "%lu", (unsigned long)s_pop_ships[k].mmsi);
+        }
+        lv_label_set_text(nm, nb);
+        lv_obj_align(nm, LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_t *inf = make_label(row, &font_pl_14, COL_DIM);
+        char ib[52], us[20];
+        snprintf(ib, sizeof(ib), "%s  %s  %.1f km",
+                 ship_type_word(s_pop_ships[k].stype),
+                 units_speed(s_pop_ships[k].sog_kt, us, sizeof(us)),
+                 (double)s_pop_ships[k].dist_km);
+        lv_label_set_text(inf, ib);
+        lv_obj_align(inf, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+    lv_obj_clear_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_grp_pop);
+}
+
 static void render_radar_extras(bool map_mode, int radius_nm)
 {
     if (s_x_iss_dot == NULL) {
@@ -1431,6 +1514,24 @@ static void render_radar_extras(bool map_mode, int radius_nm)
         for (int i = 0; i < MAX_SONDES; i++) {
             s_x_sonde_dot[i] = extra_dot(lv_color_hex(0xffb347), 10, LV_RADIUS_CIRCLE);
             s_x_sonde_lbl[i] = extra_lbl(lv_color_hex(0xffb347));
+        }
+        for (int g = 0; g < MAX_SHIP_GROUPS; g++) {
+            lv_obj_t *b = lv_obj_create(s_radar_panel);
+            lv_obj_set_size(b, LV_SIZE_CONTENT, 30);
+            lv_obj_set_style_bg_color(b, lv_color_hex(0x123a36), 0);
+            lv_obj_set_style_border_color(b, lv_color_hex(0x4fd1c5), 0);
+            lv_obj_set_style_border_width(b, 1, 0);
+            lv_obj_set_style_radius(b, 15, 0);
+            lv_obj_set_style_pad_hor(b, 10, 0);
+            lv_obj_set_style_pad_ver(b, 4, 0);
+            lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(b, ship_group_cb, LV_EVENT_CLICKED,
+                                (void *)(intptr_t)g);
+            lv_obj_t *bl = make_label(b, &font_pl_14, lv_color_hex(0x4fd1c5));
+            lv_obj_center(bl);
+            lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+            s_x_grp[g] = b;
         }
         for (int i = 0; i < MAX_SHIP_MARKERS; i++) {
             s_x_ship_dot[i] = extra_dot(lv_color_hex(0x4fd1c5), 9, 2);
@@ -1492,24 +1593,73 @@ static void render_radar_extras(bool map_mode, int radius_nm)
 
     ship_t *shp = ui_ship_buf();
     int nsh = (shp != NULL && view_shows_ships()) ? ships_get(shp, MAX_SHIPS) : 0;
-    int drawn = 0;
-    for (int i = 0; i < nsh && drawn < MAX_SHIP_MARKERS; i++) {
-        if (!radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
-                         map_mode, radius_nm, &x, &y)) {
+
+    /* place everything first, then collapse overlaps into count badges */
+    static int px[MAX_SHIPS], py[MAX_SHIPS];
+    static bool used[MAX_SHIPS];
+    int placed_idx[MAX_SHIPS];
+    int placed = 0;
+    for (int i = 0; i < nsh; i++) {
+        if (radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
+                        map_mode, radius_nm, &x, &y)) {
+            px[placed] = x;
+            py[placed] = y;
+            placed_idx[placed] = i;
+            used[placed] = false;
+            placed++;
+        }
+    }
+    int drawn = 0, groups = 0;
+    for (int i = 0; i < placed; i++) {
+        if (used[i]) {
             continue;
         }
-        lv_obj_set_pos(s_x_ship_dot[drawn], x - 4, y - 4);
-        s_marker_ships[drawn] = shp[i];
-        lv_label_set_text(s_x_ship_lbl[drawn],
-                          shp[i].name[0] ? shp[i].name : "ship");
-        lv_obj_set_pos(s_x_ship_lbl[drawn], x + 8, y - 8);
-        lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
-        drawn++;
+        int members[GRP_MEMBERS];
+        int m = 0;
+        members[m++] = i;
+        for (int j = i + 1; j < placed && m < GRP_MEMBERS; j++) {
+            if (!used[j] && abs(px[j] - px[i]) < CLUSTER_PX &&
+                abs(py[j] - py[i]) < CLUSTER_PX) {
+                members[m++] = j;
+                used[j] = true;
+            }
+        }
+        used[i] = true;
+        if (m == 1 && drawn < MAX_SHIP_MARKERS) {
+            const ship_t *sh1 = &shp[placed_idx[i]];
+            lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
+            s_marker_ships[drawn] = *sh1;
+            lv_label_set_text(s_x_ship_lbl[drawn],
+                              sh1->name[0] ? sh1->name : "ship");
+            lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + 8, py[i] - 8);
+            lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
+            drawn++;
+        } else if (m > 1 && groups < MAX_SHIP_GROUPS) {
+            long cx = 0, cy = 0;
+            for (int k = 0; k < m; k++) {
+                s_grp_ships[groups][k] = shp[placed_idx[members[k]]];
+                cx += px[members[k]];
+                cy += py[members[k]];
+            }
+            s_grp_count[groups] = m;
+            lv_obj_t *bl = lv_obj_get_child(s_x_grp[groups], 0);
+            lv_label_set_text_fmt(bl, "%s \xC2\xB7 %d", L()->lm_ships, m);
+            lv_obj_update_layout(s_x_grp[groups]);
+            lv_obj_set_pos(s_x_grp[groups],
+                           (int)(cx / m) - lv_obj_get_width(s_x_grp[groups]) / 2,
+                           (int)(cy / m) - 15);
+            lv_obj_clear_flag(s_x_grp[groups], LV_OBJ_FLAG_HIDDEN);
+            groups++;
+        }
     }
     for (int i = drawn; i < MAX_SHIP_MARKERS; i++) {
         lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_x_ship_lbl[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int g = groups; g < MAX_SHIP_GROUPS; g++) {
+        lv_obj_add_flag(s_x_grp[g], LV_OBJ_FLAG_HIDDEN);
+        s_grp_count[g] = 0;
     }
 }
 
