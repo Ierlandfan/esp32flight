@@ -40,6 +40,13 @@ typedef struct {
     uint8_t show_classes;     /* bitmask of flight_class_t, FCLS_ALL_MASK = all */
     bool    rain_overlay;     /* RainViewer precipitation layer on maps/radar */
     uint8_t amb_style;        /* screensaver: 0 = map, 1 = retro radar */
+    bool    taf_enabled;      /* fetch TAF along with METAR */
+    bool    iss_enabled;      /* ISS as an extra radar object */
+    bool    sonde_enabled;    /* SondeHub radiosondes as radar objects */
+    bool    ships_enabled;    /* AIS ships via aisstream.io (needs ais_key) */
+    bool    airspace_enabled; /* openAIP airspace outlines (needs openaip_key) */
+    char    openaip_key[64];  /* openAIP client id */
+    char    ais_key[48];      /* aisstream.io API key */
 } settings_t;
 
 /* Load from NVS (menuconfig values as first-boot defaults). Call once at

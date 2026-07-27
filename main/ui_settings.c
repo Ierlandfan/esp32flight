@@ -42,6 +42,8 @@ static lv_obj_t *s_dd_networks, *s_dd_cities, *s_dd_theme, *s_dd_lang;
 static lv_obj_t *s_sw_auto, *s_sw_ground, *s_sw_cpa, *s_sw_night;
 static lv_obj_t *s_sw_cls[FCLS_COUNT];
 static lv_obj_t *s_sw_rain;
+static lv_obj_t *s_sw_airsp, *s_sw_iss, *s_sw_sonde, *s_sw_ships, *s_sw_taf;
+static lv_obj_t *s_ta_oaip, *s_ta_ais;
 static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
@@ -312,6 +314,15 @@ static void save_cb(lv_event_t *e)
     lv_textarea_set_text(s_ta_night_to, hhmm);
     cfg->ambient_idle_min = atoi(lv_textarea_get_text(s_ta_amb_idle));
     cfg->rain_overlay = lv_obj_has_state(s_sw_rain, LV_STATE_CHECKED);
+    cfg->airspace_enabled = lv_obj_has_state(s_sw_airsp, LV_STATE_CHECKED);
+    cfg->iss_enabled = lv_obj_has_state(s_sw_iss, LV_STATE_CHECKED);
+    cfg->sonde_enabled = lv_obj_has_state(s_sw_sonde, LV_STATE_CHECKED);
+#ifndef APKFLIGHT
+    cfg->ships_enabled = lv_obj_has_state(s_sw_ships, LV_STATE_CHECKED);
+    strlcpy(cfg->ais_key, lv_textarea_get_text(s_ta_ais), sizeof(cfg->ais_key));
+#endif
+    cfg->taf_enabled = lv_obj_has_state(s_sw_taf, LV_STATE_CHECKED);
+    strlcpy(cfg->openaip_key, lv_textarea_get_text(s_ta_oaip), sizeof(cfg->openaip_key));
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
     strlcpy(cfg->watch_regs, lv_textarea_get_text(s_ta_watch), sizeof(cfg->watch_regs));
     strlcpy(cfg->ntfy_topic, lv_textarea_get_text(s_ta_ntfy), sizeof(cfg->ntfy_topic));
@@ -582,24 +593,44 @@ void ui_settings_open(void)
 
     add_section(p, L()->sec_layers, 580);
     s_sw_rain = add_switch(p, L()->rain_lbl, 0, 612, cfg->rain_overlay);
+    s_sw_airsp = add_switch(p, L()->airspace_lbl, 380, 612, cfg->airspace_enabled);
+    s_sw_iss = add_switch(p, L()->iss_lbl, 0, 664, cfg->iss_enabled);
+    s_sw_sonde = add_switch(p, L()->sonde_lbl, 380, 664, cfg->sonde_enabled);
+#ifndef APKFLIGHT
+    s_sw_ships = add_switch(p, L()->ships_lbl, 0, 716, cfg->ships_enabled);
+#endif
+    s_sw_taf = add_switch(p, L()->taf_lbl, 380, 716, cfg->taf_enabled);
 
     /* --- Integrations --- */
     p = tab_page(tv, L()->tab_integr);
-    add_label(p, L()->lbl_ntfy, 0, 0);
-    s_ta_ntfy = add_textarea(p, 0, 24, 360, cfg->ntfy_topic, false);
-    add_hint(p, L()->hint_ntfy, 0, 70, 360);
-    add_label(p, L()->lbl_mqtt, 380, 0);
-    s_ta_mqtt = add_textarea(p, 380, 24, 360, cfg->mqtt_uri, false);
-    add_hint(p, L()->hint_mqtt, 380, 70, 360);
-    add_label(p, L()->lbl_fa, 0, 118);
-    s_ta_fa = add_textarea(p, 0, 142, 360, cfg->fa_key, false);
-    add_hint(p, L()->hint_fa, 0, 188, 360);
-    add_label(p, L()->lbl_webhook, 380, 118);
-    s_ta_webhook = add_textarea(p, 380, 142, 360, cfg->webhook_url, false);
-    add_hint(p, L()->hint_webhook, 380, 188, 360);
-    add_label(p, L()->lbl_ladsb, 0, 236);
-    s_ta_ladsb = add_textarea(p, 0, 260, 740, cfg->local_adsb, false);
-    add_hint(p, L()->hint_ladsb, 0, 306, 740);
+    add_section(p, L()->sec_notify, 0);
+    add_label(p, L()->lbl_ntfy, 0, 32);
+    s_ta_ntfy = add_textarea(p, 0, 56, 360, cfg->ntfy_topic, false);
+    add_hint(p, L()->hint_ntfy, 0, 102, 360);
+    add_label(p, L()->lbl_webhook, 380, 32);
+    s_ta_webhook = add_textarea(p, 380, 56, 360, cfg->webhook_url, false);
+    add_hint(p, L()->hint_webhook, 380, 102, 360);
+
+    add_section(p, L()->sec_datasrc, 154);
+    add_label(p, L()->lbl_fa, 0, 186);
+    s_ta_fa = add_textarea(p, 0, 210, 360, cfg->fa_key, false);
+    add_hint(p, L()->hint_fa, 0, 256, 360);
+    add_label(p, L()->lbl_ladsb, 380, 186);
+    s_ta_ladsb = add_textarea(p, 380, 210, 360, cfg->local_adsb, false);
+    add_hint(p, L()->hint_ladsb, 380, 256, 360);
+    add_label(p, L()->lbl_oaip, 0, 304);
+    s_ta_oaip = add_textarea(p, 0, 328, 360, cfg->openaip_key, false);
+    add_hint(p, L()->hint_oaip, 0, 374, 360);
+#ifndef APKFLIGHT
+    add_label(p, L()->lbl_ais, 380, 304);
+    s_ta_ais = add_textarea(p, 380, 328, 360, cfg->ais_key, false);
+    add_hint(p, L()->hint_ais, 380, 374, 360);
+#endif
+
+    add_section(p, L()->sec_smart, 426);
+    add_label(p, L()->lbl_mqtt, 0, 458);
+    s_ta_mqtt = add_textarea(p, 0, 482, 360, cfg->mqtt_uri, false);
+    add_hint(p, L()->hint_mqtt, 0, 528, 740);
 
     /* --- System --- */
     p = tab_page(tv, L()->tab_system);

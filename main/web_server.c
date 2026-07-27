@@ -469,6 +469,13 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "filter_apt_exclude", c->filter_apt_exclude);
     cJSON_AddNumberToObject(root, "alt_min_ft", c->alt_min_ft);
     cJSON_AddNumberToObject(root, "alt_max_ft", c->alt_max_ft);
+    cJSON_AddBoolToObject(root, "taf_enabled", c->taf_enabled);
+    cJSON_AddBoolToObject(root, "iss_enabled", c->iss_enabled);
+    cJSON_AddBoolToObject(root, "sonde_enabled", c->sonde_enabled);
+    cJSON_AddBoolToObject(root, "ships_enabled", c->ships_enabled);
+    cJSON_AddBoolToObject(root, "airspace_enabled", c->airspace_enabled);
+    cJSON_AddStringToObject(root, "openaip_key", c->openaip_key);
+    cJSON_AddStringToObject(root, "ais_key", c->ais_key);
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
@@ -556,6 +563,23 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "alt_max_ft")))) {
         c->alt_max_ft = (int)j->valuedouble;
     }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "taf_enabled")))) {
+        c->taf_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "iss_enabled")))) {
+        c->iss_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "sonde_enabled")))) {
+        c->sonde_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "ships_enabled")))) {
+        c->ships_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "airspace_enabled")))) {
+        c->airspace_enabled = cJSON_IsTrue(j);
+    }
+    set_str_field(root, "openaip_key", c->openaip_key, sizeof(c->openaip_key));
+    set_str_field(root, "ais_key", c->ais_key, sizeof(c->ais_key));
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat"))) &&
         j->valuedouble >= -90.0 && j->valuedouble <= 90.0) {
         c->lat = j->valuedouble;

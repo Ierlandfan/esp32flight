@@ -23,6 +23,9 @@
 #include "regcountry.h"
 #include "routes.h"
 #include "metar.h"
+#include "extras.h"
+#include "ships.h"
+#include "airspace.h"
 #include "dailystats.h"
 #include "tilemap.h"
 #include "rainviewer.h"
@@ -1093,6 +1096,218 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_label_set_text(s_radar_range, "");
 }
 
+/* ---------- optional extra objects: ISS, radiosondes, AIS ships ---------- */
+
+#define MAX_SHIP_MARKERS 10
+
+static lv_obj_t *s_x_iss_dot, *s_x_iss_lbl, *s_x_iss_status;
+static lv_obj_t *s_x_sonde_dot[MAX_SONDES], *s_x_sonde_lbl[MAX_SONDES];
+static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS];
+
+static lv_obj_t *extra_dot(lv_color_t color, int size, int radius)
+{
+    lv_obj_t *d = lv_obj_create(s_radar_panel);
+    lv_obj_set_size(d, size, size);
+    lv_obj_set_style_radius(d, radius, 0);
+    lv_obj_set_style_bg_color(d, color, 0);
+    lv_obj_set_style_border_width(d, 1, 0);
+    lv_obj_set_style_border_color(d, lv_color_white(), 0);
+    lv_obj_clear_flag(d, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    return d;
+}
+
+static lv_obj_t *extra_lbl(lv_color_t color)
+{
+    lv_obj_t *l = lv_label_create(s_radar_panel);
+    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_color(l, color, 0);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+    return l;
+}
+
+/* place a lat/lon at dist_km from home onto the radar; false = outside */
+static bool radar_place(double lat, double lon, float dist_km,
+                        bool map_mode, int radius_nm, int *x, int *y)
+{
+    if (map_mode) {
+        tilemap_project(&s_radar_view, lat, lon, x, y);
+        return *x >= -10 && *x <= RADAR_W + 10 && *y >= -10 && *y <= RADAR_H + 10;
+    }
+    float frac = dist_km / (radius_nm * 1.852f);
+    if (frac > 1.0f) {
+        return false;
+    }
+    float rad = (float)geo_bearing_deg(s_home_lat, s_home_lon, lat, lon) *
+                (float)M_PI / 180.0f;
+    *x = RADAR_CX + (int)(sinf(rad) * frac * RADAR_R);
+    *y = RADAR_CY - (int)(cosf(rad) * frac * RADAR_R);
+    return true;
+}
+
+static lv_obj_t *s_x_asp_line[MAX_AIRSPACES];
+static lv_obj_t *s_x_asp_lbl[MAX_AIRSPACES];
+static lv_point_t (*s_x_asp_pts)[MAX_ASP_POINTS + 1];
+
+static lv_color_t airspace_color(int type)
+{
+    switch (type) {
+    case 4: case 27:          return lv_color_hex(0xe06666);  /* CTR/MCTR */
+    case 7: case 26: case 13: return lv_color_hex(0x6fa8dc);  /* TMA/MTMA/ATZ */
+    default:                  return lv_color_hex(0xe6b34d);  /* R/D/P/TRA */
+    }
+}
+
+static void render_airspaces(bool map_mode)
+{
+    int n = map_mode ? airspace_count() : 0;
+    if (n > 0 && s_x_asp_pts == NULL) {
+        s_x_asp_pts = heap_caps_calloc(MAX_AIRSPACES,
+                                       sizeof(*s_x_asp_pts),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_x_asp_pts == NULL) {
+            return;
+        }
+    }
+    for (int i = 0; i < MAX_AIRSPACES; i++) {
+        bool show = i < n;
+        const airspace_t *a = show ? airspace_get(i) : NULL;
+        if (a == NULL) {
+            if (s_x_asp_line[i] != NULL) {
+                lv_obj_add_flag(s_x_asp_line[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+            }
+            continue;
+        }
+        if (s_x_asp_line[i] == NULL) {
+            s_x_asp_line[i] = lv_line_create(s_radar_panel);
+            lv_obj_set_style_line_width(s_x_asp_line[i], 1, 0);
+            lv_obj_set_style_line_dash_width(s_x_asp_line[i], 4, 0);
+            lv_obj_set_style_line_dash_gap(s_x_asp_line[i], 4, 0);
+            lv_obj_set_style_line_opa(s_x_asp_line[i], LV_OPA_70, 0);
+            lv_obj_clear_flag(s_x_asp_line[i], LV_OBJ_FLAG_CLICKABLE);
+            s_x_asp_lbl[i] = extra_lbl(lv_color_white());
+        }
+        lv_color_t col = airspace_color(a->type);
+        lv_obj_set_style_line_color(s_x_asp_line[i], col, 0);
+        lv_obj_set_style_text_color(s_x_asp_lbl[i], col, 0);
+        int m = 0, lx = 0, ly = 0;
+        for (int k = 0; k < a->n_points; k++) {
+            int x, y;
+            tilemap_project(&s_radar_view, a->lat[k], a->lon[k], &x, &y);
+            /* keep coordinates sane for lvgl even when far off screen */
+            if (x < -2000) x = -2000;
+            if (x > 2000) x = 2000;
+            if (y < -2000) y = -2000;
+            if (y > 2000) y = 2000;
+            s_x_asp_pts[i][m].x = (lv_coord_t)x;
+            s_x_asp_pts[i][m].y = (lv_coord_t)y;
+            if (m == 0) {
+                lx = x;
+                ly = y;
+            }
+            m++;
+        }
+        /* close the ring */
+        s_x_asp_pts[i][m] = s_x_asp_pts[i][0];
+        m++;
+        lv_line_set_points(s_x_asp_line[i], s_x_asp_pts[i], m);
+        lv_obj_clear_flag(s_x_asp_line[i], LV_OBJ_FLAG_HIDDEN);
+        if (lx >= 0 && lx <= RADAR_W - 40 && ly >= 8 && ly <= RADAR_H - 20) {
+            lv_label_set_text(s_x_asp_lbl[i], airspace_type_str(a->type));
+            lv_obj_set_pos(s_x_asp_lbl[i], lx + 3, ly - 16);
+            lv_obj_clear_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void render_radar_extras(bool map_mode, int radius_nm)
+{
+    if (s_x_iss_dot == NULL) {
+        s_x_iss_dot = extra_dot(lv_color_hex(0x9be8ff), 12, LV_RADIUS_CIRCLE);
+        s_x_iss_lbl = extra_lbl(lv_color_hex(0x9be8ff));
+        s_x_iss_status = extra_lbl(lv_color_hex(0x9be8ff));
+        lv_obj_align(s_x_iss_status, LV_ALIGN_TOP_RIGHT, -8, 6);
+        for (int i = 0; i < MAX_SONDES; i++) {
+            s_x_sonde_dot[i] = extra_dot(lv_color_hex(0xffb347), 10, LV_RADIUS_CIRCLE);
+            s_x_sonde_lbl[i] = extra_lbl(lv_color_hex(0xffb347));
+        }
+        for (int i = 0; i < MAX_SHIP_MARKERS; i++) {
+            s_x_ship_dot[i] = extra_dot(lv_color_hex(0x4fd1c5), 9, 2);
+            s_x_ship_lbl[i] = extra_lbl(lv_color_hex(0x4fd1c5));
+        }
+    }
+
+    int x, y;
+    iss_state_t iss;
+    bool iss_shown = false, iss_status = false;
+    if (extras_get_iss(&iss)) {
+        if (radar_place(iss.lat, iss.lon, iss.dist_km, map_mode, radius_nm, &x, &y)) {
+            lv_obj_set_pos(s_x_iss_dot, x - 6, y - 6);
+            lv_label_set_text(s_x_iss_lbl, "ISS");
+            lv_obj_set_pos(s_x_iss_lbl, x + 9, y - 8);
+            iss_shown = true;
+        } else if (iss.elev_deg > 0) {
+            lv_label_set_text_fmt(s_x_iss_status, "ISS %dÂ° %s",
+                                  (int)iss.elev_deg, lang_compass((int)iss.az_deg));
+            iss_status = true;
+        }
+    }
+    lv_obj_add_flag(s_x_iss_dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_x_iss_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_x_iss_status, LV_OBJ_FLAG_HIDDEN);
+    if (iss_shown) {
+        lv_obj_clear_flag(s_x_iss_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_x_iss_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else if (iss_status) {
+        lv_obj_clear_flag(s_x_iss_status, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    sonde_t sondes[MAX_SONDES];
+    int ns = extras_get_sondes(sondes, MAX_SONDES);
+    for (int i = 0; i < MAX_SONDES; i++) {
+        bool show = i < ns &&
+                    radar_place(sondes[i].lat, sondes[i].lon, sondes[i].dist_km,
+                                map_mode, radius_nm, &x, &y);
+        if (show) {
+            lv_obj_set_pos(s_x_sonde_dot[i], x - 5, y - 5);
+            lv_label_set_text_fmt(s_x_sonde_lbl[i], "%s %s%.1f km",
+                                  sondes[i].type[0] ? sondes[i].type : "sonde",
+                                  sondes[i].vel_v >= 0 ? LV_SYMBOL_UP " " : LV_SYMBOL_DOWN " ",
+                                  (double)(sondes[i].alt_m / 1000.0f));
+            lv_obj_set_pos(s_x_sonde_lbl[i], x + 8, y - 8);
+            lv_obj_clear_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    ship_t shp[MAX_SHIPS];
+    int nsh = ships_get(shp, MAX_SHIPS);
+    int drawn = 0;
+    for (int i = 0; i < nsh && drawn < MAX_SHIP_MARKERS; i++) {
+        if (!radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
+                         map_mode, radius_nm, &x, &y)) {
+            continue;
+        }
+        lv_obj_set_pos(s_x_ship_dot[drawn], x - 4, y - 4);
+        lv_label_set_text(s_x_ship_lbl[drawn],
+                          shp[i].name[0] ? shp[i].name : "ship");
+        lv_obj_set_pos(s_x_ship_lbl[drawn], x + 8, y - 8);
+        lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
+        drawn++;
+    }
+    for (int i = drawn; i < MAX_SHIP_MARKERS; i++) {
+        lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_x_ship_lbl[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void render_radar_panel(void)
 {
     radar_tiles_want();
@@ -1193,6 +1408,8 @@ static void render_radar_panel(void)
     if (s_selected < 0 || s_selected >= s_shown_count) {
         lv_label_set_text(s_radar_info, "");
     }
+    render_radar_extras(map_mode, radius_nm);
+    render_airspaces(map_mode);
 }
 
 /* ---------- full-screen ambient screensaver ---------- */

@@ -47,6 +47,9 @@ typedef struct {
     const char *sec_traffic, *sec_watch, *sec_alerts;
     const char *sec_look, *sec_screen, *sec_webpanel, *sec_updates;
     const char *cpa_scope_opts;  /* dropdown: interesting-only / all */
+    const char *iss_lbl, *sonde_lbl, *ships_lbl, *airspace_lbl, *taf_lbl;
+    const char *lbl_oaip, *hint_oaip, *lbl_ais, *hint_ais;
+    const char *sec_notify, *sec_datasrc, *sec_smart;
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;

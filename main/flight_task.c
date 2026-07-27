@@ -33,6 +33,9 @@
 #include "airports.h"
 #include "dailystats.h"
 #include "metar.h"
+#include "extras.h"
+#include "ships.h"
+#include "airspace.h"
 #include "regcountry.h"
 #include "trails.h"
 #include "tz.h"
@@ -334,6 +337,49 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
 #endif
     /* ota_enabled is injected live by the /api/state handler, not cached here */
 
+    iss_state_t iss;
+    if (extras_get_iss(&iss)) {
+        cJSON *ji = cJSON_AddObjectToObject(root, "iss");
+        cJSON_AddNumberToObject(ji, "lat", iss.lat);
+        cJSON_AddNumberToObject(ji, "lon", iss.lon);
+        cJSON_AddNumberToObject(ji, "alt_km", (int)iss.alt_km);
+        cJSON_AddNumberToObject(ji, "dist_km", (int)iss.dist_km);
+        cJSON_AddNumberToObject(ji, "elev_deg", (int)iss.elev_deg);
+        cJSON_AddNumberToObject(ji, "az_deg", (int)iss.az_deg);
+    }
+    sonde_t sondes[MAX_SONDES];
+    int n_sondes = extras_get_sondes(sondes, MAX_SONDES);
+    if (n_sondes > 0) {
+        cJSON *jsn = cJSON_AddArrayToObject(root, "sondes");
+        for (int i = 0; i < n_sondes; i++) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "serial", sondes[i].serial);
+            cJSON_AddStringToObject(e, "type", sondes[i].type);
+            cJSON_AddNumberToObject(e, "lat", sondes[i].lat);
+            cJSON_AddNumberToObject(e, "lon", sondes[i].lon);
+            cJSON_AddNumberToObject(e, "alt_m", (int)sondes[i].alt_m);
+            cJSON_AddNumberToObject(e, "vel_v", sondes[i].vel_v);
+            cJSON_AddNumberToObject(e, "dist_km", (int)sondes[i].dist_km);
+            cJSON_AddItemToArray(jsn, e);
+        }
+    }
+    ship_t ships[MAX_SHIPS];
+    int n_ships = ships_get(ships, MAX_SHIPS);
+    if (n_ships > 0) {
+        cJSON *jsh = cJSON_AddArrayToObject(root, "ships");
+        for (int i = 0; i < n_ships; i++) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "name", ships[i].name);
+            cJSON_AddNumberToObject(e, "mmsi", ships[i].mmsi);
+            cJSON_AddNumberToObject(e, "lat", ships[i].lat);
+            cJSON_AddNumberToObject(e, "lon", ships[i].lon);
+            cJSON_AddNumberToObject(e, "sog_kt", ships[i].sog_kt);
+            cJSON_AddNumberToObject(e, "cog", (int)ships[i].cog_deg);
+            cJSON_AddNumberToObject(e, "dist_km", (int)ships[i].dist_km);
+            cJSON_AddItemToArray(jsh, e);
+        }
+    }
+
     cJSON *js = cJSON_AddObjectToObject(root, "stats");
     cJSON_AddNumberToObject(js, "unique_aircraft", s_stats.unique);
     cJSON_AddNumberToObject(js, "max_alt_ft", s_stats.max_alt_ft);
@@ -343,6 +389,9 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
     cJSON_AddNumberToObject(js, "uptime_min", (int)(esp_timer_get_time() / 60000000LL));
     if (metar_get()[0] != '\0') {
         cJSON_AddStringToObject(js, "metar", metar_get());
+    }
+    if (settings_get()->taf_enabled && taf_get()[0] != '\0') {
+        cJSON_AddStringToObject(js, "taf", taf_get());
     }
     dailystats_to_json(js, "days");
     cJSON_AddStringToObject(js, "version", esp_app_get_description()->version);
@@ -581,6 +630,9 @@ static void flight_task(void *arg)
             }
             if (metar_station[0] != '\0') {
                 metar_fetch(metar_station);
+                if (settings_get()->taf_enabled) {
+                    taf_fetch(metar_station);
+                }
             }
             time_t dnow = time(NULL);
             if (dnow > 1600000000) {
@@ -596,6 +648,9 @@ static void flight_task(void *arg)
             }
             last_weather_ms = now_ms;
         }
+        extras_poll(lat, lon);
+        ships_poll(lat, lon);
+        airspace_poll(lat, lon);
         esp_err_t err = flight_fetch_nearby(lat, lon, radius_nm, list);
         if (err == ESP_OK) {
             consecutive_failures = 0;

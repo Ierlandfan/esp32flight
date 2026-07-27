@@ -53,6 +53,13 @@ void settings_load(void)
     s_settings.filter_apt_exclude = false;
     s_settings.alt_min_ft = 0;
     s_settings.alt_max_ft = 0;
+    s_settings.taf_enabled = false;
+    s_settings.iss_enabled = false;
+    s_settings.sonde_enabled = false;
+    s_settings.ships_enabled = false;
+    s_settings.airspace_enabled = false;
+    s_settings.openaip_key[0] = '\0';
+    s_settings.ais_key[0] = '\0';
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
@@ -145,6 +152,23 @@ void settings_load(void)
     if (nvs_get_i32(h, "amb_idle", &m) == ESP_OK && m >= 0 && m <= 240) {
         s_settings.ambient_idle_min = m;
     }
+    if (nvs_get_u8(h, "taf", &b8) == ESP_OK) {
+        s_settings.taf_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "iss", &b8) == ESP_OK) {
+        s_settings.iss_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "sonde", &b8) == ESP_OK) {
+        s_settings.sonde_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "ships", &b8) == ESP_OK) {
+        s_settings.ships_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "airsp", &b8) == ESP_OK) {
+        s_settings.airspace_enabled = b8 != 0;
+    }
+    get_str(h, "oaipkey", s_settings.openaip_key, sizeof(s_settings.openaip_key));
+    get_str(h, "aiskey", s_settings.ais_key, sizeof(s_settings.ais_key));
     nvs_close(h);
     ESP_LOGI(TAG, "loaded: ssid=\"%s\" fixed_loc=%d radius=%d nm lang=%d theme=%d",
              s_settings.wifi_ssid, s_settings.use_fixed_loc, s_settings.radius_nm,
@@ -192,6 +216,13 @@ esp_err_t settings_save(void)
     nvs_set_i32(h, "night_s", s_settings.night_start_min);
     nvs_set_i32(h, "night_e", s_settings.night_end_min);
     nvs_set_i32(h, "amb_idle", s_settings.ambient_idle_min);
+    nvs_set_u8(h, "taf", s_settings.taf_enabled ? 1 : 0);
+    nvs_set_u8(h, "iss", s_settings.iss_enabled ? 1 : 0);
+    nvs_set_u8(h, "sonde", s_settings.sonde_enabled ? 1 : 0);
+    nvs_set_u8(h, "ships", s_settings.ships_enabled ? 1 : 0);
+    nvs_set_u8(h, "airsp", s_settings.airspace_enabled ? 1 : 0);
+    nvs_set_str(h, "oaipkey", s_settings.openaip_key);
+    nvs_set_str(h, "aiskey", s_settings.ais_key);
 
     err = nvs_commit(h);
     nvs_close(h);
