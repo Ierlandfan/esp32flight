@@ -231,6 +231,9 @@ static int           s_retro_rain_gen = -1;
 static uint16_t     *s_radar_tiles;
 static lv_img_dsc_t  s_radar_tiles_dsc;
 static tile_view_t   s_radar_view;
+static double s_radar_zoom = 1.0;   /* window multiplier, <1 = closer */
+static float  s_radar_scale = 1.0f; /* post-render upscale to fill the panel */
+static int    s_radar_spx, s_radar_spy;
 static bool          s_radar_view_ok;
 static volatile bool s_radar_busy;
 static char          s_radar_key[48];
@@ -277,6 +280,7 @@ static lv_obj_t *s_detail_content;
 
 static void render_detail(void);
 static void render_list_selection(void);
+static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k);
 static void render_map_panel(void);
 static void render_radar_panel(void);
 static void render_stats_panel(void);
@@ -1124,11 +1128,32 @@ static void radar_tiles_task(void *arg)
     if (ok) {
         runways_draw(s_radar_tiles, RADAR_W, RADAR_H, &view);
     }
+    /* integer tile zooms leave dead margin around the range ring; upscale
+       so the ring (divided by the user zoom) fills most of the height */
+    float scale = 1.0f;
+    int shx = 0, shy = 0;
+    if (ok) {
+        int ex, ey;
+        tilemap_project(&view, s_home_lat, s_home_lon, &shx, &shy);
+        tilemap_project(&view, s_home_lat, b[3], &ex, &ey);
+        float r = (float)(ex - shx);
+        float target = 0.92f * (RADAR_H / 2) / (float)s_radar_zoom;
+        if (r > 16.0f && target / r > 1.05f) {
+            scale = target / r;
+            if (scale > 2.6f) {
+                scale = 2.6f;
+            }
+            fb_upscale(s_radar_tiles, RADAR_W, RADAR_H, shx, shy, scale);
+        }
+    }
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_radar_want) == 0) {
             s_radar_view = view;
             s_radar_view_ok = true;
+            s_radar_scale = scale;
+            s_radar_spx = shx;
+            s_radar_spy = shy;
             strlcpy(s_radar_key, key, sizeof(s_radar_key));
             s_radar_tiles_dsc.header.always_zero = 0;
             s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
@@ -1155,11 +1180,15 @@ static void radar_tiles_want(void)
     }
     int radius_nm = settings_get()->radius_nm;
     char key[48];
-    snprintf(key, sizeof(key), "%.3f,%.3f,%d", s_home_lat, s_home_lon, radius_nm);
+    snprintf(key, sizeof(key), "%.3f,%.3f,%d,%.2f", s_home_lat, s_home_lon,
+             radius_nm, s_radar_zoom);
     if (strcmp(key, s_radar_key) == 0) {
         return;
     }
-    double rkm = radius_nm * 1.852;
+    double rkm = radius_nm * 1.852 * s_radar_zoom;
+    if (rkm < 2.0) {
+        rkm = 2.0;
+    }
     double dlat = rkm / 111.0;
     double dlon = rkm / (111.0 * cos(s_home_lat * M_PI / 180.0));
     s_radar_bbox[0] = s_home_lat - dlat;
@@ -1177,6 +1206,23 @@ static void radar_tiles_want(void)
         ESP_LOGE(TAG, "radar tiles: task spawn failed (low memory)");
         s_radar_busy = false;
     }
+}
+
+static void radar_zoom_cb(lv_event_t *e)
+{
+    int dir = (int)(intptr_t)lv_event_get_user_data(e);
+    double z = s_radar_zoom * (dir > 0 ? 1.0 / 1.5 : 1.5);
+    if (z < 0.18) {
+        z = 0.18;
+    }
+    if (z > 3.4) {
+        z = 3.4;
+    }
+    if (z > 0.95 && z < 1.06) {
+        z = 1.0;   /* snap back to the exact radius fit */
+    }
+    s_radar_zoom = z;
+    radar_tiles_want();
 }
 
 static void radar_dot_cb(lv_event_t *e)
@@ -1267,6 +1313,23 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_label_set_text(rattr, map_attribution());
     lv_obj_align(rattr, LV_ALIGN_BOTTOM_LEFT, 6, -2);
 
+    static const char *rzsym[2] = { LV_SYMBOL_PLUS, LV_SYMBOL_MINUS };
+    for (int zi = 0; zi < 2; zi++) {
+        lv_obj_t *zb = lv_btn_create(s_radar_panel);
+        lv_obj_set_size(zb, 52, 44);
+        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -10, -78 + zi * 52);
+        lv_obj_set_style_bg_color(zb, COL_ACCENT, 0);
+        lv_obj_set_style_bg_opa(zb, LV_OPA_90, 0);
+        lv_obj_set_style_shadow_width(zb, 12, 0);
+        lv_obj_set_style_shadow_opa(zb, LV_OPA_40, 0);
+        lv_obj_add_event_cb(zb, radar_zoom_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)(zi == 0 ? 1 : -1));
+        lv_obj_t *zl = lv_label_create(zb);
+        lv_obj_set_style_text_color(zl, COL_BG, 0);
+        lv_label_set_text(zl, rzsym[zi]);
+        lv_obj_center(zl);
+    }
+
     s_radar_range = make_label(s_radar_panel, &font_pl_14, COL_DIM);
     lv_obj_align(s_radar_range, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
     lv_label_set_text(s_radar_range, "");
@@ -1335,12 +1398,22 @@ static lv_obj_t *extra_lbl(lv_color_t color)
     return l;
 }
 
+/* tilemap projection plus the fill-the-panel upscale */
+static void radar_project(double lat, double lon, int *x, int *y)
+{
+    tilemap_project(&s_radar_view, lat, lon, x, y);
+    if (s_radar_scale != 1.0f) {
+        *x = s_radar_spx + (int)((*x - s_radar_spx) * s_radar_scale);
+        *y = s_radar_spy + (int)((*y - s_radar_spy) * s_radar_scale);
+    }
+}
+
 /* place a lat/lon at dist_km from home onto the radar; false = outside */
 static bool radar_place(double lat, double lon, float dist_km,
                         bool map_mode, int radius_nm, int *x, int *y)
 {
     if (map_mode) {
-        tilemap_project(&s_radar_view, lat, lon, x, y);
+        radar_project(lat, lon, x, y);
         return *x >= -10 && *x <= RADAR_W + 10 && *y >= -10 && *y <= RADAR_H + 10;
     }
     float frac = dist_km / (radius_nm * 1.852f);
@@ -1403,7 +1476,7 @@ static void render_airspaces(bool map_mode)
         int m = 0, lx = 0, ly = 0;
         for (int k = 0; k < a->n_points; k++) {
             int x, y;
-            tilemap_project(&s_radar_view, a->lat[k], a->lon[k], &x, &y);
+            radar_project(a->lat[k], a->lon[k], &x, &y);
             /* keep coordinates sane for lvgl even when far off screen */
             if (x < -2000) x = -2000;
             if (x > 2000) x = 2000;
@@ -1673,9 +1746,9 @@ static void render_radar_panel(void)
     int rpx = RADAR_R;
 
     if (map_mode) {
-        tilemap_project(&s_radar_view, s_home_lat, s_home_lon, &hx, &hy);
+        radar_project(s_home_lat, s_home_lon, &hx, &hy);
         int ex, ey;
-        tilemap_project(&s_radar_view, s_home_lat, s_radar_bbox[3], &ex, &ey);
+        radar_project(s_home_lat, s_radar_bbox[3], &ex, &ey);
         rpx = ex - hx;
         if (rpx < 20) {
             rpx = 20;
@@ -1712,7 +1785,7 @@ static void render_radar_panel(void)
         const amb_target_t *t = &s_all[i];
         int x, y;
         if (map_mode) {
-            tilemap_project(&s_radar_view, t->lat, t->lon, &x, &y);
+            radar_project(t->lat, t->lon, &x, &y);
             if (x < -14 || x > RADAR_W + 14 || y < -14 || y > RADAR_H + 14) {
                 lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
                 continue;
@@ -1787,9 +1860,8 @@ static void render_ambient(void);
 /* Upscale the rendered map in place around (px,py) so the observation
  * circle spans the full screen height. One-time cost in the worker task;
  * the displayed image stays a plain untransformed bitmap. */
-static void amb_upscale(uint16_t *fb, int px, int py, float k)
+static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
 {
-    const int W = SCR_W, H = SCR_H;
     uint16_t *tmp = heap_caps_malloc(W * H * 2, MALLOC_CAP_SPIRAM);
     if (tmp == NULL) {
         return;
@@ -1861,7 +1933,7 @@ static void amb_tiles_task(void *arg)
                 }
             }
             if (scale > 1.05f) {
-                amb_upscale(s_amb_tiles, hx, hy, scale);
+                fb_upscale(s_amb_tiles, SCR_W, SCR_H, hx, hy, scale);
             } else {
                 scale = 1.0f;
             }
