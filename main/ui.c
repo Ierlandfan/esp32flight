@@ -1657,7 +1657,7 @@ static void render_radar_extras(bool map_mode, int radius_nm)
             lv_obj_set_pos(s_x_iss_lbl, x + 9, y - 8);
             iss_shown = true;
         } else if (iss.elev_deg > 0) {
-            lv_label_set_text_fmt(s_x_iss_status, "ISS %dÂ° %s",
+            lv_label_set_text_fmt(s_x_iss_status, "ISS %d\xC2\xB0 %s",
                                   (int)iss.elev_deg, lang_compass((int)iss.az_deg));
             iss_status = true;
         }
