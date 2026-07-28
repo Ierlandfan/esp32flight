@@ -471,8 +471,16 @@ static esp_err_t root_get(httpd_req_t *req)
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
+static int64_t s_state_access_us;
+
+bool web_state_wanted(void)
+{
+    return esp_timer_get_time() - s_state_access_us < 300LL * 1000 * 1000;
+}
+
 static esp_err_t api_get(httpd_req_t *req)
 {
+    s_state_access_us = esp_timer_get_time();
     AUTH_GUARD(req);
     char *copy = NULL;
     size_t len = 0;

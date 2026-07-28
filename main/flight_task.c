@@ -23,6 +23,7 @@
 #include "lvgl_port.h"
 #include "routes.h"
 #include "settings.h"
+#include <math.h>
 #include "geo_math.h"
 #include "http_util.h"
 #include "faflight.h"
@@ -298,6 +299,9 @@ static const aircraft_t *find_emergency(const aircraft_list_t *list)
 static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
                               double lat, double lon, const char *city, int radius_nm)
 {
+    if (!web_state_wanted()) {
+        return;   /* nobody is looking at /api/state right now */
+    }
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "city", city);
     cJSON_AddNumberToObject(root, "lat", lat);
@@ -428,8 +432,8 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
         cJSON_AddNumberToObject(jf, "cls", flight_class(ac));
         cJSON_AddNumberToObject(jf, "spr", flight_sprite(ac));
         if (ac->has_pos) {
-            cJSON_AddNumberToObject(jf, "lat", ac->lat);
-            cJSON_AddNumberToObject(jf, "lon", ac->lon);
+            cJSON_AddNumberToObject(jf, "lat", round(ac->lat * 1e5) / 1e5);
+            cJSON_AddNumberToObject(jf, "lon", round(ac->lon * 1e5) / 1e5);
             cJSON_AddNumberToObject(jf, "track", (int)ac->track_deg);
             float tlat[12], tlon[12];
             int tn = trails_get(ac->hex, tlat, tlon, 12);
@@ -437,8 +441,8 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
                 cJSON *jt2 = cJSON_AddArrayToObject(jf, "trail");
                 for (int k = 0; k < tn; k++) {
                     cJSON *pt = cJSON_CreateArray();
-                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(tlat[k]));
-                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(tlon[k]));
+                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(round(tlat[k] * 1e4) / 1e4));
+                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(round(tlon[k] * 1e4) / 1e4));
                     cJSON_AddItemToArray(jt2, pt);
                 }
             }

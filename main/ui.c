@@ -644,6 +644,14 @@ void ui_set_view(int mode)
     apply_view(mode);
 }
 
+/* skip the realloc + invalidate when a cyclic update rewrites the same text */
+static void label_set_if_changed(lv_obj_t *l, const char *txt)
+{
+    if (strcmp(lv_label_get_text(l), txt) != 0) {
+        lv_label_set_text(l, txt);
+    }
+}
+
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color)
 {
     lv_obj_t *l = lv_label_create(parent);
@@ -3635,17 +3643,17 @@ static void render_list_rows(void)
             } else {
                 snprintf(nm, sizeof(nm), "%lu", (unsigned long)sh->mmsi);
             }
-            lv_label_set_text(cs_label, nm);
+            label_set_if_changed(cs_label, nm);
             lv_obj_set_style_text_color(cs_label, lv_color_hex(0x4fd1c5), 0);
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
-            lv_label_set_text(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
+            label_set_if_changed(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
             lv_obj_set_style_text_color(typechip, lv_color_hex(0x4fd1c5), 0);
             char info[64];
             char us[20];
             snprintf(info, sizeof(info), "%s  %s  %.1f km",
                      ship_type_word(sh->stype),
                      units_speed(sh->sog_kt, us, sizeof(us)), (double)sh->dist_km);
-            lv_label_set_text(lv_obj_get_child(row, 2), info);
+            label_set_if_changed(lv_obj_get_child(row, 2), info);
             lv_obj_add_flag(lv_obj_get_child(row, 3), LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -3655,13 +3663,13 @@ static void render_list_rows(void)
             lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
 
             lv_obj_t *cs_label = lv_obj_get_child(row, 0);
-            lv_label_set_text(cs_label, ac->callsign[0] ? ac->callsign : ac->hex);
+            label_set_if_changed(cs_label, ac->callsign[0] ? ac->callsign : ac->hex);
             /* gold for military / heavies / watchlist hits */
             bool interesting = flight_is_interesting(ac, settings_get()->watch_regs);
             lv_obj_set_style_text_color(cs_label,
                                         interesting ? lv_color_hex(0xffd166) : COL_TEXT, 0);
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
-            lv_label_set_text(typechip, ac->type_icao[0] ? ac->type_icao : "?");
+            label_set_if_changed(typechip, ac->type_icao[0] ? ac->type_icao : "?");
             lv_obj_set_style_text_color(typechip, class_color(flight_class(ac)), 0);
 
             char info[64];
@@ -3679,7 +3687,7 @@ static void render_list_rows(void)
                          trend, units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
                          units_speed(ac->gs_kts, us, sizeof(us)), ac->dist_nm * 1.852);
             }
-            lv_label_set_text(lv_obj_get_child(row, 2), info);
+            label_set_if_changed(lv_obj_get_child(row, 2), info);
 
             lv_obj_t *logo_img = lv_obj_get_child(row, 3);
             const char *code = airline_code(ac, &s_shown[s_row_plane_idx[i]].route);

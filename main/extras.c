@@ -145,7 +145,11 @@ void extras_poll(double home_lat, double home_lon)
     int64_t now = esp_timer_get_time();
 
     if (cfg->iss_enabled) {
-        if (now - s_iss_last >= ISS_PERIOD_US) {
+        int64_t period = ISS_PERIOD_US;
+        if (s_iss.valid && s_iss.elev_deg < -20.0f) {
+            period = 4 * ISS_PERIOD_US;   /* deep below the horizon: relax */
+        }
+        if (now - s_iss_last >= period) {
             s_iss_last = now;
             fetch_iss(home_lat, home_lon);
         }
