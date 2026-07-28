@@ -55,5 +55,3 @@ CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 CONFIG_SPIFFS_OBJ_NAME_LEN=48
 
 CONFIG_LV_MEM_CUSTOM_INCLUDE="esp_heap_caps.h"
-# decoded-image cache: visible logos decode once, not every redraw
-CONFIG_LV_IMG_CACHE_DEF_SIZE=20

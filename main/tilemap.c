@@ -36,7 +36,7 @@ void tilemap_init(void)
  * instantly and survive short network outages. Guarded by s_render_mux
  * (all access happens inside a render). */
 #define TCACHE_N       128
-#define TCACHE_BUDGET  (1536 * 1024)
+#define TCACHE_BUDGET  (768 * 1024)   /* PSRAM got crowded; transient buffers need headroom */
 
 typedef struct {
     uint32_t key;           /* (z << 26) | (tx << 13) | ty */
@@ -127,7 +127,16 @@ void tilemap_project(const tile_view_t *v, double lat, double lon, int *x, int *
     double nx, ny;
     merc_norm(lat, lon, &nx, &ny);
     double world = (double)TILE_PX * (1 << v->z);
-    *x = (int)(nx * world - v->px0);
+    /* views that cross the antimeridian have px0 outside [0, world);
+       pick the copy of the world that lands nearest the view center */
+    double px = nx * world - v->px0;
+    double center = v->w / 2.0;
+    if (px - center > world / 2.0) {
+        px -= world;
+    } else if (center - px > world / 2.0) {
+        px += world;
+    }
+    *x = (int)px;
     *y = (int)(ny * world - v->py0);
 }
 
@@ -380,12 +389,8 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     if (py0 + dst_h > world) {
         py0 = world - dst_h;
     }
-    if (px0 < 0) {
-        px0 = 0;
-    }
-    if (px0 + dst_w > world) {
-        px0 = world > dst_w ? world - dst_w : 0;
-    }
+    /* no X clamp: longitude wraps, and antimeridian views need px0
+       outside [0, world); the tile loop wraps tile indexes instead */
 
     /* dark background for any gaps (pure black in rain-only mode) */
     uint16_t bgcol = (layers & TM_LAYER_BASE) ? 0x10A2 : 0x0000;
@@ -423,7 +428,7 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     int tiles_max = 1 << z;
     int ok = 0, total = 0;
     bool offline = false;
-    struct { int16_t tx, ty; } failed[32];
+    struct { int16_t tx, txw, ty; } failed[32];
     int failed_n = 0;
     if (!(layers & TM_LAYER_BASE)) {
         ok = 1;         /* rain-only: nothing mandatory below */
@@ -435,15 +440,15 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
             continue;
         }
         for (int tx = tx0; tx <= tx1; tx++) {
-            if (tx < 0 || tx >= tiles_max) {
-                continue;
-            }
+            /* wrap around the antimeridian instead of skipping */
+            int txw = ((tx % tiles_max) + tiles_max) % tiles_max;
             total++;
-            if (blit_tile(client, &sink, dst, dst_w, dst_h, z, tx, ty,
+            if (blit_tile(client, &sink, dst, dst_w, dst_h, z, txw, ty,
                           (int)(tx * TILE_PX - px0), (int)(ty * TILE_PX - py0))) {
                 ok++;
             } else if (failed_n < 32) {
                 failed[failed_n].tx = tx;
+                failed[failed_n].txw = txw;
                 failed[failed_n].ty = ty;
                 failed_n++;
             }
@@ -458,7 +463,7 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     /* one retry pass: early requests occasionally fail while the TLS
      * connection warms up */
     for (int i = 0; i < failed_n; i++) {
-        if (blit_tile(client, &sink, dst, dst_w, dst_h, z, failed[i].tx, failed[i].ty,
+        if (blit_tile(client, &sink, dst, dst_w, dst_h, z, failed[i].txw, failed[i].ty,
                       (int)(failed[i].tx * TILE_PX - px0),
                       (int)(failed[i].ty * TILE_PX - py0))) {
             ok++;
@@ -474,10 +479,8 @@ rain_pass:
                     continue;
                 }
                 for (int tx = tx0; tx <= tx1; tx++) {
-                    if (tx < 0 || tx >= tiles_max) {
-                        continue;
-                    }
-                    blit_rain_tile(client, &sink, frame, dst, dst_w, dst_h, z, tx, ty,
+                    int txw = ((tx % tiles_max) + tiles_max) % tiles_max;
+                    blit_rain_tile(client, &sink, frame, dst, dst_w, dst_h, z, txw, ty,
                                    (int)(tx * TILE_PX - px0), (int)(ty * TILE_PX - py0));
                 }
             }

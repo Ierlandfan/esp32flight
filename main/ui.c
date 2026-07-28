@@ -148,6 +148,7 @@ static lv_obj_t *s_detail_panel;
 static lv_obj_t *s_map_panel;
 static lv_obj_t *s_emb_img;
 static lv_obj_t *s_emb_line, *s_emb_orig, *s_emb_dest, *s_emb_plane, *s_emb_trail;
+static lv_obj_t *s_emb_line2;
 static lv_point_t s_emb_pts[33];
 static lv_point_t s_emb_trail_pts[TRAIL_LEN];
 
@@ -564,9 +565,15 @@ static void cycle_timer_cb(lv_timer_t *t)
     }
 }
 
+static void emb_release(void);
+
 static void apply_view(int mode)
 {
+    int prev = s_view_mode;
     s_view_mode = mode % VIEW_COUNT;
+    if (prev == VIEW_MAP && s_view_mode != VIEW_MAP) {
+        emb_release();
+    }
 
     lv_obj_add_flag(s_detail_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_map_panel, LV_OBJ_FLAG_HIDDEN);
@@ -621,6 +628,16 @@ void ui_set_list_mode(int mode)
         }
         render_list_rows();
         render_right();
+    }
+}
+
+static void emb_release(void)
+{
+    if (!s_emb_busy && s_emb_tiles != NULL) {
+        free(s_emb_tiles);
+        s_emb_tiles = NULL;
+        s_emb_view_ok = false;
+        s_emb_key[0] = '\0';
     }
 }
 
@@ -908,6 +925,8 @@ static void emb_tiles_want(const aircraft_t *ac, const route_info_t *rt)
         double lats[2] = { rt->destination.lat, ac->has_pos ? ac->lat : rt->destination.lat };
         double lons[2] = { rt->destination.lon, ac->has_pos ? ac->lon : rt->destination.lon };
         for (int i = 0; i < 2; i++) {
+            /* Pacific routes: keep longitudes on one continuous axis */
+            lons[i] = geo_lon_unwrap(rt->origin.lon, lons[i]);
             if (lats[i] < latmin) latmin = lats[i];
             if (lats[i] > latmax) latmax = lats[i];
             if (lons[i] < lonmin) lonmin = lons[i];
@@ -989,6 +1008,12 @@ static void build_map_panel(lv_obj_t *scr)
     lv_obj_set_style_line_color(s_emb_line, COL_ACCENT, 0);
     lv_obj_set_style_line_rounded(s_emb_line, true, 0);
     lv_obj_add_flag(s_emb_line, LV_OBJ_FLAG_HIDDEN);
+
+    s_emb_line2 = lv_line_create(s_map_panel);
+    lv_obj_set_style_line_width(s_emb_line2, 2, 0);
+    lv_obj_set_style_line_color(s_emb_line2, COL_ACCENT, 0);
+    lv_obj_set_style_line_rounded(s_emb_line2, true, 0);
+    lv_obj_add_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
 
     s_emb_orig = emb_marker(s_map_panel, 10, lv_color_hex(0x39d98a));
     s_emb_dest = emb_marker(s_map_panel, 10, lv_color_hex(0xff6b6b));
@@ -1081,17 +1106,27 @@ static void render_map_panel(void)
     }
 
     if (rt != NULL) {
+        double glat[33], glon[33];
+        int split = 33;
         for (int i = 0; i < 33; i++) {
-            double lat, lon;
             geo_gc_point(rt->origin.lat, rt->origin.lon,
                          rt->destination.lat, rt->destination.lon,
-                         (double)i / 32.0, &lat, &lon);
-            project_emb(lat, lon, &x, &y);
+                         (double)i / 32.0, &glat[i], &glon[i]);
+            if (i > 0 && split == 33 && fabs(glon[i] - glon[i - 1]) > 180.0) {
+                split = i;   /* the path crosses the antimeridian here */
+            }
+            project_emb(glat[i], glon[i], &x, &y);
             s_emb_pts[i].x = x;
             s_emb_pts[i].y = y;
         }
-        lv_line_set_points(s_emb_line, s_emb_pts, 33);
+        lv_line_set_points(s_emb_line, s_emb_pts, split);
         lv_obj_clear_flag(s_emb_line, LV_OBJ_FLAG_HIDDEN);
+        if (split < 33) {
+            lv_line_set_points(s_emb_line2, &s_emb_pts[split], 33 - split);
+            lv_obj_clear_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
+        }
 
         project_emb(rt->origin.lat, rt->origin.lon, &x, &y);
         lv_obj_set_pos(s_emb_orig, x - 5, y - 5);
@@ -2003,7 +2038,11 @@ static void render_ambient(void);
  * the displayed image stays a plain untransformed bitmap. */
 static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
 {
-    uint16_t *tmp = heap_caps_malloc(W * H * 2, MALLOC_CAP_SPIRAM);
+    /* Scratch-frame version: the buffer under our feet is usually the live
+     * LVGL image source, and transforming it in place paints garbage on the
+     * screen mid-pass. When the scratch allocation fails we simply skip the
+     * upscale and the view stays at its native framing. */
+    uint16_t *tmp = heap_caps_malloc((size_t)W * H * 2, MALLOC_CAP_SPIRAM);
     if (tmp == NULL) {
         return;
     }
@@ -2035,7 +2074,7 @@ static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
             tmp[y * W + x] = (uint16_t)((r << 11) | (g << 5) | b);
         }
     }
-    memcpy(fb, tmp, W * H * 2);
+    memcpy(fb, tmp, (size_t)W * H * 2);
     free(tmp);
 }
 
@@ -2321,6 +2360,10 @@ static void amb_close(void)
         lv_obj_del(s_amb);
         s_amb = NULL;
         s_amb_view_ok = false;
+        if (!s_amb_busy && s_amb_tiles != NULL) {
+            free(s_amb_tiles);   /* 768 KB back; re-rendered on next idle */
+            s_amb_tiles = NULL;
+        }
         s_amb_key[0] = '\0';
         s_amb_scale = 1.0f;
         s_amb_sel_cs[0] = '\0';

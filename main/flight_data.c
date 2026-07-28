@@ -299,7 +299,7 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
     for (int i = 0; i < 3; i++) {
         char url[128];
         snprintf(url, sizeof(url), src_fmt[i], lat, lon, radius_nm);
-        err = http_get_keepalive(i, url, buf, FETCH_BUF_SIZE, NULL);
+        err = http_get_to_buffer(url, buf, FETCH_BUF_SIZE, NULL);
         if (err == ESP_OK) {
             err = parse_point_response(buf, lat, lon, out);
         }
@@ -313,7 +313,7 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
                 if (extra != NULL) {
                     char url2[128];
                     snprintf(url2, sizeof(url2), src_fmt[i + 1], lat, lon, radius_nm);
-                    if (http_get_keepalive(i + 1, url2, buf, FETCH_BUF_SIZE, NULL) == ESP_OK &&
+                    if (http_get_to_buffer(url2, buf, FETCH_BUF_SIZE, NULL) == ESP_OK &&
                         parse_point_response(buf, lat, lon, extra) == ESP_OK) {
                         int added = 0;
                         for (int k = 0; k < extra->count && out->count < MAX_AIRCRAFT; k++) {

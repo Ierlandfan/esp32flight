@@ -182,7 +182,7 @@ static const char INDEX_HTML[] =
 "<div><label>Weather balloons (SondeHub)</label><select id='c_sonde_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Radiosondes tracked by the SondeHub community within 250 km.</div></div>"
 "<div><label>Ships (AIS)</label><select id='c_ships_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
-"<div class='help'>Vessels near you via aisstream.io. Needs a free key (Integrations). Device only, not in the Android app.</div></div>"
+"<div class='help'>Vessels near you via aisstream.io. Needs a free key (Integrations).</div></div>"
 "<div><label>TAF airport forecast</label><select id='c_taf_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Terminal forecast for the nearest airport, shown next to the METAR.</div></div>"
 "</div></div>"
@@ -424,13 +424,13 @@ static esp_err_t screen_get(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no framebuffer");
     }
 
-    uint8_t *snap = heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM);
+    /* streamed in bands: a full-frame snapshot needs 768 KB contiguous,
+       which is exactly what a busy PSRAM cannot promise */
+    enum { SNAP_BAND_ROWS = 24 };
+    uint8_t *snap = heap_caps_malloc((size_t)W * SNAP_BAND_ROWS * 2,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (snap == NULL) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no mem");
-    }
-    if (lvgl_port_lock(3000)) {
-        memcpy(snap, fb, data_size);
-        lvgl_port_unlock();
     }
 
     uint8_t hdr[66] = { 0 };
@@ -453,9 +453,14 @@ static esp_err_t screen_get(httpd_req_t *req)
 
     httpd_resp_set_type(req, "image/bmp");
     httpd_resp_send_chunk(req, (char *)hdr, sizeof(hdr));
-    for (uint32_t sent = 0; sent < data_size; sent += 64 * 1024) {
-        uint32_t n = data_size - sent < 64 * 1024 ? data_size - sent : 64 * 1024;
-        if (httpd_resp_send_chunk(req, (char *)snap + sent, n) != ESP_OK) {
+    for (int y = 0; y < H; y += SNAP_BAND_ROWS) {
+        int rows = H - y < SNAP_BAND_ROWS ? H - y : SNAP_BAND_ROWS;
+        size_t n = (size_t)W * rows * 2;
+        if (lvgl_port_lock(1000)) {
+            memcpy(snap, fb + (size_t)y * W * 2, n);
+            lvgl_port_unlock();
+        }
+        if (httpd_resp_send_chunk(req, (char *)snap, n) != ESP_OK) {
             break;
         }
     }

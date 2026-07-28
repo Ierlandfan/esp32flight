@@ -1,5 +1,7 @@
 #include "logos.h"
 
+#include "extra/libs/png/lodepng.h"
+
 #include <stdio.h>
 #include <string.h>
 #include "esp_heap_caps.h"
@@ -12,7 +14,7 @@
 
 static const char *TAG = "logos";
 
-#define LOGO_CACHE_SIZE 40
+#define LOGO_CACHE_SIZE 16
 
 /* Logos missing from the bundled set (small-flash builds carry only the
  * most common carriers) are fetched on demand from the companion repo and
@@ -223,8 +225,44 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
     return NULL;
 }
 
+/* Decode the PNG once and keep an LVGL-native bitmap: scrolling then
+ * blits pixels instead of running lodepng on every visible logo each
+ * frame. 3 bytes per pixel (RGB565 + A8). */
+static uint8_t *png_to_bitmap(const uint8_t *png, size_t len,
+                              unsigned *w, unsigned *h)
+{
+    unsigned char *rgba = NULL;
+    if (lodepng_decode32(&rgba, w, h, png, len) != 0 || rgba == NULL) {
+        free(rgba);
+        return NULL;
+    }
+    size_t px = (size_t)*w * *h;
+    uint8_t *out = heap_caps_malloc(px * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (out != NULL) {
+        for (size_t i = 0; i < px; i++) {
+            const unsigned char *c = rgba + i * 4;
+            uint16_t c16 = (uint16_t)(((c[0] & 0xF8) << 8) |
+                                      ((c[1] & 0xFC) << 3) | (c[2] >> 3));
+            out[i * 3] = (uint8_t)(c16 & 0xFF);
+            out[i * 3 + 1] = (uint8_t)(c16 >> 8);
+            out[i * 3 + 2] = c[3];
+        }
+    }
+    free(rgba);
+    return out;
+}
+
 static void cache_put(const char *icao, uint8_t *data, size_t size)
 {
+    unsigned w = 0, h = 0;
+    uint8_t *bmp = png_to_bitmap(data, size, &w, &h);
+    free(data);   /* the raw PNG is no longer needed either way */
+    if (bmp == NULL) {
+        return;
+    }
+    data = bmp;
+    size = (size_t)w * h * 3;
+
     /* Evict LRU slot */
     int slot = 0;
     uint32_t oldest = UINT32_MAX;
@@ -248,9 +286,10 @@ static void cache_put(const char *icao, uint8_t *data, size_t size)
     e->data = data;
     e->used = true;
     e->last_used = s_tick;
-    /* Raw PNG bytes; LVGL's PNG decoder reads dimensions from the header. */
     e->dsc.header.always_zero = 0;
-    e->dsc.header.cf = LV_IMG_CF_RAW_ALPHA;
+    e->dsc.header.cf = LV_IMG_CF_TRUE_COLOR_ALPHA;
+    e->dsc.header.w = w;
+    e->dsc.header.h = h;
     e->dsc.data = e->data;
     e->dsc.data_size = size;
 }
