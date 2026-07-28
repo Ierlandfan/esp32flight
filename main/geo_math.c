@@ -154,3 +154,12 @@ double geo_progress(double orig_lat, double orig_lon,
     double p = flown / total;
     return p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
 }
+
+double geo_lon_unwrap(double ref, double lon)
+{
+    double d = fmod(lon - ref + 540.0, 360.0);
+    if (d < 0) {
+        d += 360.0;
+    }
+    return ref + d - 180.0;
+}

@@ -318,10 +318,8 @@ static void save_cb(lv_event_t *e)
     cfg->airspace_enabled = lv_obj_has_state(s_sw_airsp, LV_STATE_CHECKED);
     cfg->iss_enabled = lv_obj_has_state(s_sw_iss, LV_STATE_CHECKED);
     cfg->sonde_enabled = lv_obj_has_state(s_sw_sonde, LV_STATE_CHECKED);
-#ifndef APKFLIGHT
     cfg->ships_enabled = lv_obj_has_state(s_sw_ships, LV_STATE_CHECKED);
     strlcpy(cfg->ais_key, lv_textarea_get_text(s_ta_ais), sizeof(cfg->ais_key));
-#endif
     cfg->taf_enabled = lv_obj_has_state(s_sw_taf, LV_STATE_CHECKED);
     strlcpy(cfg->openaip_key, lv_textarea_get_text(s_ta_oaip), sizeof(cfg->openaip_key));
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
@@ -600,9 +598,7 @@ void ui_settings_open(void)
     s_sw_airsp = add_switch(p, L()->airspace_lbl, 380, 612, cfg->airspace_enabled);
     s_sw_iss = add_switch(p, L()->iss_lbl, 0, 664, cfg->iss_enabled);
     s_sw_sonde = add_switch(p, L()->sonde_lbl, 380, 664, cfg->sonde_enabled);
-#ifndef APKFLIGHT
     s_sw_ships = add_switch(p, L()->ships_lbl, 0, 716, cfg->ships_enabled);
-#endif
     s_sw_taf = add_switch(p, L()->taf_lbl, 380, 716, cfg->taf_enabled);
 
     /* --- Integrations --- */
@@ -625,11 +621,9 @@ void ui_settings_open(void)
     add_label(p, L()->lbl_oaip, 0, 304);
     s_ta_oaip = add_textarea(p, 0, 328, 360, cfg->openaip_key, false);
     add_hint(p, L()->hint_oaip, 0, 374, 360);
-#ifndef APKFLIGHT
     add_label(p, L()->lbl_ais, 380, 304);
     s_ta_ais = add_textarea(p, 380, 328, 360, cfg->ais_key, false);
     add_hint(p, L()->hint_ais, 380, 374, 360);
-#endif
 
     add_section(p, L()->sec_smart, 426);
     add_label(p, L()->lbl_mqtt, 0, 458);

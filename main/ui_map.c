@@ -10,6 +10,7 @@
 
 #include "fonts.h"
 #include "geo_math.h"
+#include <math.h>
 #include "flight_data.h"
 #include "lang.h"
 #include "units.h"
@@ -80,6 +81,15 @@ static void close_cb(lv_event_t *e)
         lv_obj_del(s_overlay);
         s_overlay = NULL;
         s_generation++;
+        /* give the 768 KB tile canvas back unless a worker still paints */
+        if (!s_tiles_busy && s_tiles != NULL) {
+            free(s_tiles);
+            s_tiles = NULL;
+            s_view_ok = false;
+        }
+        /* and the ~1 MB decoded world fallback; the small one stays */
+        free(s_map_data);
+        s_map_data = NULL;
     }
 }
 
@@ -315,18 +325,31 @@ static void build_content(void)
     }
 
     if (have_route) {
-        /* Great-circle path */
+        /* Great-circle path, split where it crosses the antimeridian */
+        double prev_lon = 0;
+        int split = PATH_PTS;
         for (int i = 0; i < PATH_PTS; i++) {
             double lat, lon;
             geo_gc_point(rt->origin.lat, rt->origin.lon,
                          rt->destination.lat, rt->destination.lon,
                          (double)i / (PATH_PTS - 1), &lat, &lon);
+            if (i > 0 && split == PATH_PTS && fabs(lon - prev_lon) > 180.0) {
+                split = i;
+            }
+            prev_lon = lon;
             project(lat, lon, &x, &y);
             s_path[i].x = x;
             s_path[i].y = y;
         }
         lv_obj_t *line = lv_line_create(s_overlay);
-        lv_line_set_points(line, s_path, PATH_PTS);
+        lv_line_set_points(line, s_path, split);
+        if (split < PATH_PTS) {
+            lv_obj_t *line2 = lv_line_create(s_overlay);
+            lv_line_set_points(line2, &s_path[split], PATH_PTS - split);
+            lv_obj_set_style_line_width(line2, 3, 0);
+            lv_obj_set_style_line_color(line2, COL_ACCENT, 0);
+            lv_obj_set_style_line_rounded(line2, true, 0);
+        }
         lv_obj_set_style_line_width(line, 3, 0);
         lv_obj_set_style_line_color(line, COL_ACCENT, 0);
         lv_obj_set_style_line_rounded(line, true, 0);
@@ -429,6 +452,7 @@ static void map_tiles_task(void *arg)
         double lats[2] = { s_rt.destination.lat, s_ac.has_pos ? s_ac.lat : s_rt.destination.lat };
         double lons[2] = { s_rt.destination.lon, s_ac.has_pos ? s_ac.lon : s_rt.destination.lon };
         for (int i = 0; i < 2; i++) {
+            lons[i] = geo_lon_unwrap(s_rt.origin.lon, lons[i]);
             if (lats[i] < latmin) latmin = lats[i];
             if (lats[i] > latmax) latmax = lats[i];
             if (lons[i] < lonmin) lonmin = lons[i];

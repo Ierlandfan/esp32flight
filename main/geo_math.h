@@ -41,3 +41,7 @@ bool geo_route_plausible(double orig_lat, double orig_lon,
 double geo_progress(double orig_lat, double orig_lon,
                     double dest_lat, double dest_lon,
                     double cur_lat, double cur_lon);
+
+/* lon shifted by a multiple of 360 into the hemisphere-frame nearest ref;
+ * lets Pacific-crossing routes use a continuous longitude axis. */
+double geo_lon_unwrap(double ref, double lon);
