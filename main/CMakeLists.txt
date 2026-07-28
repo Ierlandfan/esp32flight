@@ -31,6 +31,8 @@ idf_component_register(
         "img_small.c"
         "img_mil.c"
         "img_glider.c"
+        "img_balloon.c"
+        "img_drone.c"
         "jpeg_dec.c"
         "lang.c"
         "mqtt_pub.c"

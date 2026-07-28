@@ -34,7 +34,25 @@ magick -size 28x28 xc:none -fill white \
     -draw "roundrectangle 10,23 18,24.8 1,1" \
     "$tmp/glider.png"
 
-for n in heli small mil glider; do
+# hot-air balloon: envelope, suspension lines, basket
+magick -size 28x28 xc:none -fill white \
+    -draw "circle 14,10.5 14,2.5" \
+    -draw "path 'M 9.5,16.5 L 18.5,16.5 L 16.5,20 L 11.5,20 Z'" \
+    -stroke white -strokewidth 1.2 -draw "line 11.5,20 11.5,23" -draw "line 16.5,20 16.5,23" \
+    -stroke none -draw "roundrectangle 10.5,23 17.5,26.5 1.4,1.4" \
+    "$tmp/balloon.png"
+
+# drone: X frame with four rotor rings
+magick -size 28x28 xc:none -fill white \
+    -draw "circle 14,14 14,16.6" \
+    -stroke white -strokewidth 2 \
+    -draw "line 9,9 19,19" -draw "line 19,9 9,19" \
+    -strokewidth 1.7 -fill none \
+    -draw "circle 6.5,6.5 6.5,10" -draw "circle 21.5,6.5 21.5,10" \
+    -draw "circle 6.5,21.5 6.5,25" -draw "circle 21.5,21.5 21.5,25" \
+    "$tmp/drone.png"
+
+for n in heli small mil glider balloon drone; do
     magick "$tmp/$n.png" -depth 8 "$tmp/$n.rgba"
     python3 - "$tmp/$n.rgba" "main/img_$n.c" "img_$n" <<'EOF'
 import sys

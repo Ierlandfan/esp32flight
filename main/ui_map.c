@@ -28,6 +28,8 @@ LV_IMG_DECLARE(img_heli);
 LV_IMG_DECLARE(img_small);
 LV_IMG_DECLARE(img_mil);
 LV_IMG_DECLARE(img_glider);
+LV_IMG_DECLARE(img_balloon);
+LV_IMG_DECLARE(img_drone);
 
 #define COL_BG     (app_theme()->bg)
 #define COL_PANEL  (app_theme()->panel)
@@ -344,12 +346,15 @@ static void build_content(void)
     if (ac->has_pos) {
         project(ac->lat, ac->lon, &x, &y);
         lv_obj_t *pl = lv_img_create(s_overlay);
-        const aircraft_t *mac = &s_ac;
-        flight_class_t mfc = flight_class(mac);
-        lv_img_set_src(pl, mfc == FCLS_HELI ? &img_heli :
-                           mfc == FCLS_SMALL ? &img_small :
-                           mfc == FCLS_MIL ? &img_mil :
-                           mfc == FCLS_OTHER ? &img_glider : &img_plane);
+        switch (flight_sprite(&s_ac)) {
+        case FSPR_HELI:    lv_img_set_src(pl, &img_heli); break;
+        case FSPR_SMALL:   lv_img_set_src(pl, &img_small); break;
+        case FSPR_MIL:     lv_img_set_src(pl, &img_mil); break;
+        case FSPR_GLIDER:  lv_img_set_src(pl, &img_glider); break;
+        case FSPR_BALLOON: lv_img_set_src(pl, &img_balloon); break;
+        case FSPR_DRONE:   lv_img_set_src(pl, &img_drone); break;
+        default:           lv_img_set_src(pl, &img_plane); break;
+        }
         lv_obj_set_style_img_recolor(pl, alt_color(ac->alt_baro_ft, ac->on_ground), 0);
         lv_obj_set_style_img_recolor_opa(pl, LV_OPA_COVER, 0);
         lv_img_set_angle(pl, (int)(ac->track_deg * 10));

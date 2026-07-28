@@ -73,16 +73,20 @@ LV_IMG_DECLARE(img_heli);
 LV_IMG_DECLARE(img_small);
 LV_IMG_DECLARE(img_mil);
 LV_IMG_DECLARE(img_glider);
+LV_IMG_DECLARE(img_balloon);
+LV_IMG_DECLARE(img_drone);
 
-/* map sprite per aircraft class */
-static const lv_img_dsc_t *class_sprite(int fc)
+/* map sprite per flight_sprite_t id */
+static const lv_img_dsc_t *class_sprite(int spr)
 {
-    switch (fc) {
-    case FCLS_SMALL: return &img_small;
-    case FCLS_HELI:  return &img_heli;
-    case FCLS_MIL:   return &img_mil;
-    case FCLS_OTHER: return &img_glider;
-    default:         return &img_plane;
+    switch (spr) {
+    case FSPR_SMALL:   return &img_small;
+    case FSPR_HELI:    return &img_heli;
+    case FSPR_MIL:     return &img_mil;
+    case FSPR_GLIDER:  return &img_glider;
+    case FSPR_BALLOON: return &img_balloon;
+    case FSPR_DRONE:   return &img_drone;
+    default:           return &img_plane;
     }
 }
 
@@ -1096,7 +1100,7 @@ static void render_map_panel(void)
     if (ac->has_pos) {
         project_emb(ac->lat, ac->lon, &x, &y);
         lv_obj_set_pos(s_emb_plane, x - 14, y - 14);
-        lv_img_set_src(s_emb_plane, class_sprite(flight_class(ac)));
+        lv_img_set_src(s_emb_plane, class_sprite(flight_sprite(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
         lv_obj_set_style_img_recolor(s_emb_plane,
                                      alt_color(ac->alt_baro_ft, ac->on_ground), 0);
@@ -3491,7 +3495,7 @@ void ui_update(const aircraft_list_t *list)
         t->dir_deg = list->ac[i].dir_deg;
         t->alt_ft = list->ac[i].alt_baro_ft;
         t->ground = list->ac[i].on_ground;
-        t->fcls = (uint8_t)flight_class(&list->ac[i]);
+        t->fcls = (uint8_t)flight_sprite(&list->ac[i]);
     }
     s_shown_count = list->count < MAX_SHOWN ? list->count : MAX_SHOWN;
     for (int i = 0; i < s_shown_count; i++) {

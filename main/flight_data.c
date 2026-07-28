@@ -349,3 +349,23 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
     free(buf);
     return err;
 }
+
+flight_sprite_t flight_sprite(const aircraft_t *ac)
+{
+    switch (flight_class(ac)) {
+    case FCLS_SMALL: return FSPR_SMALL;
+    case FCLS_HELI:  return FSPR_HELI;
+    case FCLS_MIL:   return FSPR_MIL;
+    case FCLS_OTHER:
+        if (ac->category[0] == 'B') {
+            if (ac->category[1] == '2') {
+                return FSPR_BALLOON;   /* lighter-than-air */
+            }
+            if (ac->category[1] == '6') {
+                return FSPR_DRONE;     /* UAV */
+            }
+        }
+        return FSPR_GLIDER;
+    default: return FSPR_PLANE;
+    }
+}

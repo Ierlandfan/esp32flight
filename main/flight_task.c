@@ -426,6 +426,7 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
         cJSON_AddNumberToObject(jf, "dist_km", (double)(int)(ac->dist_nm * 1.852f * 10) / 10);
         cJSON_AddStringToObject(jf, "squawk", ac->squawk);
         cJSON_AddNumberToObject(jf, "cls", flight_class(ac));
+        cJSON_AddNumberToObject(jf, "spr", flight_sprite(ac));
         if (ac->has_pos) {
             cJSON_AddNumberToObject(jf, "lat", ac->lat);
             cJSON_AddNumberToObject(jf, "lon", ac->lon);
