@@ -10,6 +10,7 @@
 
 #include "fonts.h"
 #include "geo_math.h"
+#include "flight_data.h"
 #include "lang.h"
 #include "units.h"
 #include "lvgl_port.h"
@@ -23,6 +24,10 @@
 #include "theme.h"
 
 LV_IMG_DECLARE(img_plane);
+LV_IMG_DECLARE(img_heli);
+LV_IMG_DECLARE(img_small);
+LV_IMG_DECLARE(img_mil);
+LV_IMG_DECLARE(img_glider);
 
 #define COL_BG     (app_theme()->bg)
 #define COL_PANEL  (app_theme()->panel)
@@ -339,7 +344,12 @@ static void build_content(void)
     if (ac->has_pos) {
         project(ac->lat, ac->lon, &x, &y);
         lv_obj_t *pl = lv_img_create(s_overlay);
-        lv_img_set_src(pl, &img_plane);
+        const aircraft_t *mac = &s_ac;
+        flight_class_t mfc = flight_class(mac);
+        lv_img_set_src(pl, mfc == FCLS_HELI ? &img_heli :
+                           mfc == FCLS_SMALL ? &img_small :
+                           mfc == FCLS_MIL ? &img_mil :
+                           mfc == FCLS_OTHER ? &img_glider : &img_plane);
         lv_obj_set_style_img_recolor(pl, alt_color(ac->alt_baro_ft, ac->on_ground), 0);
         lv_obj_set_style_img_recolor_opa(pl, LV_OPA_COVER, 0);
         lv_img_set_angle(pl, (int)(ac->track_deg * 10));

@@ -69,6 +69,22 @@
 static const char *TAG = "ui";
 
 LV_IMG_DECLARE(img_plane);
+LV_IMG_DECLARE(img_heli);
+LV_IMG_DECLARE(img_small);
+LV_IMG_DECLARE(img_mil);
+LV_IMG_DECLARE(img_glider);
+
+/* map sprite per aircraft class */
+static const lv_img_dsc_t *class_sprite(int fc)
+{
+    switch (fc) {
+    case FCLS_SMALL: return &img_small;
+    case FCLS_HELI:  return &img_heli;
+    case FCLS_MIL:   return &img_mil;
+    case FCLS_OTHER: return &img_glider;
+    default:         return &img_plane;
+    }
+}
 
 #define COL_BG        (app_theme()->bg)
 #define COL_PANEL     (app_theme()->panel)
@@ -159,6 +175,7 @@ typedef struct {
     float dist_nm, dir_deg;
     int   alt_ft;
     bool  ground;
+    uint8_t fcls;    /* flight_class_t for the marker sprite */
 } amb_target_t;
 static amb_target_t s_all[MAX_AIRCRAFT];
 static int s_all_count;
@@ -588,6 +605,19 @@ static void apply_view(int mode)
 static void mode_click_cb(lv_event_t *e)
 {
     apply_view(s_view_mode + 1);
+}
+
+void ui_set_list_mode(int mode)
+{
+    if (mode >= 0 && mode <= 2) {
+        s_list_mode = (uint8_t)mode;
+        if (s_list_mode_btnm != NULL) {
+            lv_btnmatrix_set_btn_ctrl(s_list_mode_btnm, (uint16_t)mode,
+                                      LV_BTNMATRIX_CTRL_CHECKED);
+        }
+        render_list_rows();
+        render_right();
+    }
 }
 
 void ui_set_view(int mode)
@@ -1066,6 +1096,7 @@ static void render_map_panel(void)
     if (ac->has_pos) {
         project_emb(ac->lat, ac->lon, &x, &y);
         lv_obj_set_pos(s_emb_plane, x - 14, y - 14);
+        lv_img_set_src(s_emb_plane, class_sprite(flight_class(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
         lv_obj_set_style_img_recolor(s_emb_plane,
                                      alt_color(ac->alt_baro_ft, ac->on_ground), 0);
@@ -1899,6 +1930,7 @@ static void render_radar_panel(void)
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
         lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);
+        lv_img_set_src(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
         lv_img_set_zoom(s_radar_dots[i], sel ? 384 : 232);
         lv_obj_set_style_img_recolor(s_radar_dots[i],
@@ -2144,6 +2176,7 @@ static void render_ambient(void)
             lv_obj_add_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
+        lv_img_set_src(s_amb_planes[i], class_sprite(s_all[i].fcls));
         lv_obj_set_pos(s_amb_planes[i], x - 14, y - 14);
         lv_img_set_angle(s_amb_planes[i], (int)(s_all[i].track * 10));
         lv_obj_set_style_img_recolor(s_amb_planes[i],
@@ -3458,6 +3491,7 @@ void ui_update(const aircraft_list_t *list)
         t->dir_deg = list->ac[i].dir_deg;
         t->alt_ft = list->ac[i].alt_baro_ft;
         t->ground = list->ac[i].on_ground;
+        t->fcls = (uint8_t)flight_class(&list->ac[i]);
     }
     s_shown_count = list->count < MAX_SHOWN ? list->count : MAX_SHOWN;
     for (int i = 0; i < s_shown_count; i++) {

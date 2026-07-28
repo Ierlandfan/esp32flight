@@ -289,7 +289,9 @@ static const char INDEX_HTML[] =
 "function drawMap(d){if(!d.lat)return;ensureMap(d.lat,d.lon,d.radius_km||100);"
 "if(!layer)return;layer.clearLayers();"
 "(d.flights||[]).forEach(f=>{if(f.lat===undefined)return;"
-"const ic=L.divIcon({className:'plane',html:`<div style='transform:rotate(${(f.track||0)-45}deg)'>\\u2708</div>`});"
+"const g=f.cls===2?'\\uD83D\\uDE81':f.cls===3?'\\uD83D\\uDEE9':'\\u2708';"
+"const rot=f.cls===2?0:(f.track||0)-45;"
+"const ic=L.divIcon({className:'plane',html:`<div style='transform:rotate(${rot}deg)'>${g}</div>`});"
 "if(f.trail&&f.trail.length>1)L.polyline(f.trail,{color:'#ffd166',weight:1,opacity:.5}).addTo(layer);"
 "const m=L.marker([f.lat,f.lon],{icon:ic}).addTo(layer);"
 "let t=`<b>${f.callsign}</b><br>${f.airline||''} ${f.type||''}<br>${ualt(f.alt_ft)} \\u00B7 ${uspd(f.gs_kt)}`;"
@@ -793,8 +795,13 @@ static esp_err_t view_get(httpd_req_t *req)
     char q[32] = "", val[8] = "";
     if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
         httpd_query_key_value(q, "m", val, sizeof(val)) == ESP_OK) {
+        int m = atoi(val);
         if (lvgl_port_lock(1000)) {
-            ui_set_view(atoi(val));
+            if (m >= 10 && m <= 12) {
+                ui_set_list_mode(m - 10);   /* 10 planes, 11 ships, 12 all */
+            } else {
+                ui_set_view(m);
+            }
             lvgl_port_unlock();
         }
         return httpd_resp_sendstr(req, "ok");
