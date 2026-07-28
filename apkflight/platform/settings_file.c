@@ -12,7 +12,7 @@
 
 #define SETTINGS_PATH "/assets/settings.bin"
 #define SETTINGS_MAGIC 0x414B4631u   /* "AKF1" */
-#define SETTINGS_VER   3
+#define SETTINGS_VER   4
 
 static settings_t s_settings;
 
@@ -55,6 +55,13 @@ void settings_load(void)
         settings_t tmp;
         if (ver == SETTINGS_VER && fread(&tmp, sizeof(tmp), 1, f) == 1) {
             s_settings = tmp;
+        } else if (ver == 3) {
+            /* v3 predates the 0.4.x additions (taf/iss/sondes/ships/keys,
+             * units, favorites); the old struct is a prefix */
+            size_t v3 = offsetof(settings_t, taf_enabled);
+            if (fread(&tmp, 1, v3, f) == v3) {
+                memcpy(&s_settings, &tmp, v3);
+            }
         } else if (ver == 2) {
             /* v2 predates rain_overlay/amb_style */
             size_t v2 = offsetof(settings_t, rain_overlay);

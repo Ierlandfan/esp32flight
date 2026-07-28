@@ -56,6 +56,8 @@ typedef struct {
     const char *metar_lbl, *metar_opts;          /* raw vs decoded */
     const char *follow_lbl;                      /* stick to selected flight */
     const char *mtr_wind, *mtr_gust, *mtr_calm, *mtr_vis, *mtr_cavok;
+    const char *wifi_no_ap, *wifi_badpass;
+    const char *night_auto_lbl;
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;

@@ -163,3 +163,44 @@ double geo_lon_unwrap(double ref, double lon)
     }
     return ref + d - 180.0;
 }
+
+bool geo_sun_times(double lat, double lon, long long epoch_utc, int tz_off_s,
+                   int *rise_min, int *set_min)
+{
+    /* NOAA solar-position approximation, good to a minute or two */
+    double days = (double)epoch_utc / 86400.0 + 2440587.5 - 2451545.0;
+    double g = fmod(357.529 + 0.98560028 * days, 360.0) * M_PI / 180.0;
+    double q = fmod(280.459 + 0.98564736 * days, 360.0);
+    double l = fmod(q + 1.915 * sin(g) + 0.020 * sin(2 * g), 360.0) * M_PI / 180.0;
+    double e = (23.439 - 0.00000036 * days) * M_PI / 180.0;
+    double decl = asin(sin(e) * sin(l));
+
+    double latr = lat * M_PI / 180.0;
+    double h0 = -0.833 * M_PI / 180.0;   /* standard refraction horizon */
+    double cosh0 = (sin(h0) - sin(latr) * sin(decl)) / (cos(latr) * cos(decl));
+    if (cosh0 < -1.0 || cosh0 > 1.0) {
+        return false;   /* midnight sun or polar night */
+    }
+    double ha = acos(cosh0) * 180.0 / M_PI;   /* half day arc in degrees */
+
+    /* equation of time, minutes */
+    double ra = atan2(cos(e) * sin(l), cos(l)) * 180.0 / M_PI;
+    double eqt = q - fmod(ra + 360.0, 360.0);
+    while (eqt > 20) eqt -= 360;
+    while (eqt < -20) eqt += 360;
+    eqt *= 4.0;
+
+    double noon_utc_min = 720.0 - 4.0 * lon - eqt;
+    double rise_utc = noon_utc_min - ha * 4.0;
+    double set_utc = noon_utc_min + ha * 4.0;
+    int off_min = tz_off_s / 60;
+    int r = (int)(rise_utc + off_min);
+    int st = (int)(set_utc + off_min);
+    while (r < 0) r += 1440;
+    while (r >= 1440) r -= 1440;
+    while (st < 0) st += 1440;
+    while (st >= 1440) st -= 1440;
+    *rise_min = r;
+    *set_min = st;
+    return true;
+}

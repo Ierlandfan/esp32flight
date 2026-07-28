@@ -209,6 +209,7 @@ static const char INDEX_HTML[] =
 "<div class='help'>Full-screen map of your area after this many idle minutes. Tap to return.</div></div>"
 "<div><label>Night mode</label><select id='c_night_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Backlight turns off during the quiet hours below; first tap wakes the screen.</div></div>"
+"<div><label>Night hours</label><select id='c_night_auto'><option value='0'>fixed hours below</option><option value='1'>auto: sunset to sunrise</option></select></div>"
 "<div><label>Night from</label><input id='c_night_start' type='time'></div>"
 "<div><label>Night until</label><input id='c_night_end' type='time'></div>"
 "</div></div>"
@@ -379,6 +380,7 @@ static const char INDEX_HTML[] =
 "c.cpa_all=document.getElementById('c_cpa_all').value==='1';"
 "c.filter_apt_exclude=document.getElementById('c_filter_apt_exclude').value==='1';"
 "c.night_enabled=document.getElementById('c_night_enabled').value==='1';"
+"c.night_auto=document.getElementById('c_night_auto').value==='1';"
 "c.ambient_idle_min=+document.getElementById('c_ambient_idle_min').value;"
 "c.alt_min_ft=+document.getElementById('c_alt_min_ft').value;c.alt_max_ft=+document.getElementById('c_alt_max_ft').value;"
 "const pm=id=>{const v=document.getElementById(id).value.split(':');return (+v[0])*60+(+v[1]||0);};"
@@ -539,6 +541,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "cpa_alerts", c->cpa_alerts);
     cJSON_AddBoolToObject(root, "cpa_all", c->cpa_all);
     cJSON_AddBoolToObject(root, "night_enabled", c->night_enabled);
+    cJSON_AddBoolToObject(root, "night_auto", c->night_auto);
     cJSON_AddNumberToObject(root, "night_start_min", c->night_start_min);
     cJSON_AddNumberToObject(root, "night_end_min", c->night_end_min);
     cJSON_AddNumberToObject(root, "ambient_idle_min", c->ambient_idle_min);
@@ -635,6 +638,9 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "night_enabled")))) {
         c->night_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "night_auto")))) {
+        c->night_auto = cJSON_IsTrue(j);
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "night_start_min")))) {
         c->night_start_min = (int)j->valuedouble;

@@ -45,3 +45,8 @@ double geo_progress(double orig_lat, double orig_lon,
 /* lon shifted by a multiple of 360 into the hemisphere-frame nearest ref;
  * lets Pacific-crossing routes use a continuous longitude axis. */
 double geo_lon_unwrap(double ref, double lon);
+
+/* Civil sunrise/sunset (NOAA approximation) as minutes from local midnight
+ * for the given day. Returns false in polar day/night conditions. */
+bool geo_sun_times(double lat, double lon, long long epoch_utc, int tz_off_s,
+                   int *rise_min, int *set_min);

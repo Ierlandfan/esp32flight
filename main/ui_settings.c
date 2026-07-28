@@ -44,7 +44,7 @@ static lv_obj_t *s_sw_cls[FCLS_COUNT];
 static lv_obj_t *s_sw_rain;
 static lv_obj_t *s_sw_airsp, *s_sw_iss, *s_sw_sonde, *s_sw_ships, *s_sw_taf;
 static lv_obj_t *s_ta_oaip, *s_ta_ais;
-static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle;
+static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle, *s_sw_nauto;
 static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
@@ -326,6 +326,7 @@ static void save_cb(lv_event_t *e)
     cfg->metric_units = lv_dropdown_get_selected(s_dd_units) == 1;
     cfg->metar_decoded = lv_dropdown_get_selected(s_dd_metar) == 1;
     cfg->follow_mode = !lv_obj_has_state(s_sw_cycle, LV_STATE_CHECKED);
+    cfg->night_auto = lv_obj_has_state(s_sw_nauto, LV_STATE_CHECKED);
     strlcpy(cfg->watch_regs, lv_textarea_get_text(s_ta_watch), sizeof(cfg->watch_regs));
     strlcpy(cfg->ntfy_topic, lv_textarea_get_text(s_ta_ntfy), sizeof(cfg->ntfy_topic));
     strlcpy(cfg->mqtt_uri, lv_textarea_get_text(s_ta_mqtt), sizeof(cfg->mqtt_uri));
@@ -407,6 +408,18 @@ static lv_obj_t *add_hint(lv_obj_t *parent, const char *text, int x, int y, int 
     return l;
 }
 
+#ifdef APKFLIGHT
+const char *apk_clipboard_text(void);
+
+static void ta_paste_cb(lv_event_t *e)
+{
+    const char *clip = apk_clipboard_text();
+    if (clip != NULL && clip[0] != '\0' && strlen(clip) < 128) {
+        lv_textarea_add_text(lv_event_get_target(e), clip);
+    }
+}
+#endif
+
 static lv_obj_t *add_textarea(lv_obj_t *parent, int x, int y, int w, const char *value, bool password)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
@@ -421,6 +434,10 @@ static lv_obj_t *add_textarea(lv_obj_t *parent, int x, int y, int w, const char 
     lv_obj_set_style_border_color(ta, COL_DIM, 0);
     lv_obj_add_event_cb(ta, ta_focus_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+#ifdef APKFLIGHT
+    /* long-press pastes the clipboard: 32-char API keys beg for it */
+    lv_obj_add_event_cb(ta, ta_paste_cb, LV_EVENT_LONG_PRESSED, NULL);
+#endif
     return ta;
 }
 
@@ -652,6 +669,7 @@ void ui_settings_open(void)
     lv_dropdown_set_options(s_dd_metar, L()->metar_opts);
     lv_dropdown_set_selected(s_dd_metar, cfg->metar_decoded ? 1 : 0);
     s_sw_cycle = add_switch(p, L()->follow_lbl, 0, 206, !cfg->follow_mode);
+    s_sw_nauto = add_switch(p, L()->night_auto_lbl, 380, 206, cfg->night_auto);
     s_sw_night = add_switch(p, L()->night_lbl, 0, 154, cfg->night_enabled);
     add_label(p, L()->night_from, 380, 148);
     snprintf(buf, sizeof(buf), "%02d:%02d", cfg->night_start_min / 60, cfg->night_start_min % 60);

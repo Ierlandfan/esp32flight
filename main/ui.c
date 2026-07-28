@@ -2359,12 +2359,16 @@ static void amb_close(void)
         amb_restore_retro();   /* rescue the adopted retro panel first */
         lv_obj_del(s_amb);
         s_amb = NULL;
-        s_amb_view_ok = false;
-        if (!s_amb_busy && s_amb_tiles != NULL) {
-            free(s_amb_tiles);   /* 768 KB back; re-rendered on next idle */
-            s_amb_tiles = NULL;
+        /* keep the rendered canvas for an instant next entry while PSRAM
+           is comfortable; only hand it back under real pressure */
+        if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
+            s_amb_view_ok = false;
+            if (!s_amb_busy && s_amb_tiles != NULL) {
+                free(s_amb_tiles);
+                s_amb_tiles = NULL;
+            }
+            s_amb_key[0] = '\0';
         }
-        s_amb_key[0] = '\0';
         s_amb_scale = 1.0f;
         s_amb_sel_cs[0] = '\0';
     }
@@ -2531,6 +2535,15 @@ static void idle_timer_cb(lv_timer_t *t)
             gmtime_r(&l, &tm);
             int m = tm.tm_hour * 60 + tm.tm_min;
             int a = cfg->night_start_min, b = cfg->night_end_min;
+            if (cfg->night_auto && s_home_ok) {
+                int rise, set;
+                if (geo_sun_times(s_home_lat, s_home_lon, (long long)now,
+                                  tz_home_known() ? tz_home_offset() : 0,
+                                  &rise, &set)) {
+                    a = set;    /* dark from sunset... */
+                    b = rise;   /* ...to sunrise */
+                }
+            }
             bool night = a <= b ? (m >= a && m < b) : (m >= a || m < b);
             if (night && !s_bl_off &&
                 idle_ms > (uint32_t)(cfg->ambient_idle_min + 5) * 60000U) {

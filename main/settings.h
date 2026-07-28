@@ -50,6 +50,7 @@ typedef struct {
     bool    metric_units;     /* m + km/h instead of ft + kt */
     bool    metar_decoded;    /* human-readable METAR instead of raw */
     bool    follow_mode;      /* stick to the selected aircraft, no auto-cycle */
+    bool    night_auto;       /* night hours follow local sunset/sunrise */
     char    fav_name[3][24];  /* favorite locations, empty name = free slot */
     double  fav_lat[3], fav_lon[3];
 } settings_t;

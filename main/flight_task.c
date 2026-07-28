@@ -532,10 +532,23 @@ static void flight_task(void *arg)
         snprintf(sbuf, sizeof(sbuf), L()->setup_wifi, LV_SYMBOL_SETTINGS);
         set_status(sbuf);
     }
-    if (!wifi_mgr_wait_connected(-1)) {
-        set_status("Wi-Fi failed");
-        vTaskDelete(NULL);
-        return;
+    while (!wifi_mgr_wait_connected(10000)) {
+        if (settings_get()->wifi_ssid[0]) {
+            int r = wifi_mgr_last_reason();
+            const char *hint = NULL;
+            if (r == 201) {
+                hint = L()->wifi_no_ap;
+            } else if (r == 2 || r == 3 || r == 15 || r == 204 || r == 205) {
+                hint = L()->wifi_badpass;
+            }
+            char sbuf[96];
+            if (hint != NULL) {
+                snprintf(sbuf, sizeof(sbuf), "%s (%s)", L()->connecting, hint);
+            } else {
+                strlcpy(sbuf, L()->connecting, sizeof(sbuf));
+            }
+            set_status(sbuf);
+        }
     }
 
     esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
@@ -718,11 +731,14 @@ static void flight_task(void *arg)
 
             /* Commercial flight numbers, when a FlightAware key is set */
             if (settings_get()->fa_key[0] != '\0') {
+                int fa_done = 0;
                 for (int i = 0; i < top; i++) {
                     if (flight_is_airline(&list->ac[i]) &&
                         faflight_get_cached(list->ac[i].callsign) == NULL) {
                         faflight_fetch(list->ac[i].callsign);
-                        break;  /* one lookup per cycle */
+                        if (++fa_done >= 2) {
+                            break;  /* two lookups per cycle */
+                        }
                     }
                 }
             }
