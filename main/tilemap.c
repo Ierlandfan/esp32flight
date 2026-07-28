@@ -188,6 +188,7 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     unsigned char *rgba = NULL;
     unsigned w = 0, h = 0;
     if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
+        free(rgba);   /* lodepng may allocate even when it reports an error */
         return false;
     }
 
@@ -258,6 +259,7 @@ static void blit_rain_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     unsigned char *rgba = NULL;
     unsigned w = 0, h = 0;
     if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
+        free(rgba);   /* lodepng may allocate even when it reports an error */
         return;
     }
     for (int y = 0; y < TILE_PX; y++) {
