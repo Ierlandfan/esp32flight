@@ -14,7 +14,7 @@
 
 static const char *TAG = "logos";
 
-#define LOGO_CACHE_SIZE 16
+#define LOGO_CACHE_SIZE 24
 
 /* Logos missing from the bundled set (small-flash builds carry only the
  * most common carriers) are fetched on demand from the companion repo and
@@ -129,6 +129,7 @@ static void miss_remember(const char *icao)
 }
 
 static void cache_put(const char *icao, uint8_t *data, size_t size);
+static int cache_evictable_slot(void);
 
 static void logo_fetch_task(void *arg)
 {
@@ -189,6 +190,9 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
         }
     }
 
+    if (cache_evictable_slot() < 0) {
+        return NULL;   /* cache pinned by the current pass: no I/O storm */
+    }
     char path[48];
     snprintf(path, sizeof(path), "/assets/logos/%s.png", airline_icao);
     FILE *f = fopen(path, "rb");
@@ -252,6 +256,27 @@ static uint8_t *png_to_bitmap(const uint8_t *png, size_t len,
     return out;
 }
 
+/* an entry touched within the last render pass or two must not be
+ * replaced: rows on screen still point at its pixel buffer */
+#define LOGO_HOT_WINDOW 64
+
+static int cache_evictable_slot(void)
+{
+    int slot = -1;
+    uint32_t oldest = UINT32_MAX;
+    for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
+        if (!s_cache[i].used) {
+            return i;
+        }
+        if (s_cache[i].last_used + LOGO_HOT_WINDOW <= s_tick &&
+            s_cache[i].last_used < oldest) {
+            oldest = s_cache[i].last_used;
+            slot = i;
+        }
+    }
+    return slot;
+}
+
 static void cache_put(const char *icao, uint8_t *data, size_t size)
 {
     unsigned w = 0, h = 0;
@@ -263,18 +288,11 @@ static void cache_put(const char *icao, uint8_t *data, size_t size)
     data = bmp;
     size = (size_t)w * h * 3;
 
-    /* Evict LRU slot */
-    int slot = 0;
-    uint32_t oldest = UINT32_MAX;
-    for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
-        if (!s_cache[i].used) {
-            slot = i;
-            break;
-        }
-        if (s_cache[i].last_used < oldest) {
-            oldest = s_cache[i].last_used;
-            slot = i;
-        }
+    int slot = cache_evictable_slot();
+    if (slot < 0) {
+        free(data);   /* everything is on screen; better a letter badge
+                         than repainting somebody else's row */
+        return;
     }
     if (s_cache[slot].used && s_cache[slot].data != NULL) {
         free(s_cache[slot].data);
