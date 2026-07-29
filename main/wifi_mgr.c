@@ -45,7 +45,14 @@ esp_err_t wifi_mgr_start(void)
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    esp_err_t werr = esp_wifi_init(&cfg);
+    if (werr != ESP_OK) {
+        /* Tab5: the C6 radio may be absent/unresponsive; a desk radar
+           with a dead radio should still show its UI, not bootloop */
+        ESP_LOGE(TAG, "wifi init failed (%s); running without radio",
+                 esp_err_to_name(werr));
+        return werr;
+    }
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
 

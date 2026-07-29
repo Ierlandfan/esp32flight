@@ -555,6 +555,15 @@ static lv_obj_t *make_stat(lv_obj_t *parent, int col, int row, const char *name,
     return box;
 }
 
+/* The bundled world map is authored for the 800x480 boards; on larger panels
+   it is zoomed up to fill the map area (exactly 1.0 on the original boards). */
+static float emb_world_scale(void)
+{
+    float kx = (float)EMB_MAP_W / EMB_BASE_W;
+    float ky = (float)EMB_MAP_H / EMB_BASE_H;
+    return kx < ky ? kx : ky;
+}
+
 static void project_emb(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
 {
     if (s_emb_view_ok) {
@@ -564,11 +573,9 @@ static void project_emb(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
         *y = (lv_coord_t)yy;
         return;
     }
-    /* Bundled world map keeps its native size centered on the panel */
-    *x = (lv_coord_t)((EMB_MAP_W - EMB_BASE_W) / 2 +
-                      (lon + 180.0) / 360.0 * EMB_BASE_W);
-    *y = (lv_coord_t)((EMB_MAP_H - EMB_BASE_H) / 2 +
-                      (90.0 - lat) / 180.0 * EMB_BASE_H);
+    float k = emb_world_scale();
+    *x = (lv_coord_t)(EMB_MAP_W / 2 + ((lon + 180.0) / 360.0 - 0.5) * EMB_BASE_W * k);
+    *y = (lv_coord_t)(EMB_MAP_H / 2 + ((90.0 - lat) / 180.0 - 0.5) * EMB_BASE_H * k);
 }
 
 static void emb_tiles_task(void *arg)
@@ -598,6 +605,7 @@ static void emb_tiles_task(void *arg)
             s_emb_tiles_dsc.data = (const uint8_t *)s_emb_tiles;
             s_emb_tiles_dsc.data_size = EMB_MAP_W * EMB_MAP_H * 2;
             lv_img_set_src(s_emb_img, &s_emb_tiles_dsc);
+            lv_img_set_zoom(s_emb_img, LV_IMG_ZOOM_NONE);
             lv_obj_set_pos(s_emb_img, 0, 0);
             lv_obj_invalidate(s_emb_img);
             if (s_view_mode == VIEW_MAP) {
@@ -628,6 +636,7 @@ static void emb_tiles_want(const aircraft_t *ac, const route_info_t *rt)
     const lv_img_dsc_t *fallback = ui_map_get_image_small();
     if (fallback != NULL) {
         lv_img_set_src(s_emb_img, fallback);
+        lv_img_set_zoom(s_emb_img, (uint16_t)(emb_world_scale() * 256.0f + 0.5f));
         lv_obj_set_pos(s_emb_img, (EMB_MAP_W - EMB_BASE_W) / 2,
                                  (EMB_MAP_H - EMB_BASE_H) / 2);
     }
@@ -705,6 +714,7 @@ static void build_map_panel(lv_obj_t *scr)
     const lv_img_dsc_t *map = ui_map_get_image_small();
     if (map != NULL) {
         lv_img_set_src(s_emb_img, map);
+        lv_img_set_zoom(s_emb_img, (uint16_t)(emb_world_scale() * 256.0f + 0.5f));
     }
     lv_obj_set_pos(s_emb_img, (EMB_MAP_W - EMB_BASE_W) / 2,
                              (EMB_MAP_H - EMB_BASE_H) / 2);
@@ -1225,6 +1235,7 @@ static void amb_tiles_task(void *arg)
             s_amb_tiles_dsc.data = (const uint8_t *)s_amb_tiles;
             s_amb_tiles_dsc.data_size = SCR_W * SCR_H * 2;
             lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
+            lv_img_set_zoom(s_amb_img, LV_IMG_ZOOM_NONE);
             lv_obj_set_pos(s_amb_img, 0, 0);
             render_ambient();
         }
@@ -1234,6 +1245,15 @@ static void amb_tiles_task(void *arg)
              (double)scale);
     s_amb_busy = false;
     vTaskDelete(NULL);
+}
+
+/* Bundled 800x400 world.png zoomed to fill the ambient screen (1.0 on the
+   800x480 boards, which keeps the historical layout pixel-identical). */
+static float amb_world_scale(void)
+{
+    float kx = (float)SCR_W / 800.0f;
+    float ky = (float)(SCR_H - 80) / 400.0f;
+    return kx < ky ? kx : ky;
 }
 
 static void amb_proj(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
@@ -1249,8 +1269,10 @@ static void amb_proj(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
         *y = (lv_coord_t)yy;
         return;
     }
-    *x = (lv_coord_t)((SCR_W - 800) / 2 + (lon + 180.0) / 360.0 * 800);
-    *y = (lv_coord_t)((SCR_H - 480) / 2 + 40 + (90.0 - lat) / 180.0 * 400);
+    float k = amb_world_scale();
+    *x = (lv_coord_t)(SCR_W / 2 + ((lon + 180.0) / 360.0 - 0.5) * 800.0 * k);
+    *y = (lv_coord_t)(40 + (SCR_H - 80) / 2 +
+                      ((90.0 - lat) / 180.0 - 0.5) * 400.0 * k);
 }
 
 static void amb_spawn_tiles(void)
@@ -1496,7 +1518,8 @@ static void amb_show(void)
     const lv_img_dsc_t *fallback = ui_map_get_image();
     if (fallback != NULL && !s_amb_view_ok) {
         lv_img_set_src(s_amb_img, fallback);
-        lv_obj_set_pos(s_amb_img, 0, 40);
+        lv_img_set_zoom(s_amb_img, (uint16_t)(amb_world_scale() * 256.0f + 0.5f));
+        lv_obj_set_pos(s_amb_img, SCR_W / 2 - 400, 40 + (SCR_H - 80) / 2 - 200);
     }
 
     s_amb_ring = lv_obj_create(s_amb);

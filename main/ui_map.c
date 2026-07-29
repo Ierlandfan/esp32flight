@@ -145,6 +145,15 @@ const lv_img_dsc_t *ui_map_get_image_small(void)
     return load_png("/assets/map/world_small.png", &s_map_small_data, &s_map_small_dsc);
 }
 
+/* Bundled world.png is authored for 800x400; zoomed up to fill larger panels
+   (exactly 1.0 on the 800x480 boards). */
+static float world_scale(void)
+{
+    float kx = (float)MAP_W / WORLD_W;
+    float ky = (float)MAP_H / WORLD_H;
+    return kx < ky ? kx : ky;
+}
+
 static void project(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
 {
     if (s_view_ok) {
@@ -154,9 +163,9 @@ static void project(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
         *y = (lv_coord_t)(yy + MAP_Y);
         return;
     }
-    *x = (lv_coord_t)((MAP_W - WORLD_W) / 2 + (lon + 180.0) / 360.0 * WORLD_W);
-    *y = (lv_coord_t)(MAP_Y + (MAP_H - WORLD_H) / 2 +
-                      (90.0 - lat) / 180.0 * WORLD_H);
+    float k = world_scale();
+    *x = (lv_coord_t)(MAP_W / 2 + ((lon + 180.0) / 360.0 - 0.5) * WORLD_W * k);
+    *y = (lv_coord_t)(MAP_Y + MAP_H / 2 + ((90.0 - lat) / 180.0 - 0.5) * WORLD_H * k);
 }
 
 static lv_obj_t *marker(lv_obj_t *parent, lv_coord_t x, lv_coord_t y, int d, lv_color_t color)
@@ -282,6 +291,7 @@ static void build_content(void)
         if (s_view_ok) {
             lv_obj_set_pos(img, 0, MAP_Y);
         } else {
+            lv_img_set_zoom(img, (uint16_t)(world_scale() * 256.0f + 0.5f));
             lv_obj_set_pos(img, (MAP_W - WORLD_W) / 2,
                                 MAP_Y + (MAP_H - WORLD_H) / 2);
         }
