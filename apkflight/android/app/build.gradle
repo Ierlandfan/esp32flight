@@ -12,7 +12,7 @@ if (ksFile.exists()) {
 
 android {
     namespace 'pl.theqkash.apkflight'
-    compileSdk 35
+    compileSdk 36
 
     signingConfigs {
         release {
@@ -28,8 +28,8 @@ android {
     defaultConfig {
         applicationId 'pl.theqkash.esp32flight'
         minSdk 21
-        targetSdk 35
-        versionCode 4
+        targetSdk 36
+        versionCode 6
         versionName espfVer
         externalNativeBuild {
             ndkBuild {
