@@ -27,3 +27,4 @@ apkflight/android/keystore/
 apkflight/android/keystore.properties
 build-*/
 .DS_Store
+assets-8mb/

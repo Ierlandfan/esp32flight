@@ -88,9 +88,57 @@ bool geo_route_plausible(double orig_lat, double orig_lon,
     double direct = geo_haversine_km(orig_lat, orig_lon, dest_lat, dest_lon);
     double detour = geo_haversine_km(orig_lat, orig_lon, cur_lat, cur_lon) +
                     geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon);
-    /* Real flights fly close to the great circle; allow 30% + 150 km slack
-     * for departures, holdings and weather deviations. */
-    return detour <= direct * 1.3 + 150.0;
+    /* Real flights fly close to the great circle. The slack scales with
+     * the leg: 22% covers weather reroutes on long hauls, the 60 km floor
+     * covers patterns around short domestic hops - a flat +150 km used to
+     * make the corridor wider than Poland on WRO-GDN-class routes. */
+    double slack = direct * 0.22;
+    if (slack < 60.0) {
+        slack = 60.0;
+    }
+    return detour <= direct + slack;
+}
+
+bool geo_route_plausible_dir(double orig_lat, double orig_lon,
+                             double dest_lat, double dest_lon,
+                             double cur_lat, double cur_lon,
+                             float track_deg, float gs_kts, int vrate_fpm)
+{
+    if (!geo_route_plausible(orig_lat, orig_lon, dest_lat, dest_lon,
+                             cur_lat, cur_lon)) {
+        return false;
+    }
+    /* Vertical asymmetry: nobody descends onto their claimed ORIGIN or
+     * climbs out of their claimed DESTINATION. Catches the reversed
+     * shuttle leg right at the airport, where the track test must stay
+     * quiet because of SIDs and patterns. */
+    double from_orig = geo_haversine_km(cur_lat, cur_lon, orig_lat, orig_lon);
+    double to_dest = geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon);
+    if (vrate_fpm < -400 && from_orig < 60.0 && to_dest > 150.0) {
+        return false;
+    }
+    if (vrate_fpm > 400 && to_dest < 60.0 && from_orig > 150.0) {
+        return false;
+    }
+    /* The corridor test cannot tell the outbound leg from the return leg
+     * (same great circle, opposite direction) - the classic stale-database
+     * failure on shuttle routes. En route, the ground track has to point
+     * roughly at the destination. Skip the check at low speed (holds,
+     * approaches), close to either airport (SIDs/patterns) and when no
+     * track is known. */
+    if (gs_kts < 100.0f || track_deg < 0.0f) {
+        return true;
+    }
+    if (geo_haversine_km(cur_lat, cur_lon, dest_lat, dest_lon) < 80.0 ||
+        geo_haversine_km(cur_lat, cur_lon, orig_lat, orig_lon) < 50.0) {
+        return true;
+    }
+    double want = geo_bearing_deg(cur_lat, cur_lon, dest_lat, dest_lon);
+    double diff = fabs((double)track_deg - want);
+    if (diff > 180.0) {
+        diff = 360.0 - diff;
+    }
+    return diff <= 100.0;
 }
 
 double geo_progress(double orig_lat, double orig_lon,
@@ -105,4 +153,54 @@ double geo_progress(double orig_lat, double orig_lon,
     }
     double p = flown / total;
     return p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
+}
+
+double geo_lon_unwrap(double ref, double lon)
+{
+    double d = fmod(lon - ref + 540.0, 360.0);
+    if (d < 0) {
+        d += 360.0;
+    }
+    return ref + d - 180.0;
+}
+
+bool geo_sun_times(double lat, double lon, long long epoch_utc, int tz_off_s,
+                   int *rise_min, int *set_min)
+{
+    /* NOAA solar-position approximation, good to a minute or two */
+    double days = (double)epoch_utc / 86400.0 + 2440587.5 - 2451545.0;
+    double g = fmod(357.529 + 0.98560028 * days, 360.0) * M_PI / 180.0;
+    double q = fmod(280.459 + 0.98564736 * days, 360.0);
+    double l = fmod(q + 1.915 * sin(g) + 0.020 * sin(2 * g), 360.0) * M_PI / 180.0;
+    double e = (23.439 - 0.00000036 * days) * M_PI / 180.0;
+    double decl = asin(sin(e) * sin(l));
+
+    double latr = lat * M_PI / 180.0;
+    double h0 = -0.833 * M_PI / 180.0;   /* standard refraction horizon */
+    double cosh0 = (sin(h0) - sin(latr) * sin(decl)) / (cos(latr) * cos(decl));
+    if (cosh0 < -1.0 || cosh0 > 1.0) {
+        return false;   /* midnight sun or polar night */
+    }
+    double ha = acos(cosh0) * 180.0 / M_PI;   /* half day arc in degrees */
+
+    /* equation of time, minutes */
+    double ra = atan2(cos(e) * sin(l), cos(l)) * 180.0 / M_PI;
+    double eqt = q - fmod(ra + 360.0, 360.0);
+    while (eqt > 20) eqt -= 360;
+    while (eqt < -20) eqt += 360;
+    eqt *= 4.0;
+
+    double noon_utc_min = 720.0 - 4.0 * lon - eqt;
+    double rise_utc = noon_utc_min - ha * 4.0;
+    double set_utc = noon_utc_min + ha * 4.0;
+    int off_min = tz_off_s / 60;
+    int r = (int)(rise_utc + off_min);
+    int st = (int)(set_utc + off_min);
+    while (r < 0) r += 1440;
+    while (r >= 1440) r -= 1440;
+    while (st < 0) st += 1440;
+    while (st >= 1440) st -= 1440;
+    *rise_min = r;
+    *set_min = st;
+    return true;
 }

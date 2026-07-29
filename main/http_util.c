@@ -143,3 +143,63 @@ esp_err_t http_post_text(const char *url, const char *body,
     }
     return err;
 }
+
+static esp_http_client_handle_t s_ka_client[HTTP_KEEPALIVE_SLOTS];
+static sink_t s_ka_sink[HTTP_KEEPALIVE_SLOTS];
+
+esp_err_t http_get_keepalive(int slot, const char *url,
+                             char *buf, size_t buf_size, size_t *out_len)
+{
+    if (slot < 0 || slot >= HTTP_KEEPALIVE_SLOTS) {
+        return http_get_to_buffer(url, buf, buf_size, out_len);
+    }
+    sink_t *sink = &s_ka_sink[slot];
+    sink->buf = buf;
+    sink->cap = buf_size;
+    sink->len = 0;
+    sink->overflow = false;
+
+    if (s_ka_client[slot] == NULL) {
+        esp_http_client_config_t config = {
+            .url = url,
+            .event_handler = http_event_cb,
+            .user_data = sink,
+            .timeout_ms = 12000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .disable_auto_redirect = false,
+            .keep_alive_enable = true,
+            .user_agent = "canflight-esp32/1.0",
+        };
+        s_ka_client[slot] = esp_http_client_init(&config);
+        if (s_ka_client[slot] == NULL) {
+            return ESP_FAIL;
+        }
+    } else {
+        esp_http_client_set_url(s_ka_client[slot], url);
+    }
+
+    esp_err_t err = esp_http_client_perform(s_ka_client[slot]);
+    int status = err == ESP_OK ? esp_http_client_get_status_code(s_ka_client[slot]) : 0;
+
+    buf[sink->len] = '\0';
+    if (out_len != NULL) {
+        *out_len = sink->len;
+    }
+    if (err == ESP_OK && status >= 200 && status < 300 && !sink->overflow) {
+        return ESP_OK;   /* connection stays open for the next cycle */
+    }
+    /* any trouble: drop the cached connection, next call starts clean */
+    esp_http_client_cleanup(s_ka_client[slot]);
+    s_ka_client[slot] = NULL;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "GET(ka) %s failed: %s", url, esp_err_to_name(err));
+        return err;
+    }
+    if (sink->overflow) {
+        ESP_LOGW(TAG, "GET(ka) %s: response truncated at %u bytes", url,
+                 (unsigned)sink->len);
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGW(TAG, "GET(ka) %s -> HTTP %d", url, status);
+    return ESP_ERR_HTTP_BASE + status;
+}

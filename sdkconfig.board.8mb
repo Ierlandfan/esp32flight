@@ -1,0 +1,5 @@
+# Stack on top of sdkconfig.defaults for N8R8 modules (8 MB flash):
+#   idf.py -B build-8mb -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.8mb' \
+#     -D SDKCONFIG=build-8mb/sdkconfig build
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8mb.csv"

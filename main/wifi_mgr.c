@@ -7,12 +7,24 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "settings.h"
 
 static const char *TAG = "wifi";
 
 static EventGroupHandle_t s_events;
 #define BIT_CONNECTED BIT0
+
+static volatile bool s_scanning;     /* pause the retry loop during scans */
+static volatile int s_last_reason;   /* last STA disconnect reason */
+static esp_timer_handle_t s_retry_timer;
+
+static void retry_cb(void *arg)
+{
+    if (!s_scanning && settings_get()->wifi_ssid[0] != '\0') {
+        esp_wifi_connect();
+    }
+}
 
 static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -22,11 +34,16 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
             esp_wifi_connect();
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *ev = data;
+        s_last_reason = ev != NULL ? ev->reason : 0;
         xEventGroupClearBits(s_events, BIT_CONNECTED);
-        if (have_ssid) {
-            ESP_LOGW(TAG, "disconnected, retrying");
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            esp_wifi_connect();
+        if (have_ssid && !s_scanning) {
+            ESP_LOGW(TAG, "disconnected (reason %d), retry in 3 s", s_last_reason);
+            /* never block the event task; a one-shot timer reconnects */
+            if (s_retry_timer != NULL) {
+                esp_timer_stop(s_retry_timer);
+                esp_timer_start_once(s_retry_timer, 3000000);
+            }
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = data;
@@ -40,6 +57,11 @@ esp_err_t wifi_mgr_start(void)
     const settings_t *st = settings_get();
 
     s_events = xEventGroupCreate();
+    const esp_timer_create_args_t targs = {
+        .callback = retry_cb,
+        .name = "wifi_retry",
+    };
+    esp_timer_create(&targs, &s_retry_timer);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
@@ -73,12 +95,31 @@ esp_err_t wifi_mgr_start(void)
 
 esp_err_t wifi_mgr_scan(wifi_ap_record_t *records, uint16_t *count)
 {
+    /* a station stuck in a connect-retry loop reports zero networks;
+       pause the loop, drop the half-open attempt, then scan */
+    s_scanning = true;
+    if (s_retry_timer != NULL) {
+        esp_timer_stop(s_retry_timer);
+    }
+    if (!wifi_mgr_is_connected()) {
+        esp_wifi_disconnect();
+    }
     esp_err_t err = esp_wifi_scan_start(NULL, true);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
-        return err;
+    } else {
+        err = esp_wifi_scan_get_ap_records(count, records);
     }
-    return esp_wifi_scan_get_ap_records(count, records);
+    s_scanning = false;
+    if (!wifi_mgr_is_connected() && settings_get()->wifi_ssid[0] != '\0') {
+        esp_wifi_connect();
+    }
+    return err;
+}
+
+int wifi_mgr_last_reason(void)
+{
+    return s_last_reason;
 }
 
 bool wifi_mgr_wait_connected(int timeout_ms)

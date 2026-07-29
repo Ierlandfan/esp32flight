@@ -27,7 +27,11 @@ typedef struct {
 } board_cfg_t;
 
 static const board_cfg_t k_waveshare = {
-    .name = "Waveshare ESP32-S3-Touch-LCD-7",
+    /* One PCB family: the 4.3", 5" and 7" Waveshare 800x480 boards share
+     * every pin, the expander and the timings (verified against the
+     * official demos of both the 7 and the 4.3 repos), so this single
+     * entry covers them all. */
+    .name = "Waveshare ESP32-S3-Touch-LCD (4.3/5/7)",
     .de = 5, .vsync = 3, .hsync = 46, .pclk = 7,
     .data = { 14, 38, 18, 17, 10,       /* B0..B4 */
               39, 0, 45, 48, 47, 21,    /* G0..G5 */
@@ -49,7 +53,7 @@ static const board_cfg_t k_guition = {
     .has_ch422g = false,
     .bl_gpio = 2,
     .tp_rst_gpio = 38,
-    .tp_mirror = true,
+    .tp_mirror = false,
 };
 
 static const board_cfg_t *s_board = &k_waveshare;

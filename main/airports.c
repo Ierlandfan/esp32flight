@@ -141,3 +141,33 @@ bool airports_lookup(const char *icao, airport_t *ap)
     snprintf(ap->name, sizeof(ap->name), "%.*s", (int)name_len, fields[6]);
     return true;
 }
+
+bool airports_lookup_any(const char *code, airport_t *ap)
+{
+    size_t cl = strlen(code);
+    if (cl == 4) {
+        return airports_lookup(code, ap);
+    }
+    if (cl != 3 || s_db == NULL) {
+        return false;
+    }
+    const char *p = s_db;
+    while (p != NULL && *p != '\0') {
+        const char *tab1 = strchr(p, '\t');
+        const char *nl = strchr(p, '\n');
+        if (tab1 == NULL || (nl != NULL && tab1 > nl)) {
+            p = nl != NULL ? nl + 1 : NULL;
+            continue;
+        }
+        const char *iata = tab1 + 1;
+        if (strncasecmp(iata, code, 3) == 0 && iata[3] == '\t') {
+            char icao[5];
+            size_t il = (size_t)(tab1 - p) < 4 ? (size_t)(tab1 - p) : 4;
+            memcpy(icao, p, il);
+            icao[il] = '\0';
+            return airports_lookup(icao, ap);
+        }
+        p = nl != NULL ? nl + 1 : NULL;
+    }
+    return false;
+}

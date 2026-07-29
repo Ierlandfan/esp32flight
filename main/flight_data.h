@@ -12,3 +12,11 @@ bool flight_is_airline(const aircraft_t *ac);
 
 /* Coarse class for the user filter / list markers. */
 flight_class_t flight_class(const aircraft_t *ac);
+
+/* Map-marker sprite: the class, refined by the ADS-B emitter category so
+ * balloons and UAVs do not masquerade as gliders. */
+typedef enum {
+    FSPR_PLANE = 0, FSPR_SMALL, FSPR_HELI, FSPR_MIL,
+    FSPR_GLIDER, FSPR_BALLOON, FSPR_DRONE
+} flight_sprite_t;
+flight_sprite_t flight_sprite(const aircraft_t *ac);

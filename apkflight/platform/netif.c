@@ -41,3 +41,8 @@ esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *info)
     close(s);
     return err;
 }
+
+int wifi_mgr_last_reason(void)
+{
+    return 0;   /* the OS owns Wi-Fi; there is no ESP reason code */
+}

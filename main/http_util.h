@@ -18,3 +18,10 @@ esp_err_t http_post_to_buffer(const char *url, const char *body,
 /* POST a small text body (used for ntfy notifications). */
 esp_err_t http_post_text(const char *url, const char *body,
                          const char *hdr_key, const char *hdr_val);
+
+/* Persistent keep-alive GET: one cached connection per slot, reused across
+ * calls to the same host (the 8 s flight cycle). Single-task use per slot.
+ * On any error the cached client is dropped and rebuilt next call. */
+#define HTTP_KEEPALIVE_SLOTS 3
+esp_err_t http_get_keepalive(int slot, const char *url,
+                             char *buf, size_t buf_size, size_t *out_len);

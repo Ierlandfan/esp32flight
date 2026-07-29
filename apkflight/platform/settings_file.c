@@ -12,7 +12,7 @@
 
 #define SETTINGS_PATH "/assets/settings.bin"
 #define SETTINGS_MAGIC 0x414B4631u   /* "AKF1" */
-#define SETTINGS_VER   2
+#define SETTINGS_VER   4
 
 static settings_t s_settings;
 
@@ -37,6 +37,8 @@ static void set_defaults(void)
     s_settings.night_end_min = 6 * 60 + 30;
     s_settings.ambient_idle_min = 10;
     s_settings.show_classes = FCLS_ALL_MASK;
+    s_settings.rain_overlay = false;
+    s_settings.amb_style = 0;
 }
 
 void settings_load(void)
@@ -53,6 +55,19 @@ void settings_load(void)
         settings_t tmp;
         if (ver == SETTINGS_VER && fread(&tmp, sizeof(tmp), 1, f) == 1) {
             s_settings = tmp;
+        } else if (ver == 3) {
+            /* v3 predates the 0.4.x additions (taf/iss/sondes/ships/keys,
+             * units, favorites); the old struct is a prefix */
+            size_t v3 = offsetof(settings_t, taf_enabled);
+            if (fread(&tmp, 1, v3, f) == v3) {
+                memcpy(&s_settings, &tmp, v3);
+            }
+        } else if (ver == 2) {
+            /* v2 predates rain_overlay/amb_style */
+            size_t v2 = offsetof(settings_t, rain_overlay);
+            if (fread(&tmp, 1, v2, f) == v2) {
+                memcpy(&s_settings, &tmp, v2);
+            }
         } else if (ver == 1) {
             /* v1 predates show_classes; the old struct is a prefix */
             size_t v1 = offsetof(settings_t, show_classes);

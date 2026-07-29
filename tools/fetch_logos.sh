@@ -46,3 +46,7 @@ alias_logo KLC KLM   # KLM Cityhopper
 alias_logo LDA LOT   # LOT - regional ops
 
 echo "Logos: $(ls assets/logos/*.png | wc -l), total $(du -sh assets/logos | cut -f1)"
+
+# index of available logos: small-flash builds bundle only a subset
+# and consult this list before asking the online repo for the rest
+ls assets/logos/*.png | sed 's|.*/||; s|\.png$||' | sort > assets/logos/index.txt

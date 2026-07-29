@@ -10,8 +10,12 @@
 
 #include "fonts.h"
 #include "geo_math.h"
+#include <math.h>
+#include "flight_data.h"
 #include "lang.h"
+#include "units.h"
 #include "lvgl_port.h"
+#include "settings.h"
 #include "tilemap.h"
 #include "trails.h"
 
@@ -21,6 +25,12 @@
 #include "theme.h"
 
 LV_IMG_DECLARE(img_plane);
+LV_IMG_DECLARE(img_heli);
+LV_IMG_DECLARE(img_small);
+LV_IMG_DECLARE(img_mil);
+LV_IMG_DECLARE(img_glider);
+LV_IMG_DECLARE(img_balloon);
+LV_IMG_DECLARE(img_drone);
 
 #define COL_BG     (app_theme()->bg)
 #define COL_PANEL  (app_theme()->panel)
@@ -71,6 +81,15 @@ static void close_cb(lv_event_t *e)
         lv_obj_del(s_overlay);
         s_overlay = NULL;
         s_generation++;
+        /* give the 768 KB tile canvas back unless a worker still paints */
+        if (!s_tiles_busy && s_tiles != NULL) {
+            free(s_tiles);
+            s_tiles = NULL;
+            s_view_ok = false;
+        }
+        /* and the ~1 MB decoded world fallback; the small one stays */
+        free(s_map_data);
+        s_map_data = NULL;
     }
 }
 
@@ -316,18 +335,31 @@ static void build_content(void)
     }
 
     if (have_route) {
-        /* Great-circle path */
+        /* Great-circle path, split where it crosses the antimeridian */
+        double prev_lon = 0;
+        int split = PATH_PTS;
         for (int i = 0; i < PATH_PTS; i++) {
             double lat, lon;
             geo_gc_point(rt->origin.lat, rt->origin.lon,
                          rt->destination.lat, rt->destination.lon,
                          (double)i / (PATH_PTS - 1), &lat, &lon);
+            if (i > 0 && split == PATH_PTS && fabs(lon - prev_lon) > 180.0) {
+                split = i;
+            }
+            prev_lon = lon;
             project(lat, lon, &x, &y);
             s_path[i].x = x;
             s_path[i].y = y;
         }
         lv_obj_t *line = lv_line_create(s_overlay);
-        lv_line_set_points(line, s_path, PATH_PTS);
+        lv_line_set_points(line, s_path, split);
+        if (split < PATH_PTS) {
+            lv_obj_t *line2 = lv_line_create(s_overlay);
+            lv_line_set_points(line2, &s_path[split], PATH_PTS - split);
+            lv_obj_set_style_line_width(line2, 3, 0);
+            lv_obj_set_style_line_color(line2, COL_ACCENT, 0);
+            lv_obj_set_style_line_rounded(line2, true, 0);
+        }
         lv_obj_set_style_line_width(line, 3, 0);
         lv_obj_set_style_line_color(line, COL_ACCENT, 0);
         lv_obj_set_style_line_rounded(line, true, 0);
@@ -347,7 +379,15 @@ static void build_content(void)
     if (ac->has_pos) {
         project(ac->lat, ac->lon, &x, &y);
         lv_obj_t *pl = lv_img_create(s_overlay);
-        lv_img_set_src(pl, &img_plane);
+        switch (flight_sprite(&s_ac)) {
+        case FSPR_HELI:    lv_img_set_src(pl, &img_heli); break;
+        case FSPR_SMALL:   lv_img_set_src(pl, &img_small); break;
+        case FSPR_MIL:     lv_img_set_src(pl, &img_mil); break;
+        case FSPR_GLIDER:  lv_img_set_src(pl, &img_glider); break;
+        case FSPR_BALLOON: lv_img_set_src(pl, &img_balloon); break;
+        case FSPR_DRONE:   lv_img_set_src(pl, &img_drone); break;
+        default:           lv_img_set_src(pl, &img_plane); break;
+        }
         lv_obj_set_style_img_recolor(pl, alt_color(ac->alt_baro_ft, ac->on_ground), 0);
         lv_obj_set_style_img_recolor_opa(pl, LV_OPA_COVER, 0);
         lv_img_set_angle(pl, (int)(ac->track_deg * 10));
@@ -373,8 +413,10 @@ static void build_content(void)
                  rt->destination.city[0] ? rt->destination.city : rt->destination.name,
                  tail);
     } else {
-        snprintf(foot, sizeof(foot), "%d ft   %.0f kt   %s",
-                 ac->alt_baro_ft, (double)ac->gs_kts, L()->route_unknown);
+        char ua[20], us[20];
+        snprintf(foot, sizeof(foot), "%s   %s   %s",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)), L()->route_unknown);
     }
     lv_obj_t *fl = lv_label_create(s_overlay);
     lv_obj_set_style_text_font(fl, &font_pl_16, 0);
@@ -403,7 +445,9 @@ static void build_content(void)
     lv_obj_t *attr = lv_label_create(s_overlay);
     lv_obj_set_style_text_font(attr, &font_pl_14, 0);
     lv_obj_set_style_text_color(attr, lv_color_hex(0x9a9a9a), 0);
-    lv_label_set_text(attr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(attr, settings_get()->rain_overlay
+        ? "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO \xC2\xB7 \xC2\xA9 RainViewer"
+        : "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
     lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -12, -4);
 }
 
@@ -418,6 +462,7 @@ static void map_tiles_task(void *arg)
         double lats[2] = { s_rt.destination.lat, s_ac.has_pos ? s_ac.lat : s_rt.destination.lat };
         double lons[2] = { s_rt.destination.lon, s_ac.has_pos ? s_ac.lon : s_rt.destination.lon };
         for (int i = 0; i < 2; i++) {
+            lons[i] = geo_lon_unwrap(s_rt.origin.lon, lons[i]);
             if (lats[i] < latmin) latmin = lats[i];
             if (lats[i] > latmax) latmax = lats[i];
             if (lons[i] < lonmin) lonmin = lons[i];

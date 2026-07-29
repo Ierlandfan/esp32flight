@@ -19,13 +19,14 @@
 
 | | |
 |---|---|
-| ![flight details](docs/detail-light.png) | ![forest theme](docs/detail-forest.png) |
-| ![ambient mode with map](docs/ambient-mode.png) | ![radar view](docs/radar.png) |
-| ![route map](docs/route-map.png) | ![aircraft photo](docs/photo.png) |
+| ![flight details](docs/detail.png) | ![forest theme](docs/detail-forest.png) |
+| ![radar view](docs/radar.png) | ![retro radar with rain](docs/retro.png) |
+| ![ambient mode with rain radar](docs/ambient-mode.png) | ![route map](docs/route-map.png) |
+| ![aircraft photo](docs/photo.png) | ![web panel](docs/web-panel.png) |
 
 ## Quick start
 
-1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (~$35) or a **Guition JC8048W550** (~$20) and a USB cable.
+1. Get a **Waveshare ESP32-S3-Touch-LCD-7** (about $35), its 4.3" sibling, or a **Guition JC8048W550** (about $20) and a USB cable.
 2. Open **[the browser installer](https://theqkash.github.io/esp32flight/)** in Chrome or Edge, click *Install*, pick the serial port. One firmware fits both boards, it detects the hardware at boot.
 3. Tap the gear icon, pick your 2.4 GHz Wi-Fi from the scan list, save. The device locates itself by IP (or type any city) and starts tracking.
 
@@ -37,14 +38,17 @@ No board at hand? The same radar also ships as an [Android app](#android-app).
 
 **On the screen**
 
-- Live flight list within a configurable radius (10 to 250 NM): airline logo, type, altitude with trend arrow, speed, distance; the 40 nearest of up to 80 tracked
+- Live flight list within a configurable radius (1 to 250 NM): airline logo, type, altitude with trend arrow, speed, distance; the 40 nearest of up to 80 tracked
 - Flight details: airline, route with cities, country flags and local airport times, progress bar, ETA and local arrival time, squawk, ADS-B category, aircraft photo (planespotters.net)
 - Spotter line: which way to look (compass + elevation) and a flyover prediction ("passes you in ~3 min at 1.2 km")
-- Four views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR)
+- Five views: list + details, ambient auto-cycling mode, radar on a real map of your area with runway strips of nearby airports, session stats (hourly chart, top airlines, daily records, METAR raw or decoded), retro CRT radar
+- Optional extra objects on the radar: the ISS when it crosses your area, weather balloons from the SondeHub network, AIS ships (own free key) with a full detail card (type, destination, speed), and airspace outlines (CTR/TMA/danger, own free openAIP key)
+- List content toggle when ships are on: planes only, ships only or everything; tap any plane or ship on the map for details
+- Aviation or metric units (ft/kt or m and km/h), one switch
 - Full-screen route map with the great-circle track, swipe pan and zoom, flight trails
 - Map screensaver after idle: your observation circle, every aircraft in range, clock and weather; tap a plane for its route
 - Aircraft class filter: pick any mix of airliners, light aircraft, helicopters, military and others; the class colors the type code in the list
-- Night mode, 7 color themes, English and Polish UI, all settings on the touchscreen
+- Night mode, 7 color themes, English and Polish UI, all settings on the touchscreen; auto-cycling can be turned off to follow one flight
 
 **Data**
 
@@ -100,7 +104,7 @@ Enter your broker URI as **MQTT broker**, e.g. `mqtt://user:password@192.168.1.1
 <details>
 <summary><b>FlightAware flight numbers and routes</b></summary>
 
-By default flights show radio callsigns (`RYR638T`). A free FlightAware AeroAPI key adds the commercial flight number (`FR4238`) next to it and uses the live origin/destination as an extra route source. Create a **Personal** key at [flightaware.com/aeroapi](https://www.flightaware.com/commercial/aeroapi/) and paste it into **FlightAware API key**. Results are cached, so the free monthly credit is more than enough.
+By default flights show radio callsigns (`RYR638T`). A free FlightAware AeroAPI key adds the commercial flight number (`FR4238`) next to it and uses the live origin/destination as an extra route source. FlightAware serves actual flight plans, so with a key set the routes become authoritative - the stale shuttle-route entries that community databases sometimes serve stop mattering. Create a **Personal** key at [flightaware.com/aeroapi](https://www.flightaware.com/commercial/aeroapi/) and paste it into **FlightAware API key**. Results are cached, so the free monthly credit is more than enough.
 </details>
 
 <details>
@@ -138,18 +142,23 @@ Everything the panel shows is plain HTTP on port 80. The full reference with exa
 
 With a panel password set, every endpoint requires Basic Auth: `curl -u admin:PASSWORD ...`
 
-## Data sources (all free, no API keys)
+## Data sources (free; the two marked layers take your own free key)
 
 | What | Source |
 |---|---|
 | Aircraft positions (ADS-B) | [airplanes.live](https://airplanes.live), fallbacks [adsb.lol](https://adsb.lol) and [adsb.fi](https://adsb.fi) |
 | Routes + airlines | [adsbdb.com](https://www.adsbdb.com), [adsb.lol routeset](https://api.adsb.lol/docs), [hexdb.io](https://hexdb.io) |
 | Map tiles | [CARTO basemaps](https://carto.com/basemaps) with data (c) [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors |
+| Precipitation radar (optional overlay) | [RainViewer](https://www.rainviewer.com/api.html) |
 | Geocoding, weather, timezones | [Open-Meteo](https://open-meteo.com) |
-| METAR | [aviationweather.gov](https://aviationweather.gov) (NOAA) |
+| METAR + TAF | [aviationweather.gov](https://aviationweather.gov) (NOAA) |
+| ISS position | [wheretheiss.at](https://wheretheiss.at) |
+| Radiosondes | [SondeHub](https://sondehub.org) community network |
+| Ships (AIS, optional, own free key) | [aisstream.io](https://aisstream.io) |
+| Airspace outlines (optional, own free key) | [openAIP](https://www.openaip.net) |
 | IP geolocation | [ip-api.com](https://ip-api.com) |
 | Aircraft photos | [planespotters.net](https://www.planespotters.net) via adsbdb |
-| Airline logos | [sexym0nk3y/airline-logos](https://github.com/sexym0nk3y/airline-logos), [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos) |
+| Airline logos | [sexym0nk3y/airline-logos](https://github.com/sexym0nk3y/airline-logos), [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos), served on demand from [esp32flight-logos](https://github.com/theqkash/esp32flight-logos) |
 | Country flags | [flagcdn.com](https://flagpedia.net) (bundled) |
 | Airports + runways | [OurAirports](https://ourairports.com) (bundled, public domain) |
 | Offline world map | NASA Blue Marble |
@@ -158,9 +167,10 @@ Optional, with a user-provided free key: [FlightAware AeroAPI](https://www.fligh
 
 ## Hardware
 
-Two supported boards, one firmware; the board is autodetected at boot:
+Three supported boards, all running the same code. The 16 MB boards share one binary with boot-time autodetection; 8 MB modules get a dedicated build:
 
 - **Waveshare ESP32-S3-Touch-LCD-7** (7", the original target): ESP32-S3, 16 MB flash, 8 MB PSRAM, 800x480 RGB LCD (ST7262), GT911 capacitive touch. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
+- **Waveshare ESP32-S3-Touch-LCD-4.3** (and the 4.3B): same electronics in a smaller panel; the whole Waveshare 800x480 family shares one pinout. Note: 4.3 units ship with an 8 MB flash module (WROOM-1 N8R8) - flash `esp32flight-vX.Y.Z-8mb-full.bin` on those. It bundles the ~330 most common airline logos and fetches the rest on demand from [esp32flight-logos](https://github.com/theqkash/esp32flight-logos).
 - **Guition JC8048W550** (5", budget option, ~$20): same ESP32-S3 class, 800x480 RGB LCD, GT911 touch. Support is new (pinout contributed from a community fork); if you run it, a short "works for me" in the issues is appreciated.
 
 ## Building from source

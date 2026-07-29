@@ -23,8 +23,13 @@
 #include "regcountry.h"
 #include "routes.h"
 #include "metar.h"
+#include "units.h"
+#include "extras.h"
+#include "ships.h"
+#include "airspace.h"
 #include "dailystats.h"
 #include "tilemap.h"
+#include "rainviewer.h"
 #include "trails.h"
 #include "tz.h"
 #include "ui_map.h"
@@ -64,6 +69,26 @@
 static const char *TAG = "ui";
 
 LV_IMG_DECLARE(img_plane);
+LV_IMG_DECLARE(img_heli);
+LV_IMG_DECLARE(img_small);
+LV_IMG_DECLARE(img_mil);
+LV_IMG_DECLARE(img_glider);
+LV_IMG_DECLARE(img_balloon);
+LV_IMG_DECLARE(img_drone);
+
+/* map sprite per flight_sprite_t id */
+static const lv_img_dsc_t *class_sprite(int spr)
+{
+    switch (spr) {
+    case FSPR_SMALL:   return &img_small;
+    case FSPR_HELI:    return &img_heli;
+    case FSPR_MIL:     return &img_mil;
+    case FSPR_GLIDER:  return &img_glider;
+    case FSPR_BALLOON: return &img_balloon;
+    case FSPR_DRONE:   return &img_drone;
+    default:           return &img_plane;
+    }
+}
 
 #define COL_BG        (app_theme()->bg)
 #define COL_PANEL     (app_theme()->panel)
@@ -89,13 +114,28 @@ static lv_obj_t *s_status_label;
 static lv_obj_t *s_weather_label;
 static lv_obj_t *s_list_panel;
 static lv_obj_t *s_list_rows[MAX_SHOWN];
+static lv_obj_t *s_list_mode_btnm;
+static uint8_t s_list_mode;      /* 0 planes, 1 ships, 2 both (session only) */
+static int s_list_plane_rows;    /* rows currently showing aircraft */
+static int s_row_plane_idx[MAX_SHOWN];   /* row -> s_shown index */
+static ship_t *s_row_ships;                  /* PSRAM, ships behind list rows */
+static int s_row_ship_count;
+static ship_t *s_marker_ships;               /* PSRAM, ships behind map markers */
+static lv_obj_t *s_ship_pop, *s_ship_pop_name, *s_ship_pop_sub, *s_ship_pop_info;
+static lv_obj_t *s_ship_content, *s_ship_name, *s_ship_sub, *s_ship_vals[6];
+static uint32_t s_sel_ship_mmsi;             /* 0 = no ship selected */
+
+/* the list toggle also decides what the radar/map draws */
+static bool view_shows_planes(void);
+static bool view_shows_ships(void);
 
 /* Right-panel view modes */
 #define VIEW_DETAIL 0
 #define VIEW_MAP    1
 #define VIEW_RADAR  2
 #define VIEW_STATS  3
-#define VIEW_COUNT  4
+#define VIEW_RETRO  4
+#define VIEW_COUNT  5
 #define EMB_MAP_W   (SCR_W - LIST_W)
 #define EMB_MAP_H   (SCR_H - HEADER_H - 187)   /* info bubble keeps its 169px strip */
 /* Bundled world-map fallback image size (tiles replace it once rendered) */
@@ -108,6 +148,7 @@ static lv_obj_t *s_detail_panel;
 static lv_obj_t *s_map_panel;
 static lv_obj_t *s_emb_img;
 static lv_obj_t *s_emb_line, *s_emb_orig, *s_emb_dest, *s_emb_plane, *s_emb_trail;
+static lv_obj_t *s_emb_line2;
 static lv_point_t s_emb_pts[33];
 static lv_point_t s_emb_trail_pts[TRAIL_LEN];
 
@@ -130,6 +171,8 @@ static lv_obj_t *s_amb_lbls[MAX_SHOWN];
 static lv_obj_t *s_amb_clock, *s_amb_wx;
 static lv_obj_t *s_amb_ring, *s_amb_home;
 static lv_obj_t *s_amb_selbub;
+static bool s_amb_retro;          /* overlay currently hosts the retro panel */
+static bool s_retro_was_hidden;
 static char s_amb_sel_cs[9];   /* callsign picked by tapping its sprite */
 typedef struct {
     char  callsign[9];
@@ -137,6 +180,7 @@ typedef struct {
     float dist_nm, dir_deg;
     int   alt_ft;
     bool  ground;
+    uint8_t fcls;    /* flight_class_t for the marker sprite */
 } amb_target_t;
 static amb_target_t s_all[MAX_AIRCRAFT];
 static int s_all_count;
@@ -171,10 +215,35 @@ static lv_obj_t *s_gear_label;
 static lv_obj_t *s_radar_panel;
 static lv_obj_t *s_radar_dots[MAX_AIRCRAFT];
 static lv_obj_t *s_radar_info;
+static lv_obj_t *s_radar_bub, *s_radar_blogo;
 static lv_obj_t *s_radar_range;
 static lv_obj_t *s_radar_img;
 static lv_obj_t *s_radar_rings[3];
 static lv_obj_t *s_radar_home;
+
+/* Retro radar view: phosphor CRT with a rotating sweep and afterglow blips */
+#define RETRO_TRAIL   10          /* beam trail segments */
+#define RETRO_TICK_MS 40
+#define RETRO_STEP    2.4f        /* deg per tick: full turn every 6 s */
+#define RET_COL_BEAM  lv_color_hex(0x53ff8a)
+#define RET_COL_DIM   lv_color_hex(0x1e7a44)
+#define RET_COL_BG    lv_color_hex(0x03140a)
+static lv_obj_t *s_retro_panel;
+static lv_obj_t *s_retro_beam[RETRO_TRAIL];
+static lv_point_t s_retro_beam_pts[RETRO_TRAIL][2];
+static lv_obj_t *s_retro_blips[MAX_AIRCRAFT];
+static lv_obj_t *s_retro_lbls[MAX_AIRCRAFT];
+static lv_obj_t *s_retro_info;
+static float s_retro_angle;
+static float s_retro_bearing[MAX_AIRCRAFT];
+static bool  s_retro_valid[MAX_AIRCRAFT];
+/* optional precipitation echo under the sweep (RainViewer, rain-only) */
+static lv_obj_t     *s_retro_rain_img;
+static uint16_t     *s_retro_rain_buf;
+static lv_img_dsc_t  s_retro_rain_dsc;
+static volatile bool s_retro_rain_busy;
+static int64_t       s_retro_rain_ms = -1;
+static int           s_retro_rain_gen = -1;
 #define RADAR_W  (SCR_W - LIST_W)
 #define RADAR_H  (SCR_H - HEADER_H)
 #define RADAR_CX (RADAR_W / 2)
@@ -185,6 +254,9 @@ static lv_obj_t *s_radar_home;
 static uint16_t     *s_radar_tiles;
 static lv_img_dsc_t  s_radar_tiles_dsc;
 static tile_view_t   s_radar_view;
+static double s_radar_zoom = 1.0;   /* window multiplier, <1 = closer */
+static float  s_radar_scale = 1.0f; /* post-render upscale to fill the panel */
+static int    s_radar_spx, s_radar_spy;
 static bool          s_radar_view_ok;
 static volatile bool s_radar_busy;
 static char          s_radar_key[48];
@@ -231,9 +303,11 @@ static lv_obj_t *s_detail_content;
 
 static void render_detail(void);
 static void render_list_selection(void);
+static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k);
 static void render_map_panel(void);
 static void render_radar_panel(void);
 static void render_stats_panel(void);
+static void render_retro_panel(void);
 
 static void render_right(void)
 {
@@ -246,6 +320,9 @@ static void render_right(void)
         break;
     case VIEW_STATS:
         render_stats_panel();
+        break;
+    case VIEW_RETRO:
+        render_retro_panel();
         break;
     default:
         render_detail();
@@ -353,12 +430,117 @@ static void clock_timer_cb(lv_timer_t *t)
     }
 }
 
+static void render_list_rows(void);
+static const char *ship_type_word(uint8_t t);
+static bool radar_view_filter(double lat, double lon, float dist_km);
+
+static int row_of_shown(int shown_idx)
+{
+    for (int r = 0; r < s_list_plane_rows; r++) {
+        if (s_row_plane_idx[r] == shown_idx) {
+            return r;
+        }
+    }
+    return -1;
+}
+static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color);
+
+static void ship_pop_close_cb(lv_event_t *e)
+{
+    lv_obj_add_flag(s_ship_pop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void ship_popup_show(const ship_t *sh)
+{
+    if (s_ship_pop == NULL) {
+        s_ship_pop = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_ship_pop, 430, 210);
+        lv_obj_center(s_ship_pop);
+        lv_obj_set_style_bg_color(s_ship_pop, COL_ROW, 0);
+        lv_obj_set_style_border_color(s_ship_pop, lv_color_hex(0x4fd1c5), 0);
+        lv_obj_set_style_border_width(s_ship_pop, 2, 0);
+        lv_obj_set_style_radius(s_ship_pop, 14, 0);
+        lv_obj_set_style_pad_all(s_ship_pop, 18, 0);
+        lv_obj_set_style_shadow_width(s_ship_pop, 24, 0);
+        lv_obj_set_style_shadow_opa(s_ship_pop, LV_OPA_40, 0);
+        lv_obj_clear_flag(s_ship_pop, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(s_ship_pop, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(s_ship_pop, ship_pop_close_cb, LV_EVENT_CLICKED, NULL);
+
+        s_ship_pop_name = make_label(s_ship_pop, &lv_font_montserrat_28, COL_TEXT);
+        lv_obj_align(s_ship_pop_name, LV_ALIGN_TOP_LEFT, 0, -4);
+        s_ship_pop_sub = make_label(s_ship_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
+        lv_obj_align(s_ship_pop_sub, LV_ALIGN_TOP_LEFT, 0, 34);
+        s_ship_pop_info = make_label(s_ship_pop, &font_pl_16, COL_DIM);
+        lv_obj_align(s_ship_pop_info, LV_ALIGN_TOP_LEFT, 0, 72);
+    }
+    char nm[28];
+    if (sh->name[0]) {
+        strlcpy(nm, sh->name, sizeof(nm));
+    } else {
+        snprintf(nm, sizeof(nm), "MMSI %lu", (unsigned long)sh->mmsi);
+    }
+    lv_label_set_text(s_ship_pop_name, nm);
+    char sub[64];
+    if (sh->dest[0]) {
+        snprintf(sub, sizeof(sub), "%s  " LV_SYMBOL_RIGHT "  %s",
+                 ship_type_word(sh->stype), sh->dest);
+    } else {
+        strlcpy(sub, ship_type_word(sh->stype), sizeof(sub));
+    }
+    lv_label_set_text(s_ship_pop_sub, sub);
+    char info[160];
+    snprintf(info, sizeof(info),
+             "%.1f kt   %d\xC2\xB0 %s   %.1f km\n"
+             "MMSI %lu\n%.4f, %.4f",
+             (double)sh->sog_kt, (int)sh->cog_deg, lang_compass((int)sh->cog_deg),
+             (double)sh->dist_km, (unsigned long)sh->mmsi, sh->lat, sh->lon);
+    lv_label_set_text(s_ship_pop_info, info);
+    lv_obj_clear_flag(s_ship_pop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_ship_pop);
+}
+
+static void ship_marker_cb(lv_event_t *e)
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (s_marker_ships != NULL && i >= 0 && i < 40) {
+        ship_popup_show(&s_marker_ships[i]);
+    }
+}
+
+static void list_mode_cb(lv_event_t *e)
+{
+    uint16_t id = lv_btnmatrix_get_selected_btn(lv_event_get_target(e));
+    if (id > 2) {
+        return;
+    }
+    s_list_mode = (uint8_t)id;
+    if (s_list_mode == 0) {
+        s_sel_ship_mmsi = 0;
+    }
+    render_list_rows();
+    render_right();
+}
+
 static void row_click_cb(lv_event_t *e)
 {
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
-    if (idx >= 0 && idx < s_shown_count) {
-        s_selected = idx;
-        strlcpy(s_selected_hex, s_shown[idx].ac.hex, sizeof(s_selected_hex));
+    intptr_t idx = (intptr_t)lv_event_get_user_data(e);
+    if (idx >= s_list_plane_rows) {
+        int si = (int)(idx - s_list_plane_rows);
+        if (si < s_row_ship_count) {
+            s_sel_ship_mmsi = s_row_ships[si].mmsi;
+            render_list_selection();
+            if (s_view_mode != VIEW_DETAIL) {
+                lv_timer_reset(s_cycle_timer);
+            }
+            render_right();
+        }
+        return;
+    }
+    s_sel_ship_mmsi = 0;
+    if (idx >= 0 && idx < s_list_plane_rows) {
+        s_selected = s_row_plane_idx[idx];
+        strlcpy(s_selected_hex, s_shown[s_selected].ac.hex, sizeof(s_selected_hex));
         render_list_selection();
         if (s_view_mode != VIEW_DETAIL) {
             lv_timer_reset(s_cycle_timer);
@@ -369,7 +551,7 @@ static void row_click_cb(lv_event_t *e)
 
 static void cycle_timer_cb(lv_timer_t *t)
 {
-    if (s_shown_count == 0) {
+    if (s_shown_count == 0 || settings_get()->follow_mode) {
         return;
     }
     s_selected = (s_selected + 1) % s_shown_count;
@@ -377,17 +559,27 @@ static void cycle_timer_cb(lv_timer_t *t)
     render_list_selection();
     render_right();
     /* keep the cycled aircraft visible in the list */
-    lv_obj_scroll_to_view(s_list_rows[s_selected], LV_ANIM_ON);
+    int row = row_of_shown(s_selected);
+    if (row >= 0) {
+        lv_obj_scroll_to_view(s_list_rows[row], LV_ANIM_ON);
+    }
 }
 
-static void mode_click_cb(lv_event_t *e)
+static void emb_release(void);
+
+static void apply_view(int mode)
 {
-    s_view_mode = (s_view_mode + 1) % VIEW_COUNT;
+    int prev = s_view_mode;
+    s_view_mode = mode % VIEW_COUNT;
+    if (prev == VIEW_MAP && s_view_mode != VIEW_MAP) {
+        emb_release();
+    }
 
     lv_obj_add_flag(s_detail_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_map_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_radar_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_stats_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
 
     switch (s_view_mode) {
     case VIEW_MAP:
@@ -404,6 +596,11 @@ static void mode_click_cb(lv_event_t *e)
         break;
     case VIEW_STATS:
         lv_obj_clear_flag(s_stats_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_mode_btn_label, LV_SYMBOL_EYE_OPEN);  /* next: retro */
+        lv_timer_pause(s_cycle_timer);
+        break;
+    case VIEW_RETRO:
+        lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_mode_btn_label, LV_SYMBOL_LIST);  /* next: detail */
         lv_timer_pause(s_cycle_timer);
         break;
@@ -414,6 +611,62 @@ static void mode_click_cb(lv_event_t *e)
         break;
     }
     render_right();
+}
+
+static void mode_click_cb(lv_event_t *e)
+{
+    apply_view(s_view_mode + 1);
+}
+
+void ui_set_list_mode(int mode)
+{
+    if (mode >= 0 && mode <= 2) {
+        s_list_mode = (uint8_t)mode;
+        if (s_list_mode_btnm != NULL) {
+            lv_btnmatrix_set_btn_ctrl(s_list_mode_btnm, (uint16_t)mode,
+                                      LV_BTNMATRIX_CTRL_CHECKED);
+        }
+        render_list_rows();
+        render_right();
+    }
+}
+
+static void emb_release(void)
+{
+    if (!s_emb_busy && s_emb_tiles != NULL) {
+        free(s_emb_tiles);
+        s_emb_tiles = NULL;
+        s_emb_view_ok = false;
+        s_emb_key[0] = '\0';
+    }
+}
+
+void ui_set_view(int mode)
+{
+    /* 5 and 6 are screenshot helpers for the desktop build: overlays that
+     * normally need a tap (route map / photo of the selected flight) */
+    if (mode == 5 || mode == 6) {
+        if (s_selected >= 0 && s_selected < s_shown_count) {
+            const shown_flight_t *sf = &s_shown[s_selected];
+            const route_info_t *rt =
+                sf->route.callsign[0] && sf->route.valid ? &sf->route : NULL;
+            if (mode == 5) {
+                ui_map_open(&sf->ac, rt);
+            } else {
+                ui_photo_open(sf->ac.hex, sf->ac.callsign);
+            }
+        }
+        return;
+    }
+    apply_view(mode);
+}
+
+/* skip the realloc + invalidate when a cyclic update rewrites the same text */
+static void label_set_if_changed(lv_obj_t *l, const char *txt)
+{
+    if (strcmp(lv_label_get_text(l), txt) != 0) {
+        lv_label_set_text(l, txt);
+    }
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color)
@@ -436,6 +689,14 @@ static lv_obj_t *make_panel(lv_obj_t *parent)
     return p;
 }
 
+/* Basemap credit line; RainViewer joins it when the rain layer is on. */
+static const char *map_attribution(void)
+{
+    return settings_get()->rain_overlay
+        ? "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO \xC2\xB7 \xC2\xA9 RainViewer"
+        : "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO";
+}
+
 /* List marker color per aircraft class (liner keeps the accent). */
 static lv_color_t class_color(flight_class_t fc)
 {
@@ -453,7 +714,6 @@ static void build_header(lv_obj_t *scr)
     lv_obj_t *hdr = make_panel(scr);
     lv_obj_set_size(hdr, SCR_W, HEADER_H);
     lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x0e1424), 0);
 
     s_weather_label = make_label(hdr, &font_pl_20, COL_ACCENT);
     lv_obj_set_width(s_weather_label, 340);
@@ -502,6 +762,32 @@ static void build_list(lv_obj_t *scr)
     lv_obj_set_flex_flow(s_list_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_list_panel, LV_DIR_VER);
+
+    static const char *lm_map[4];
+    lm_map[0] = L()->lm_planes;
+    lm_map[1] = L()->lm_ships;
+    lm_map[2] = L()->lm_all;
+    lm_map[3] = "";
+    s_list_mode_btnm = lv_btnmatrix_create(s_list_panel);
+    lv_btnmatrix_set_map(s_list_mode_btnm, lm_map);
+    lv_btnmatrix_set_one_checked(s_list_mode_btnm, true);
+    lv_btnmatrix_set_btn_ctrl_all(s_list_mode_btnm, LV_BTNMATRIX_CTRL_CHECKABLE);
+    lv_btnmatrix_set_btn_ctrl(s_list_mode_btnm, 0, LV_BTNMATRIX_CTRL_CHECKED);
+    lv_obj_set_size(s_list_mode_btnm, LIST_W - 16 - 8, 40);
+    lv_obj_set_style_bg_opa(s_list_mode_btnm, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_list_mode_btnm, 0, 0);
+    lv_obj_set_style_pad_all(s_list_mode_btnm, 0, 0);
+    lv_obj_set_style_pad_gap(s_list_mode_btnm, 4, 0);
+    lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ROW, LV_PART_ITEMS);
+    lv_obj_set_style_text_color(s_list_mode_btnm, COL_DIM, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ACCENT,
+                              LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(s_list_mode_btnm, COL_BG,
+                                LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_radius(s_list_mode_btnm, 8, LV_PART_ITEMS);
+    lv_obj_set_style_text_font(s_list_mode_btnm, &font_pl_14, LV_PART_ITEMS);
+    lv_obj_add_event_cb(s_list_mode_btnm, list_mode_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
 
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
@@ -648,6 +934,8 @@ static void emb_tiles_want(const aircraft_t *ac, const route_info_t *rt)
         double lats[2] = { rt->destination.lat, ac->has_pos ? ac->lat : rt->destination.lat };
         double lons[2] = { rt->destination.lon, ac->has_pos ? ac->lon : rt->destination.lon };
         for (int i = 0; i < 2; i++) {
+            /* Pacific routes: keep longitudes on one continuous axis */
+            lons[i] = geo_lon_unwrap(rt->origin.lon, lons[i]);
             if (lats[i] < latmin) latmin = lats[i];
             if (lats[i] > latmax) latmax = lats[i];
             if (lons[i] < lonmin) lonmin = lons[i];
@@ -730,6 +1018,12 @@ static void build_map_panel(lv_obj_t *scr)
     lv_obj_set_style_line_color(s_emb_line, COL_ACCENT, 0);
     lv_obj_set_style_line_rounded(s_emb_line, true, 0);
     lv_obj_add_flag(s_emb_line, LV_OBJ_FLAG_HIDDEN);
+
+    s_emb_line2 = lv_line_create(s_map_panel);
+    lv_obj_set_style_line_width(s_emb_line2, 2, 0);
+    lv_obj_set_style_line_color(s_emb_line2, COL_ACCENT, 0);
+    lv_obj_set_style_line_rounded(s_emb_line2, true, 0);
+    lv_obj_add_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
 
     s_emb_orig = emb_marker(s_map_panel, 10, lv_color_hex(0x39d98a));
     s_emb_dest = emb_marker(s_map_panel, 10, lv_color_hex(0xff6b6b));
@@ -822,17 +1116,27 @@ static void render_map_panel(void)
     }
 
     if (rt != NULL) {
+        double glat[33], glon[33];
+        int split = 33;
         for (int i = 0; i < 33; i++) {
-            double lat, lon;
             geo_gc_point(rt->origin.lat, rt->origin.lon,
                          rt->destination.lat, rt->destination.lon,
-                         (double)i / 32.0, &lat, &lon);
-            project_emb(lat, lon, &x, &y);
+                         (double)i / 32.0, &glat[i], &glon[i]);
+            if (i > 0 && split == 33 && fabs(glon[i] - glon[i - 1]) > 180.0) {
+                split = i;   /* the path crosses the antimeridian here */
+            }
+            project_emb(glat[i], glon[i], &x, &y);
             s_emb_pts[i].x = x;
             s_emb_pts[i].y = y;
         }
-        lv_line_set_points(s_emb_line, s_emb_pts, 33);
+        lv_line_set_points(s_emb_line, s_emb_pts, split);
         lv_obj_clear_flag(s_emb_line, LV_OBJ_FLAG_HIDDEN);
+        if (split < 33) {
+            lv_line_set_points(s_emb_line2, &s_emb_pts[split], 33 - split);
+            lv_obj_clear_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_emb_line2, LV_OBJ_FLAG_HIDDEN);
+        }
 
         project_emb(rt->origin.lat, rt->origin.lon, &x, &y);
         lv_obj_set_pos(s_emb_orig, x - 5, y - 5);
@@ -849,6 +1153,7 @@ static void render_map_panel(void)
     if (ac->has_pos) {
         project_emb(ac->lat, ac->lon, &x, &y);
         lv_obj_set_pos(s_emb_plane, x - 14, y - 14);
+        lv_img_set_src(s_emb_plane, class_sprite(flight_sprite(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
         lv_obj_set_style_img_recolor(s_emb_plane,
                                      alt_color(ac->alt_baro_ft, ac->on_ground), 0);
@@ -891,15 +1196,19 @@ static void render_map_panel(void)
                                             rt->destination.lat, rt->destination.lon);
         char eta[40];
         format_eta(eta, sizeof(eta), remaining, ac->gs_kts);
-        snprintf(buf, sizeof(buf), "%d ft   %.0f kt   %d%%, %.0f km to go   %s",
-                 ac->alt_baro_ft, (double)ac->gs_kts,
+        char ua[20], us[20];
+        snprintf(buf, sizeof(buf), "%s   %s   %d%%, %.0f km to go   %s",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)),
                  (int)(prog * 100.0), remaining, eta);
         lv_label_set_text(s_mb_stats, buf);
     } else {
         lv_label_set_text(s_mb_route, L()->route_unknown);
         lv_bar_set_value(s_mb_bar, 0, LV_ANIM_OFF);
-        snprintf(buf, sizeof(buf), "%d ft   %.0f kt   %.1f km away",
-                 ac->alt_baro_ft, (double)ac->gs_kts,
+        char ua[20], us[20];
+        snprintf(buf, sizeof(buf), "%s   %s   %.1f km away",
+                 units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                 units_speed(ac->gs_kts, us, sizeof(us)),
                  ac->dist_nm >= 0 ? ac->dist_nm * 1.852 : 0.0);
         lv_label_set_text(s_mb_stats, buf);
     }
@@ -922,11 +1231,32 @@ static void radar_tiles_task(void *arg)
     if (ok) {
         runways_draw(s_radar_tiles, RADAR_W, RADAR_H, &view);
     }
+    /* integer tile zooms leave dead margin around the range ring; upscale
+       so the ring (divided by the user zoom) fills most of the height */
+    float scale = 1.0f;
+    int shx = 0, shy = 0;
+    if (ok) {
+        int ex, ey;
+        tilemap_project(&view, s_home_lat, s_home_lon, &shx, &shy);
+        tilemap_project(&view, s_home_lat, b[3], &ex, &ey);
+        float r = (float)(ex - shx);
+        float target = 0.92f * (RADAR_H / 2) / (float)s_radar_zoom;
+        if (r > 16.0f && target / r > 1.05f) {
+            scale = target / r;
+            if (scale > 2.6f) {
+                scale = 2.6f;
+            }
+            fb_upscale(s_radar_tiles, RADAR_W, RADAR_H, shx, shy, scale);
+        }
+    }
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_radar_want) == 0) {
             s_radar_view = view;
             s_radar_view_ok = true;
+            s_radar_scale = scale;
+            s_radar_spx = shx;
+            s_radar_spy = shy;
             strlcpy(s_radar_key, key, sizeof(s_radar_key));
             s_radar_tiles_dsc.header.always_zero = 0;
             s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
@@ -938,6 +1268,7 @@ static void radar_tiles_task(void *arg)
             lv_obj_invalidate(s_radar_img);
             if (s_view_mode == VIEW_RADAR) {
                 render_radar_panel();
+                render_list_rows();
             }
         }
         lvgl_port_unlock();
@@ -953,11 +1284,15 @@ static void radar_tiles_want(void)
     }
     int radius_nm = settings_get()->radius_nm;
     char key[48];
-    snprintf(key, sizeof(key), "%.3f,%.3f,%d", s_home_lat, s_home_lon, radius_nm);
+    snprintf(key, sizeof(key), "%.3f,%.3f,%d,%.2f", s_home_lat, s_home_lon,
+             radius_nm, s_radar_zoom);
     if (strcmp(key, s_radar_key) == 0) {
         return;
     }
-    double rkm = radius_nm * 1.852;
+    double rkm = radius_nm * 1.852 * s_radar_zoom;
+    if (rkm < 2.0) {
+        rkm = 2.0;
+    }
     double dlat = rkm / 111.0;
     double dlon = rkm / (111.0 * cos(s_home_lat * M_PI / 180.0));
     s_radar_bbox[0] = s_home_lat - dlat;
@@ -974,6 +1309,46 @@ static void radar_tiles_want(void)
                                 NULL, 3, NULL, 0) != pdPASS) {
         ESP_LOGE(TAG, "radar tiles: task spawn failed (low memory)");
         s_radar_busy = false;
+    }
+}
+
+static void radar_zoom_cb(lv_event_t *e)
+{
+    int dir = (int)(intptr_t)lv_event_get_user_data(e);
+    double z = s_radar_zoom * (dir > 0 ? 1.0 / 1.5 : 1.5);
+    if (z < 0.18) {
+        z = 0.18;
+    }
+    if (z > 3.4) {
+        z = 3.4;
+    }
+    if (z > 0.95 && z < 1.06) {
+        z = 1.0;   /* snap back to the exact radius fit */
+    }
+    s_radar_zoom = z;
+    radar_tiles_want();
+}
+
+static void radar_dot_cb(lv_event_t *e)
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i < 0 || i >= s_all_count || s_all[i].callsign[0] == '\0') {
+        return;
+    }
+    for (int j = 0; j < s_shown_count; j++) {
+        if (strcmp(s_shown[j].ac.callsign, s_all[i].callsign) == 0) {
+            s_sel_ship_mmsi = 0;
+            s_selected = j;
+            strlcpy(s_selected_hex, s_shown[j].ac.hex, sizeof(s_selected_hex));
+            render_list_selection();
+            int row = row_of_shown(j);
+            if (row >= 0) {
+                lv_obj_scroll_to_view(s_list_rows[row], LV_ANIM_ON);
+            }
+            render_radar_panel();
+            lv_timer_reset(s_cycle_timer);
+            return;
+        }
     }
 }
 
@@ -1014,22 +1389,536 @@ static void build_radar_panel(lv_obj_t *scr)
 
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         s_radar_dots[i] = plane_img(s_radar_panel);
+        lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(s_radar_dots[i], 8);
+        lv_obj_add_event_cb(s_radar_dots[i], radar_dot_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
     }
 
-    s_radar_info = make_label(s_radar_panel, &font_pl_14, COL_TEXT);
-    lv_obj_set_style_bg_color(s_radar_info, COL_PANEL, 0);
-    lv_obj_set_style_bg_opa(s_radar_info, LV_OPA_80, 0);
-    lv_obj_set_style_pad_all(s_radar_info, 6, 0);
-    lv_obj_set_style_radius(s_radar_info, 6, 0);
+    s_radar_bub = lv_obj_create(s_radar_panel);
+    lv_obj_set_size(s_radar_bub, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(s_radar_bub, COL_PANEL, 0);
+    lv_obj_set_style_bg_opa(s_radar_bub, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(s_radar_bub, 0, 0);
+    lv_obj_set_style_pad_all(s_radar_bub, 6, 0);
+    lv_obj_set_style_pad_column(s_radar_bub, 8, 0);
+    lv_obj_set_style_radius(s_radar_bub, 6, 0);
+    lv_obj_set_flex_flow(s_radar_bub, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_radar_bub, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+    s_radar_blogo = lv_img_create(s_radar_bub);
+    lv_img_set_pivot(s_radar_blogo, 0, 0);
+    lv_img_set_zoom(s_radar_blogo, 256 * 36 / 90);
+    lv_img_set_size_mode(s_radar_blogo, LV_IMG_SIZE_MODE_REAL);
+    lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+    s_radar_info = make_label(s_radar_bub, &font_pl_14, COL_TEXT);
     lv_label_set_text(s_radar_info, "");
 
     lv_obj_t *rattr = make_label(s_radar_panel, &font_pl_14, COL_DIM);
-    lv_label_set_text(rattr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(rattr, map_attribution());
     lv_obj_align(rattr, LV_ALIGN_BOTTOM_LEFT, 6, -2);
+
+    static const char *rzsym[2] = { LV_SYMBOL_PLUS, LV_SYMBOL_MINUS };
+    for (int zi = 0; zi < 2; zi++) {
+        lv_obj_t *zb = lv_btn_create(s_radar_panel);
+        lv_obj_set_size(zb, 52, 44);
+        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -10, -78 + zi * 52);
+        lv_obj_set_style_bg_color(zb, COL_ACCENT, 0);
+        lv_obj_set_style_bg_opa(zb, LV_OPA_90, 0);
+        lv_obj_set_style_shadow_width(zb, 12, 0);
+        lv_obj_set_style_shadow_opa(zb, LV_OPA_40, 0);
+        lv_obj_add_event_cb(zb, radar_zoom_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)(zi == 0 ? 1 : -1));
+        lv_obj_t *zl = lv_label_create(zb);
+        lv_obj_set_style_text_color(zl, COL_BG, 0);
+        lv_label_set_text(zl, rzsym[zi]);
+        lv_obj_center(zl);
+    }
 
     s_radar_range = make_label(s_radar_panel, &font_pl_14, COL_DIM);
     lv_obj_align(s_radar_range, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
     lv_label_set_text(s_radar_range, "");
+}
+
+/* ---------- optional extra objects: ISS, radiosondes, AIS ships ---------- */
+
+#define MAX_SHIP_MARKERS 40
+
+static lv_obj_t *s_x_iss_dot, *s_x_iss_lbl, *s_x_iss_status;
+static lv_obj_t *s_x_sonde_dot[MAX_SONDES], *s_x_sonde_lbl[MAX_SONDES];
+static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS];
+
+/* overlapping ship labels collapse into count badges with a tap-list */
+#define MAX_SHIP_GROUPS 8
+#define GRP_MEMBERS     48
+#define CLUSTER_PX      46
+static lv_obj_t *s_x_grp[MAX_SHIP_GROUPS];
+static ship_t (*s_grp_ships)[GRP_MEMBERS];   /* PSRAM, MAX_SHIP_GROUPS rows */
+static int s_grp_count[MAX_SHIP_GROUPS];
+static lv_obj_t *s_grp_pop;
+static ship_t *s_pop_ships;                  /* PSRAM */
+static int s_pop_count;
+
+static bool view_shows_planes(void)
+{
+    return !(settings_get()->ships_enabled && s_list_mode == 1);
+}
+
+static bool view_shows_ships(void)
+{
+    return settings_get()->ships_enabled && s_list_mode != 0;
+}
+
+/* 64-slot ship array is too big for a task stack; both users of this
+   buffer run in the LVGL task, so one shared PSRAM block is enough */
+static ship_t *ui_ship_buf(void)
+{
+    static ship_t *buf;
+    if (buf == NULL) {
+        buf = heap_caps_malloc(MAX_SHIPS * sizeof(ship_t),
+                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    return buf;
+}
+
+static lv_obj_t *extra_dot(lv_color_t color, int size, int radius)
+{
+    lv_obj_t *d = lv_obj_create(s_radar_panel);
+    lv_obj_set_size(d, size, size);
+    lv_obj_set_style_radius(d, radius, 0);
+    lv_obj_set_style_bg_color(d, color, 0);
+    lv_obj_set_style_border_width(d, 1, 0);
+    lv_obj_set_style_border_color(d, lv_color_white(), 0);
+    lv_obj_clear_flag(d, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    return d;
+}
+
+static lv_obj_t *extra_lbl(lv_color_t color)
+{
+    lv_obj_t *l = lv_label_create(s_radar_panel);
+    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_color(l, color, 0);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+    return l;
+}
+
+/* tilemap projection plus the fill-the-panel upscale */
+static void radar_project(double lat, double lon, int *x, int *y)
+{
+    tilemap_project(&s_radar_view, lat, lon, x, y);
+    if (s_radar_scale != 1.0f) {
+        *x = s_radar_spx + (int)((*x - s_radar_spx) * s_radar_scale);
+        *y = s_radar_spy + (int)((*y - s_radar_spy) * s_radar_scale);
+    }
+}
+
+/* place a lat/lon at dist_km from home onto the radar; false = outside */
+static bool radar_place(double lat, double lon, float dist_km,
+                        bool map_mode, int radius_nm, int *x, int *y)
+{
+    if (map_mode) {
+        radar_project(lat, lon, x, y);
+        return *x >= -10 && *x <= RADAR_W + 10 && *y >= -10 && *y <= RADAR_H + 10;
+    }
+    float frac = dist_km / (radius_nm * 1.852f);
+    if (frac > 1.0f) {
+        return false;
+    }
+    float rad = (float)geo_bearing_deg(s_home_lat, s_home_lon, lat, lon) *
+                (float)M_PI / 180.0f;
+    *x = RADAR_CX + (int)(sinf(rad) * frac * RADAR_R);
+    *y = RADAR_CY - (int)(cosf(rad) * frac * RADAR_R);
+    return true;
+}
+
+static lv_obj_t *s_x_asp_line[MAX_AIRSPACES];
+static lv_obj_t *s_x_asp_lbl[MAX_AIRSPACES];
+static lv_point_t (*s_x_asp_pts)[MAX_ASP_POINTS + 1];
+
+static lv_color_t airspace_color(int type)
+{
+    switch (type) {
+    case 4: case 27:          return lv_color_hex(0xe06666);  /* CTR/MCTR */
+    case 7: case 26: case 13: return lv_color_hex(0x6fa8dc);  /* TMA/MTMA/ATZ */
+    default:                  return lv_color_hex(0xe6b34d);  /* R/D/P/TRA */
+    }
+}
+
+static void render_airspaces(bool map_mode)
+{
+    int n = map_mode ? airspace_count() : 0;
+    if (n > 0 && s_x_asp_pts == NULL) {
+        s_x_asp_pts = heap_caps_calloc(MAX_AIRSPACES,
+                                       sizeof(*s_x_asp_pts),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_x_asp_pts == NULL) {
+            return;
+        }
+    }
+    for (int i = 0; i < MAX_AIRSPACES; i++) {
+        bool show = i < n;
+        const airspace_t *a = show ? airspace_get(i) : NULL;
+        if (a == NULL) {
+            if (s_x_asp_line[i] != NULL) {
+                lv_obj_add_flag(s_x_asp_line[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+            }
+            continue;
+        }
+        if (s_x_asp_line[i] == NULL) {
+            s_x_asp_line[i] = lv_line_create(s_radar_panel);
+            lv_obj_set_style_line_width(s_x_asp_line[i], 1, 0);
+            lv_obj_set_style_line_dash_width(s_x_asp_line[i], 4, 0);
+            lv_obj_set_style_line_dash_gap(s_x_asp_line[i], 4, 0);
+            lv_obj_set_style_line_opa(s_x_asp_line[i], LV_OPA_70, 0);
+            lv_obj_clear_flag(s_x_asp_line[i], LV_OBJ_FLAG_CLICKABLE);
+            s_x_asp_lbl[i] = extra_lbl(lv_color_white());
+        }
+        lv_color_t col = airspace_color(a->type);
+        lv_obj_set_style_line_color(s_x_asp_line[i], col, 0);
+        lv_obj_set_style_text_color(s_x_asp_lbl[i], col, 0);
+        int m = 0, lx = 0, ly = 0;
+        for (int k = 0; k < a->n_points; k++) {
+            int x, y;
+            radar_project(a->lat[k], a->lon[k], &x, &y);
+            /* keep coordinates sane for lvgl even when far off screen */
+            if (x < -2000) x = -2000;
+            if (x > 2000) x = 2000;
+            if (y < -2000) y = -2000;
+            if (y > 2000) y = 2000;
+            s_x_asp_pts[i][m].x = (lv_coord_t)x;
+            s_x_asp_pts[i][m].y = (lv_coord_t)y;
+            if (m == 0) {
+                lx = x;
+                ly = y;
+            }
+            m++;
+        }
+        /* close the ring */
+        s_x_asp_pts[i][m] = s_x_asp_pts[i][0];
+        m++;
+        lv_line_set_points(s_x_asp_line[i], s_x_asp_pts[i], m);
+        lv_obj_clear_flag(s_x_asp_line[i], LV_OBJ_FLAG_HIDDEN);
+        if (lx >= 0 && lx <= RADAR_W - 40 && ly >= 8 && ly <= RADAR_H - 20) {
+            lv_label_set_text(s_x_asp_lbl[i], airspace_type_str(a->type));
+            lv_obj_set_pos(s_x_asp_lbl[i], lx + 3, ly - 16);
+            lv_obj_clear_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+static void grp_pop_close_cb(lv_event_t *e)
+{
+    lv_obj_add_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void grp_row_cb(lv_event_t *e)
+{
+    int k = (int)(intptr_t)lv_event_get_user_data(e);
+    lv_obj_add_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+    if (k >= 0 && k < s_pop_count) {
+        ship_popup_show(&s_pop_ships[k]);
+    }
+}
+
+static void ship_group_cb(lv_event_t *e)
+{
+    int g = (int)(intptr_t)lv_event_get_user_data(e);
+    if (g < 0 || g >= MAX_SHIP_GROUPS || s_grp_count[g] == 0) {
+        return;
+    }
+    if (s_pop_ships == NULL) {
+        return;
+    }
+    s_pop_count = s_grp_count[g] < GRP_MEMBERS ? s_grp_count[g] : GRP_MEMBERS;
+    memcpy(s_pop_ships, s_grp_ships[g], s_pop_count * sizeof(ship_t));
+    for (int i = 1; i < s_pop_count; i++) {
+        ship_t tmp = s_pop_ships[i];
+        int j = i - 1;
+        while (j >= 0 && s_pop_ships[j].dist_km > tmp.dist_km) {
+            s_pop_ships[j + 1] = s_pop_ships[j];
+            j--;
+        }
+        s_pop_ships[j + 1] = tmp;
+    }
+
+    if (s_grp_pop == NULL) {
+        s_grp_pop = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_grp_pop, 470, 330);
+        lv_obj_center(s_grp_pop);
+        lv_obj_set_style_bg_color(s_grp_pop, COL_ROW, 0);
+        lv_obj_set_style_border_color(s_grp_pop, lv_color_hex(0x4fd1c5), 0);
+        lv_obj_set_style_border_width(s_grp_pop, 2, 0);
+        lv_obj_set_style_radius(s_grp_pop, 14, 0);
+        lv_obj_set_style_pad_all(s_grp_pop, 12, 0);
+        lv_obj_set_style_pad_row(s_grp_pop, 4, 0);
+        lv_obj_set_flex_flow(s_grp_pop, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_scroll_dir(s_grp_pop, LV_DIR_VER);
+        lv_obj_add_event_cb(s_grp_pop, grp_pop_close_cb, LV_EVENT_CLICKED, NULL);
+    }
+    lv_obj_clean(s_grp_pop);
+    lv_obj_t *title = make_label(s_grp_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
+    lv_label_set_text_fmt(title, "%s \xC2\xB7 %d", L()->lm_ships, s_pop_count);
+    for (int k = 0; k < s_pop_count; k++) {
+        lv_obj_t *row = lv_obj_create(s_grp_pop);
+        lv_obj_set_size(row, LV_PCT(100), 44);
+        lv_obj_set_style_bg_color(row, COL_PANEL, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_radius(row, 8, 0);
+        lv_obj_set_style_pad_all(row, 8, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, grp_row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
+        lv_obj_t *nm = make_label(row, &font_pl_16, COL_TEXT);
+        char nb[26];
+        if (s_pop_ships[k].name[0]) {
+            strlcpy(nb, s_pop_ships[k].name, sizeof(nb));
+        } else {
+            snprintf(nb, sizeof(nb), "%lu", (unsigned long)s_pop_ships[k].mmsi);
+        }
+        lv_label_set_text(nm, nb);
+        lv_obj_align(nm, LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_t *inf = make_label(row, &font_pl_14, COL_DIM);
+        char ib[52], us[20];
+        snprintf(ib, sizeof(ib), "%s  %s  %.1f km",
+                 ship_type_word(s_pop_ships[k].stype),
+                 units_speed(s_pop_ships[k].sog_kt, us, sizeof(us)),
+                 (double)s_pop_ships[k].dist_km);
+        lv_label_set_text(inf, ib);
+        lv_obj_align(inf, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+    lv_obj_clear_flag(s_grp_pop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_grp_pop);
+}
+
+static void render_radar_extras(bool map_mode, int radius_nm)
+{
+    if (s_x_iss_dot == NULL) {
+        s_x_iss_dot = extra_dot(lv_color_hex(0x9be8ff), 12, LV_RADIUS_CIRCLE);
+        s_x_iss_lbl = extra_lbl(lv_color_hex(0x9be8ff));
+        s_x_iss_status = extra_lbl(lv_color_hex(0x9be8ff));
+        lv_obj_align(s_x_iss_status, LV_ALIGN_TOP_RIGHT, -8, 6);
+        for (int i = 0; i < MAX_SONDES; i++) {
+            s_x_sonde_dot[i] = extra_dot(lv_color_hex(0xffb347), 10, LV_RADIUS_CIRCLE);
+            s_x_sonde_lbl[i] = extra_lbl(lv_color_hex(0xffb347));
+        }
+        for (int g = 0; g < MAX_SHIP_GROUPS; g++) {
+            lv_obj_t *b = lv_obj_create(s_radar_panel);
+            lv_obj_set_size(b, LV_SIZE_CONTENT, 30);
+            lv_obj_set_style_bg_color(b, lv_color_hex(0x123a36), 0);
+            lv_obj_set_style_border_color(b, lv_color_hex(0x4fd1c5), 0);
+            lv_obj_set_style_border_width(b, 1, 0);
+            lv_obj_set_style_radius(b, 15, 0);
+            lv_obj_set_style_pad_hor(b, 10, 0);
+            lv_obj_set_style_pad_ver(b, 4, 0);
+            lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(b, ship_group_cb, LV_EVENT_CLICKED,
+                                (void *)(intptr_t)g);
+            lv_obj_t *bl = make_label(b, &font_pl_14, lv_color_hex(0x4fd1c5));
+            lv_obj_center(bl);
+            lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+            s_x_grp[g] = b;
+        }
+        for (int i = 0; i < MAX_SHIP_MARKERS; i++) {
+            s_x_ship_dot[i] = extra_dot(lv_color_hex(0x4fd1c5), 9, 2);
+            lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_ext_click_area(s_x_ship_dot[i], 10);
+            lv_obj_add_event_cb(s_x_ship_dot[i], ship_marker_cb, LV_EVENT_CLICKED,
+                                (void *)(intptr_t)i);
+            s_x_ship_lbl[i] = extra_lbl(lv_color_hex(0x4fd1c5));
+        }
+    }
+
+    int x, y;
+    iss_state_t iss;
+    bool iss_shown = false, iss_status = false;
+    if (extras_get_iss(&iss)) {
+        if (radar_place(iss.lat, iss.lon, iss.dist_km, map_mode, radius_nm, &x, &y)) {
+            lv_obj_set_pos(s_x_iss_dot, x - 6, y - 6);
+            lv_label_set_text(s_x_iss_lbl, "ISS");
+            lv_obj_set_pos(s_x_iss_lbl, x + 9, y - 8);
+            iss_shown = true;
+        } else if (iss.elev_deg > 0) {
+            lv_label_set_text_fmt(s_x_iss_status, "ISS %d\xC2\xB0 %s",
+                                  (int)iss.elev_deg, lang_compass((int)iss.az_deg));
+            iss_status = true;
+        }
+    }
+    lv_obj_add_flag(s_x_iss_dot, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_x_iss_lbl, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_x_iss_status, LV_OBJ_FLAG_HIDDEN);
+    if (iss_shown) {
+        lv_obj_clear_flag(s_x_iss_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_x_iss_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else if (iss_status) {
+        lv_obj_clear_flag(s_x_iss_status, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    sonde_t sondes[MAX_SONDES];
+    int ns = extras_get_sondes(sondes, MAX_SONDES);
+    for (int i = 0; i < MAX_SONDES; i++) {
+        bool show = i < ns &&
+                    radar_place(sondes[i].lat, sondes[i].lon, sondes[i].dist_km,
+                                map_mode, radius_nm, &x, &y);
+        if (show) {
+            lv_obj_set_pos(s_x_sonde_dot[i], x - 5, y - 5);
+            char slbl[48];
+            snprintf(slbl, sizeof(slbl), "%s %s%.1f km",
+                     sondes[i].type[0] ? sondes[i].type : "sonde",
+                     sondes[i].vel_v >= 0 ? LV_SYMBOL_UP " " : LV_SYMBOL_DOWN " ",
+                     (double)(sondes[i].alt_m / 1000.0f));
+            lv_label_set_text(s_x_sonde_lbl[i], slbl);
+            lv_obj_set_pos(s_x_sonde_lbl[i], x + 8, y - 8);
+            lv_obj_clear_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    ship_t *shp = ui_ship_buf();
+    int nsh = (shp != NULL && view_shows_ships()) ? ships_get(shp, MAX_SHIPS) : 0;
+
+    /* place everything first, then collapse overlaps into count badges */
+    static int px[MAX_SHIPS], py[MAX_SHIPS];
+    static bool used[MAX_SHIPS];
+    int placed_idx[MAX_SHIPS];
+    int placed = 0;
+    for (int i = 0; i < nsh; i++) {
+        if (radar_place(shp[i].lat, shp[i].lon, shp[i].dist_km,
+                        map_mode, radius_nm, &x, &y)) {
+            px[placed] = x;
+            py[placed] = y;
+            placed_idx[placed] = i;
+            used[placed] = false;
+            placed++;
+        }
+    }
+    if (s_grp_ships == NULL) {
+        s_grp_ships = heap_caps_malloc(MAX_SHIP_GROUPS * sizeof(*s_grp_ships),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    /* pass 1: proximity groups; pass 2: merge groups whose badges
+       would overlap; then emit singles + badges */
+    static int gid[MAX_SHIPS];
+    static long gx[MAX_SHIPS], gy[MAX_SHIPS];
+    static int gcnt[MAX_SHIPS];
+    int ng = 0;
+    for (int i = 0; i < placed; i++) {
+        gid[i] = -1;
+    }
+    for (int i = 0; i < placed; i++) {
+        if (gid[i] >= 0) {
+            continue;
+        }
+        gid[i] = ng;
+        gx[ng] = px[i];
+        gy[ng] = py[i];
+        gcnt[ng] = 1;
+        for (int j = i + 1; j < placed; j++) {
+            if (gid[j] < 0 &&
+                abs(px[j] - (int)(gx[ng] / gcnt[ng])) < CLUSTER_PX &&
+                abs(py[j] - (int)(gy[ng] / gcnt[ng])) < CLUSTER_PX) {
+                gid[j] = ng;
+                gx[ng] += px[j];
+                gy[ng] += py[j];
+                gcnt[ng]++;
+            }
+        }
+        ng++;
+    }
+    /* merge until no two multi-ship badges overlap (badge ~120x40 px) */
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (int a = 0; a < ng && !merged; a++) {
+            if (gcnt[a] < 2) {
+                continue;
+            }
+            for (int b = a + 1; b < ng; b++) {
+                if (gcnt[b] < 1 || (gcnt[b] == 1 && gcnt[a] == 1)) {
+                    continue;
+                }
+                if (gcnt[b] >= 2 || gcnt[a] >= 2) {
+                    int ax = (int)(gx[a] / gcnt[a]), ay = (int)(gy[a] / gcnt[a]);
+                    int bx = (int)(gx[b] / gcnt[b]), by = (int)(gy[b] / gcnt[b]);
+                    if (abs(ax - bx) < 124 && abs(ay - by) < 42) {
+                        for (int i = 0; i < placed; i++) {
+                            if (gid[i] == b) {
+                                gid[i] = a;
+                            }
+                        }
+                        gx[a] += gx[b];
+                        gy[a] += gy[b];
+                        gcnt[a] += gcnt[b];
+                        gcnt[b] = 0;
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    int drawn = 0, groups = 0;
+    for (int g = 0; g < ng; g++) {
+        if (gcnt[g] == 0) {
+            continue;
+        }
+        if (gcnt[g] == 1) {
+            for (int i = 0; i < placed && drawn < MAX_SHIP_MARKERS; i++) {
+                if (gid[i] != g) {
+                    continue;
+                }
+                const ship_t *sh1 = &shp[placed_idx[i]];
+                if (s_marker_ships == NULL) {
+                    break;
+                }
+                lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
+                s_marker_ships[drawn] = *sh1;
+                lv_label_set_text(s_x_ship_lbl[drawn],
+                                  sh1->name[0] ? sh1->name : "ship");
+                lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + 8, py[i] - 8);
+                lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
+                drawn++;
+                break;
+            }
+            continue;
+        }
+        if (groups >= MAX_SHIP_GROUPS || s_grp_ships == NULL) {
+            continue;
+        }
+        int m = 0;
+        for (int i = 0; i < placed; i++) {
+            if (gid[i] == g && m < GRP_MEMBERS) {
+                s_grp_ships[groups][m++] = shp[placed_idx[i]];
+            }
+        }
+        s_grp_count[groups] = m;
+        lv_obj_t *bl = lv_obj_get_child(s_x_grp[groups], 0);
+        lv_label_set_text_fmt(bl, "%s \xC2\xB7 %d", L()->lm_ships, gcnt[g]);
+        lv_obj_update_layout(s_x_grp[groups]);
+        lv_obj_set_pos(s_x_grp[groups],
+                       (int)(gx[g] / gcnt[g]) - lv_obj_get_width(s_x_grp[groups]) / 2,
+                       (int)(gy[g] / gcnt[g]) - 15);
+        lv_obj_clear_flag(s_x_grp[groups], LV_OBJ_FLAG_HIDDEN);
+        groups++;
+    }
+    for (int i = drawn; i < MAX_SHIP_MARKERS; i++) {
+        lv_obj_add_flag(s_x_ship_dot[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_x_ship_lbl[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int g = groups; g < MAX_SHIP_GROUPS; g++) {
+        lv_obj_add_flag(s_x_grp[g], LV_OBJ_FLAG_HIDDEN);
+        s_grp_count[g] = 0;
+    }
 }
 
 static void render_radar_panel(void)
@@ -1042,9 +1931,9 @@ static void render_radar_panel(void)
     int rpx = RADAR_R;
 
     if (map_mode) {
-        tilemap_project(&s_radar_view, s_home_lat, s_home_lon, &hx, &hy);
+        radar_project(s_home_lat, s_home_lon, &hx, &hy);
         int ex, ey;
-        tilemap_project(&s_radar_view, s_home_lat, s_radar_bbox[3], &ex, &ey);
+        radar_project(s_home_lat, s_radar_bbox[3], &ex, &ey);
         rpx = ex - hx;
         if (rpx < 20) {
             rpx = 20;
@@ -1072,15 +1961,16 @@ static void render_radar_panel(void)
 
     const aircraft_t *selac = (s_selected >= 0 && s_selected < s_shown_count)
                                   ? &s_shown[s_selected].ac : NULL;
+    bool planes_on = view_shows_planes();
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
-        if (i >= s_all_count || s_all[i].dist_nm < 0) {
+        if (!planes_on || i >= s_all_count || s_all[i].dist_nm < 0) {
             lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
         const amb_target_t *t = &s_all[i];
         int x, y;
         if (map_mode) {
-            tilemap_project(&s_radar_view, t->lat, t->lon, &x, &y);
+            radar_project(t->lat, t->lon, &x, &y);
             if (x < -14 || x > RADAR_W + 14 || y < -14 || y > RADAR_H + 14) {
                 lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
                 continue;
@@ -1097,6 +1987,7 @@ static void render_radar_panel(void)
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
         lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);
+        lv_img_set_src(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
         lv_img_set_zoom(s_radar_dots[i], sel ? 384 : 232);
         lv_obj_set_style_img_recolor(s_radar_dots[i],
@@ -1110,15 +2001,26 @@ static void render_radar_panel(void)
                          selac->callsign[0] ? selac->callsign : selac->hex,
                          L()->ground, selac->dist_nm * 1.852);
             } else {
-                snprintf(info, sizeof(info), "%s\n%d ft  %.0f kt  %.1f km",
+                char ua[20], us[20];
+                snprintf(info, sizeof(info), "%s\n%s  %s  %.1f km",
                          selac->callsign[0] ? selac->callsign : selac->hex,
-                         selac->alt_baro_ft, (double)selac->gs_kts,
+                         units_alt(selac->alt_baro_ft, ua, sizeof(ua)),
+                         units_speed(selac->gs_kts, us, sizeof(us)),
                          selac->dist_nm * 1.852);
             }
             lv_label_set_text(s_radar_info, info);
+            const char *lcode = airline_code(selac, &s_shown[s_selected].route);
+            const lv_img_dsc_t *ldsc = lcode ? logos_get(lcode) : NULL;
+            if (ldsc != NULL) {
+                lv_img_set_src(s_radar_blogo, ldsc);
+                lv_obj_clear_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
+            }
+            lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
             int lx = x + 12, ly = y - 10;
-            if (lx > RADAR_W - 150) {
-                lx = x - 150;
+            if (lx > RADAR_W - 190) {
+                lx = x - 190;
             }
             if (ly < 0) {
                 ly = 0;
@@ -1126,12 +2028,15 @@ static void render_radar_panel(void)
             if (ly > RADAR_H - 60) {
                 ly = RADAR_H - 60;
             }
-            lv_obj_set_pos(s_radar_info, lx, ly);
+            lv_obj_set_pos(s_radar_bub, lx, ly);
         }
     }
-    if (s_selected < 0 || s_selected >= s_shown_count) {
-        lv_label_set_text(s_radar_info, "");
+    if (!planes_on || s_selected < 0 || s_selected >= s_shown_count ||
+        selac == NULL) {
+        lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
     }
+    render_radar_extras(map_mode, radius_nm);
+    render_airspaces(map_mode);
 }
 
 /* ---------- full-screen ambient screensaver ---------- */
@@ -1141,10 +2046,13 @@ static void render_ambient(void);
 /* Upscale the rendered map in place around (px,py) so the observation
  * circle spans the full screen height. One-time cost in the worker task;
  * the displayed image stays a plain untransformed bitmap. */
-static void amb_upscale(uint16_t *fb, int px, int py, float k)
+static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
 {
-    const int W = SCR_W, H = SCR_H;
-    uint16_t *tmp = heap_caps_malloc(W * H * 2, MALLOC_CAP_SPIRAM);
+    /* Scratch-frame version: the buffer under our feet is usually the live
+     * LVGL image source, and transforming it in place paints garbage on the
+     * screen mid-pass. When the scratch allocation fails we simply skip the
+     * upscale and the view stays at its native framing. */
+    uint16_t *tmp = heap_caps_malloc((size_t)W * H * 2, MALLOC_CAP_SPIRAM);
     if (tmp == NULL) {
         return;
     }
@@ -1176,7 +2084,7 @@ static void amb_upscale(uint16_t *fb, int px, int py, float k)
             tmp[y * W + x] = (uint16_t)((r << 11) | (g << 5) | b);
         }
     }
-    memcpy(fb, tmp, W * H * 2);
+    memcpy(fb, tmp, (size_t)W * H * 2);
     free(tmp);
 }
 
@@ -1215,7 +2123,7 @@ static void amb_tiles_task(void *arg)
                 }
             }
             if (scale > 1.05f) {
-                amb_upscale(s_amb_tiles, hx, hy, scale);
+                fb_upscale(s_amb_tiles, SCR_W, SCR_H, hx, hy, scale);
             } else {
                 scale = 1.0f;
             }
@@ -1305,6 +2213,10 @@ static void render_ambient(void)
     if (s_amb == NULL) {
         return;
     }
+    if (s_amb_retro) {
+        render_retro_panel();
+        return;
+    }
     /* tile fetch failed earlier (offline blip): retry every 20 s */
     if (!s_amb_view_ok && !s_amb_busy && s_home_ok &&
         esp_timer_get_time() / 1000 - s_amb_last_try > 20000) {
@@ -1337,6 +2249,7 @@ static void render_ambient(void)
             lv_obj_add_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
+        lv_img_set_src(s_amb_planes[i], class_sprite(s_all[i].fcls));
         lv_obj_set_pos(s_amb_planes[i], x - 14, y - 14);
         lv_img_set_angle(s_amb_planes[i], (int)(s_all[i].track * 10));
         lv_obj_set_style_img_recolor(s_amb_planes[i],
@@ -1357,15 +2270,17 @@ static void render_ambient(void)
             char txt[96];
             const route_info_t *rt = routes_get_cached(s_all[sel].callsign);
             if (rt != NULL && rt->valid) {
-                snprintf(txt, sizeof(txt), "%s\n%s " LV_SYMBOL_RIGHT " %s\n%d ft",
+                char ua[20];
+                snprintf(txt, sizeof(txt), "%s\n%s " LV_SYMBOL_RIGHT " %s\n%s",
                          s_all[sel].callsign,
                          rt->origin.iata[0] ? rt->origin.iata : rt->origin.icao,
                          rt->destination.iata[0] ? rt->destination.iata
                                                  : rt->destination.icao,
-                         s_all[sel].alt_ft);
+                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
             } else {
-                snprintf(txt, sizeof(txt), "%s\n%d ft", s_all[sel].callsign,
-                         s_all[sel].alt_ft);
+                char ua[20];
+                snprintf(txt, sizeof(txt), "%s\n%s", s_all[sel].callsign,
+                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
             }
             lv_label_set_text(s_amb_selbub, txt);
             lv_coord_t x, y;
@@ -1447,13 +2362,35 @@ static void render_ambient(void)
     }
 }
 
+static void amb_restore_retro(void)
+{
+    if (!s_amb_retro || s_retro_panel == NULL) {
+        return;
+    }
+    lv_obj_set_parent(s_retro_panel, lv_scr_act());
+    lv_obj_set_pos(s_retro_panel, LIST_W, HEADER_H);
+    if (s_retro_was_hidden) {
+        lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_amb_retro = false;
+}
+
 static void amb_close(void)
 {
     if (s_amb != NULL) {
+        amb_restore_retro();   /* rescue the adopted retro panel first */
         lv_obj_del(s_amb);
         s_amb = NULL;
-        s_amb_view_ok = false;
-        s_amb_key[0] = '\0';
+        /* keep the rendered canvas for an instant next entry while PSRAM
+           is comfortable; only hand it back under real pressure */
+        if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
+            s_amb_view_ok = false;
+            if (!s_amb_busy && s_amb_tiles != NULL) {
+                free(s_amb_tiles);
+                s_amb_tiles = NULL;
+            }
+            s_amb_key[0] = '\0';
+        }
         s_amb_scale = 1.0f;
         s_amb_sel_cs[0] = '\0';
     }
@@ -1500,6 +2437,26 @@ static void amb_click_cb(lv_event_t *e)
 static void amb_show(void)
 {
     if (s_amb != NULL) {
+        return;
+    }
+    s_amb_retro = settings_get()->amb_style == 1 && s_retro_panel != NULL;
+    if (s_amb_retro) {
+        /* CRT bezel: black screen, the retro scope centered on it */
+        s_amb = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_amb, SCR_W, SCR_H);
+        lv_obj_set_pos(s_amb, 0, 0);
+        lv_obj_set_style_bg_color(s_amb, lv_color_black(), 0);
+        lv_obj_set_style_border_width(s_amb, 0, 0);
+        lv_obj_set_style_radius(s_amb, 0, 0);
+        lv_obj_set_style_pad_all(s_amb, 0, 0);
+        lv_obj_clear_flag(s_amb, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(s_amb, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(s_amb, amb_click_cb, LV_EVENT_CLICKED, NULL);
+        s_retro_was_hidden = lv_obj_has_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_parent(s_retro_panel, s_amb);
+        lv_obj_set_pos(s_retro_panel, (SCR_W - RADAR_W) / 2, (SCR_H - RADAR_H) / 2);
+        lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        render_retro_panel();
         return;
     }
     s_amb = lv_obj_create(lv_layer_top());
@@ -1567,7 +2524,7 @@ static void amb_show(void)
     lv_label_set_text(s_amb_clock, "");
 
     lv_obj_t *attr = make_label(s_amb, &font_pl_14, lv_color_hex(0x777777));
-    lv_label_set_text(attr, "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
+    lv_label_set_text(attr, map_attribution());
     lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
 
     s_amb_wx = make_label(s_amb, &font_pl_16, lv_color_hex(0xdddddd));
@@ -1601,6 +2558,15 @@ static void idle_timer_cb(lv_timer_t *t)
             gmtime_r(&l, &tm);
             int m = tm.tm_hour * 60 + tm.tm_min;
             int a = cfg->night_start_min, b = cfg->night_end_min;
+            if (cfg->night_auto && s_home_ok) {
+                int rise, set;
+                if (geo_sun_times(s_home_lat, s_home_lon, (long long)now,
+                                  tz_home_known() ? tz_home_offset() : 0,
+                                  &rise, &set)) {
+                    a = set;    /* dark from sunset... */
+                    b = rise;   /* ...to sunrise */
+                }
+            }
             bool night = a <= b ? (m >= a && m < b) : (m >= a || m < b);
             if (night && !s_bl_off &&
                 idle_ms > (uint32_t)(cfg->ambient_idle_min + 5) * 60000U) {
@@ -1612,6 +2578,253 @@ static void idle_timer_cb(lv_timer_t *t)
             }
         }
     }
+}
+
+
+/* ---- Retro radar: phosphor CRT sweep over the same targets ---- */
+
+static void retro_rain_task(void *arg)
+{
+    int w = RADAR_W, h = RADAR_H;
+    if (s_retro_rain_buf == NULL) {
+        s_retro_rain_buf = heap_caps_malloc((size_t)w * h * 2, MALLOC_CAP_SPIRAM);
+    }
+    double rkm = settings_get()->radius_nm * 1.852;
+    double dlat = rkm / 111.0;
+    double dlon = rkm / (111.0 * cos(s_home_lat * M_PI / 180.0));
+    tile_view_t view;
+    bool ok = s_retro_rain_buf != NULL &&
+              tilemap_render_rain(s_retro_rain_buf, w, h,
+                                  s_home_lat - dlat, s_home_lat + dlat,
+                                  s_home_lon - dlon, s_home_lon + dlon, &view);
+    if (lvgl_port_lock(-1)) {
+        if (ok && s_retro_rain_img != NULL) {
+            s_retro_rain_dsc.header.always_zero = 0;
+            s_retro_rain_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+            s_retro_rain_dsc.header.w = w;
+            s_retro_rain_dsc.header.h = h;
+            s_retro_rain_dsc.data = (const uint8_t *)s_retro_rain_buf;
+            s_retro_rain_dsc.data_size = (size_t)w * h * 2;
+            lv_img_set_src(s_retro_rain_img, &s_retro_rain_dsc);
+            lv_obj_clear_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        lvgl_port_unlock();
+    }
+    s_retro_rain_ms = esp_timer_get_time() / 1000;
+    s_retro_rain_gen = rainviewer_generation();
+    s_retro_rain_busy = false;
+    vTaskDelete(NULL);
+}
+
+static void retro_rain_want(void)
+{
+    if (!settings_get()->rain_overlay) {
+        if (s_retro_rain_img != NULL) {
+            lv_obj_add_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    if (!s_home_ok || s_retro_rain_busy) {
+        return;
+    }
+    int64_t now = esp_timer_get_time() / 1000;
+    if (s_retro_rain_ms >= 0 && now - s_retro_rain_ms < 10 * 60 * 1000) {
+        return;
+    }
+    s_retro_rain_busy = true;
+    if (xTaskCreatePinnedToCore(retro_rain_task, "retro_rain", 10240,
+                                NULL, 3, NULL, 0) != pdPASS) {
+        s_retro_rain_busy = false;
+    }
+}
+
+static void retro_timer_cb(lv_timer_t *t)
+{
+    if (s_retro_panel == NULL || lv_obj_has_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    s_retro_angle += RETRO_STEP;
+    if (s_retro_angle >= 360.0f) {
+        s_retro_angle -= 360.0f;
+    }
+
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+    for (int k = 0; k < RETRO_TRAIL; k++) {
+        float a = (s_retro_angle - k * 2.0f) * (float)M_PI / 180.0f;
+        s_retro_beam_pts[k][0].x = cx;
+        s_retro_beam_pts[k][0].y = cy;
+        s_retro_beam_pts[k][1].x = cx + (lv_coord_t)(sinf(a) * r);
+        s_retro_beam_pts[k][1].y = cy - (lv_coord_t)(cosf(a) * r);
+        lv_line_set_points(s_retro_beam[k], s_retro_beam_pts[k], 2);
+    }
+
+    /* blips glow when the beam passes and decay until the next sweep */
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        if (!s_retro_valid[i]) {
+            continue;
+        }
+        float delta = s_retro_angle - s_retro_bearing[i];
+        while (delta < 0) {
+            delta += 360.0f;
+        }
+        int opa = (int)(255.0f * (1.0f - delta / 320.0f));
+        if (opa < 25) {
+            opa = 25;
+        }
+        lv_obj_set_style_bg_opa(s_retro_blips[i], opa, 0);
+        lv_obj_set_style_text_opa(s_retro_lbls[i], opa > 60 ? opa : 0, 0);
+    }
+}
+
+static void render_retro_panel(void)
+{
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+    int radius_nm = settings_get()->radius_nm;
+    lv_area_t lbl_box[24];
+    int nlbl = 0;
+
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        if (i >= s_all_count || s_all[i].dist_nm < 0 ||
+            s_all[i].dist_nm > radius_nm * 1.02f) {
+            s_retro_valid[i] = false;
+            lv_obj_add_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        float frac = s_all[i].dist_nm / (float)radius_nm;
+        float rad = s_all[i].dir_deg * (float)M_PI / 180.0f;
+        int x = cx + (int)(sinf(rad) * frac * r);
+        int y = cy - (int)(cosf(rad) * frac * r);
+        lv_obj_set_pos(s_retro_blips[i], x - 3, y - 3);
+        lv_obj_set_pos(s_retro_lbls[i], x + 8, y - 7);
+        lv_label_set_text(s_retro_lbls[i], s_all[i].callsign);
+        lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+        s_retro_bearing[i] = s_all[i].dir_deg;
+        s_retro_valid[i] = true;
+
+        /* labels declutter like the screensaver: first come, first labeled */
+        bool clash = nlbl >= 24;
+        for (int p2 = 0; p2 < nlbl && !clash; p2++) {
+            if (x + 8 < lbl_box[p2].x2 && x + 8 + 78 > lbl_box[p2].x1 &&
+                y - 7 < lbl_box[p2].y2 && y - 7 + 16 > lbl_box[p2].y1) {
+                clash = true;
+            }
+        }
+        if (clash) {
+            lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+            lbl_box[nlbl].x1 = x + 8;
+            lbl_box[nlbl].y1 = y - 7;
+            lbl_box[nlbl].x2 = x + 8 + 78;
+            lbl_box[nlbl].y2 = y - 7 + 16;
+            nlbl++;
+        }
+    }
+
+    retro_rain_want();
+
+    char info[64];
+    if (s_home_ok) {
+        snprintf(info, sizeof(info), "%.4f%c %.4f%c  R%dkm",
+                 fabs(s_home_lat), s_home_lat >= 0 ? 'N' : 'S',
+                 fabs(s_home_lon), s_home_lon >= 0 ? 'E' : 'W',
+                 (int)(radius_nm * 1.852));
+    } else {
+        snprintf(info, sizeof(info), "R%dkm", (int)(radius_nm * 1.852));
+    }
+    lv_label_set_text(s_retro_info, info);
+}
+
+static void build_retro_panel(lv_obj_t *scr)
+{
+    s_retro_panel = make_panel(scr);
+    lv_obj_set_size(s_retro_panel, RADAR_W, RADAR_H);
+    lv_obj_set_pos(s_retro_panel, LIST_W, HEADER_H);
+    lv_obj_set_style_bg_color(s_retro_panel, RET_COL_BG, 0);
+    lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+
+    int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+
+    s_retro_rain_img = lv_img_create(s_retro_panel);
+    lv_obj_set_pos(s_retro_rain_img, 0, 0);
+    lv_obj_set_style_img_opa(s_retro_rain_img, 140, 0);
+    lv_obj_add_flag(s_retro_rain_img, LV_OBJ_FLAG_HIDDEN);
+
+    /* range rings + crosshair */
+    for (int i = 1; i <= 3; i++) {
+        int rr = r * i / 3;
+        lv_obj_t *ring = lv_obj_create(s_retro_panel);
+        lv_obj_set_size(ring, rr * 2, rr * 2);
+        lv_obj_set_pos(ring, cx - rr, cy - rr);
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(ring, 1, 0);
+        lv_obj_set_style_border_color(ring, RET_COL_DIM, 0);
+        lv_obj_set_style_border_opa(ring, i == 3 ? 200 : 110, 0);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    }
+    static lv_point_t xh[2][2];
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *ln = lv_line_create(s_retro_panel);
+        if (i == 0) {
+            xh[i][0].x = cx - r; xh[i][0].y = cy;
+            xh[i][1].x = cx + r; xh[i][1].y = cy;
+        } else {
+            xh[i][0].x = cx; xh[i][0].y = cy - r;
+            xh[i][1].x = cx; xh[i][1].y = cy + r;
+        }
+        lv_line_set_points(ln, xh[i], 2);
+        lv_obj_set_style_line_width(ln, 1, 0);
+        lv_obj_set_style_line_color(ln, RET_COL_DIM, 0);
+        lv_obj_set_style_line_opa(ln, 70, 0);
+    }
+
+    /* compass letters */
+    static const char *dirs[4] = { "N", "E", "S", "W" };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *l = make_label(s_retro_panel, &lv_font_montserrat_16, RET_COL_DIM);
+        lv_label_set_text(l, dirs[i]);
+        int dx = (i == 1) ? r + 8 : (i == 3) ? -r - 18 : -5;
+        int dy = (i == 0) ? -r - 20 : (i == 2) ? r + 4 : -10;
+        lv_obj_set_pos(l, cx + dx, cy + dy);
+    }
+
+    /* rotating beam: leading edge bright, trail fading out */
+    for (int k = RETRO_TRAIL - 1; k >= 0; k--) {
+        s_retro_beam[k] = lv_line_create(s_retro_panel);
+        lv_obj_set_style_line_width(s_retro_beam[k], k == 0 ? 2 : 3, 0);
+        lv_obj_set_style_line_color(s_retro_beam[k], RET_COL_BEAM, 0);
+        lv_obj_set_style_line_opa(s_retro_beam[k],
+                                  k == 0 ? 255 : 150 - k * 14, 0);
+    }
+
+    /* home dot */
+    lv_obj_t *home = lv_obj_create(s_retro_panel);
+    lv_obj_set_size(home, 6, 6);
+    lv_obj_set_pos(home, cx - 3, cy - 3);
+    lv_obj_set_style_radius(home, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(home, RET_COL_BEAM, 0);
+    lv_obj_set_style_border_width(home, 0, 0);
+    lv_obj_clear_flag(home, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* blips + callsign ghosts */
+    for (int i = 0; i < MAX_AIRCRAFT; i++) {
+        s_retro_blips[i] = lv_obj_create(s_retro_panel);
+        lv_obj_set_size(s_retro_blips[i], 7, 7);
+        lv_obj_set_style_radius(s_retro_blips[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(s_retro_blips[i], RET_COL_BEAM, 0);
+        lv_obj_set_style_border_width(s_retro_blips[i], 0, 0);
+        lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
+        s_retro_lbls[i] = make_label(s_retro_panel, &font_pl_14, RET_COL_BEAM);
+        lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    s_retro_info = make_label(s_retro_panel, &font_pl_14, RET_COL_DIM);
+    lv_obj_align(s_retro_info, LV_ALIGN_TOP_RIGHT, -10, 6);
+
+    lv_timer_create(retro_timer_cb, RETRO_TICK_MS, NULL);
 }
 
 static void build_stats_panel(lv_obj_t *scr)
@@ -1700,9 +2913,9 @@ static void render_stats_panel(void)
     char buf[48];
     snprintf(buf, sizeof(buf), "%d", s_stats_snap.unique);
     lv_label_set_text(s_sv_vals[0], buf);
-    snprintf(buf, sizeof(buf), "%d ft", s_stats_snap.max_alt_ft);
+    units_alt(s_stats_snap.max_alt_ft, buf, sizeof(buf));
     lv_label_set_text(s_sv_vals[1], buf);
-    snprintf(buf, sizeof(buf), "%.0f kt", (double)s_stats_snap.max_gs_kt);
+    units_speed(s_stats_snap.max_gs_kt, buf, sizeof(buf));
     lv_label_set_text(s_sv_vals[2], buf);
     snprintf(buf, sizeof(buf), "%.0f km", (double)s_stats_snap.max_dist_km);
     lv_label_set_text(s_sv_vals[3], buf);
@@ -1722,11 +2935,15 @@ static void render_stats_panel(void)
     char daysum[64];
     dailystats_summary(daysum, sizeof(daysum), L()->avg_word, L()->best_word);
     lv_label_set_text(s_sv_days, daysum);
-    char mt[160];
-    strlcpy(mt, metar_get(), sizeof(mt));
-    char *rmk = strstr(mt, " RMK");
-    if (rmk != NULL) {
-        *rmk = '\0';    /* remarks are noise on a one-line display */
+    char mt[200];
+    if (settings_get()->metar_decoded) {
+        metar_decoded(mt, sizeof(mt));
+    } else {
+        strlcpy(mt, metar_get(), sizeof(mt));
+        char *rmk = strstr(mt, " RMK");
+        if (rmk != NULL) {
+            *rmk = '\0';    /* remarks are noise on a one-line display */
+        }
     }
     lv_label_set_text(s_sv_metar, mt);
 
@@ -1890,7 +3107,8 @@ static void build_detail(lv_obj_t *scr)
     s_extra_label = make_label(s_detail_content, s_f_small, COL_DIM);
     lv_obj_set_pos(s_extra_label, 0, 378 + DTL_VEXT);
     lv_obj_set_width(s_extra_label, DTL_W);
-    lv_label_set_long_mode(s_extra_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(s_extra_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_anim_speed(s_extra_label, 12, 0);
 
     make_stat(grid, 0, 0, L()->st_alt, &s_stat_vals[0]);
     make_stat(grid, 1, 0, L()->st_speed, &s_stat_vals[1]);
@@ -1901,10 +3119,49 @@ static void build_detail(lv_obj_t *scr)
     s_reg_flag = lv_img_create(regbox);
     lv_obj_align(s_reg_flag, LV_ALIGN_TOP_RIGHT, 0, -2);
     lv_obj_add_flag(s_reg_flag, LV_OBJ_FLAG_HIDDEN);
+
+    /* ship detail: same panel, own content shown when a ship is selected */
+    s_ship_content = lv_obj_create(panel);
+    lv_obj_set_size(s_ship_content, SCR_W - LIST_W, SCR_H - HEADER_H);
+    lv_obj_set_pos(s_ship_content, 0, 0);
+    lv_obj_set_style_bg_opa(s_ship_content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_ship_content, 0, 0);
+    lv_obj_set_style_pad_all(s_ship_content, 16, 0);
+    lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+
+    s_ship_name = make_label(s_ship_content, s_f_code, COL_TEXT);
+    lv_obj_set_pos(s_ship_name, 0, 0);
+    lv_obj_set_width(s_ship_name, DTL_W);
+    lv_label_set_long_mode(s_ship_name, LV_LABEL_LONG_DOT);
+    s_ship_sub = make_label(s_ship_content, s_f_name, lv_color_hex(0x4fd1c5));
+    lv_obj_set_pos(s_ship_sub, 0, s_big ? 62 : 48);
+
+    lv_obj_t *sgrid = lv_obj_create(s_ship_content);
+    lv_obj_set_size(sgrid, DTL_W + 10, s_big ? 172 : 130);
+    lv_obj_set_pos(sgrid, 0, s_big ? 130 : 104);
+    lv_obj_set_style_bg_opa(sgrid, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(sgrid, 0, 0);
+    lv_obj_set_style_pad_all(sgrid, 0, 0);
+    lv_obj_clear_flag(sgrid, LV_OBJ_FLAG_SCROLLABLE);
+    make_stat(sgrid, 0, 0, L()->st_speed, &s_ship_vals[0]);
+    make_stat(sgrid, 1, 0, L()->st_track, &s_ship_vals[1]);
+    make_stat(sgrid, 2, 0, L()->st_dist, &s_ship_vals[2]);
+    make_stat(sgrid, 0, 1, L()->ship_dest, &s_ship_vals[3]);
+    make_stat(sgrid, 1, 1, "MMSI", &s_ship_vals[4]);
+    make_stat(sgrid, 2, 1, L()->ship_pos, &s_ship_vals[5]);
 }
 
 void ui_init(void)
 {
+    /* ship bookkeeping is bulky; keep it out of internal RAM */
+    s_row_ships = heap_caps_calloc(MAX_SHOWN, sizeof(ship_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_marker_ships = heap_caps_calloc(40, sizeof(ship_t),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_pop_ships = heap_caps_calloc(GRP_MEMBERS, sizeof(ship_t),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_bg_color(scr, COL_BG, 0);
 
@@ -1914,6 +3171,7 @@ void ui_init(void)
     build_map_panel(scr);
     build_radar_panel(scr);
     build_stats_panel(scr);
+    build_retro_panel(scr);
 
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);
@@ -1921,12 +3179,45 @@ void ui_init(void)
     lv_timer_create(idle_timer_cb, 10000, NULL);
 }
 
-void ui_set_update_available(bool available)
+static bool s_update_avail;
+static char s_update_tag[16];
+static lv_timer_t *s_gear_blink;
+
+static void gear_blink_cb(lv_timer_t *t)
 {
+    static bool on;
+    on = !on;
     if (s_gear_label != NULL) {
         lv_obj_set_style_text_color(s_gear_label,
-                                    available ? lv_color_hex(0xffd166) : COL_TEXT, 0);
+                                    on ? lv_color_hex(0xffd166) : COL_TEXT, 0);
     }
+}
+
+void ui_set_update_available(bool available, const char *tag)
+{
+    s_update_avail = available;
+    if (tag != NULL) {
+        strlcpy(s_update_tag, tag, sizeof(s_update_tag));
+    }
+    if (available && s_gear_blink == NULL) {
+        s_gear_blink = lv_timer_create(gear_blink_cb, 600, NULL);
+    } else if (!available && s_gear_blink != NULL) {
+        lv_timer_del(s_gear_blink);
+        s_gear_blink = NULL;
+        if (s_gear_label != NULL) {
+            lv_obj_set_style_text_color(s_gear_label, COL_TEXT, 0);
+        }
+    }
+}
+
+bool ui_update_available(void)
+{
+    return s_update_avail;
+}
+
+const char *ui_update_tag(void)
+{
+    return s_update_tag;
 }
 
 static lv_obj_t *s_flyover_banner;
@@ -2010,13 +3301,72 @@ void ui_set_weather(const char *text)
 
 static void render_list_selection(void)
 {
-    for (int i = 0; i < s_shown_count; i++) {
-        lv_obj_set_style_bg_color(s_list_rows[i], i == s_selected ? COL_ROW_SEL : COL_ROW, 0);
+    for (int i = 0; i < MAX_SHOWN; i++) {
+        bool sel;
+        if (i < s_list_plane_rows) {
+            sel = s_row_plane_idx[i] == s_selected && s_sel_ship_mmsi == 0;
+        } else {
+            int si = i - s_list_plane_rows;
+            sel = si < s_row_ship_count && s_sel_ship_mmsi != 0 &&
+                  s_row_ships[si].mmsi == s_sel_ship_mmsi;
+        }
+        lv_obj_set_style_bg_color(s_list_rows[i], sel ? COL_ROW_SEL : COL_ROW, 0);
     }
+}
+
+/* fresh data for the selected ship; clears the selection when it is gone */
+static bool sel_ship_get(ship_t *out)
+{
+    if (s_sel_ship_mmsi == 0) {
+        return false;
+    }
+    for (int i = 0; i < s_row_ship_count; i++) {
+        if (s_row_ships[i].mmsi == s_sel_ship_mmsi) {
+            *out = s_row_ships[i];
+            return true;
+        }
+    }
+    s_sel_ship_mmsi = 0;
+    return false;
 }
 
 static void render_detail(void)
 {
+    ship_t sh;
+    if (sel_ship_get(&sh)) {
+        lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+        char nm[28];
+        if (sh.name[0]) {
+            strlcpy(nm, sh.name, sizeof(nm));
+        } else {
+            snprintf(nm, sizeof(nm), "MMSI %lu", (unsigned long)sh.mmsi);
+        }
+        lv_label_set_text(s_ship_name, nm);
+        lv_label_set_text(s_ship_sub, ship_type_word(sh.stype));
+        char v[40];
+        if (settings_get()->metric_units) {
+            snprintf(v, sizeof(v), "%.0f km/h", (double)(sh.sog_kt * 1.852f));
+        } else {
+            snprintf(v, sizeof(v), "%.1f kt", (double)sh.sog_kt);
+        }
+        lv_label_set_text(s_ship_vals[0], v);
+        snprintf(v, sizeof(v), "%d\xC2\xB0 %s", (int)sh.cog_deg,
+                 lang_compass((int)sh.cog_deg));
+        lv_label_set_text(s_ship_vals[1], v);
+        snprintf(v, sizeof(v), "%.1f km", (double)sh.dist_km);
+        lv_label_set_text(s_ship_vals[2], v);
+        lv_label_set_text(s_ship_vals[3], sh.dest[0] ? sh.dest : "-");
+        snprintf(v, sizeof(v), "%lu", (unsigned long)sh.mmsi);
+        lv_label_set_text(s_ship_vals[4], v);
+        snprintf(v, sizeof(v), "%.3f %.3f", sh.lat, sh.lon);
+        lv_label_set_text(s_ship_vals[5], v);
+        return;
+    }
+    if (s_ship_content != NULL) {
+        lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+    }
     if (s_selected < 0 || s_selected >= s_shown_count) {
         lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
@@ -2154,12 +3504,12 @@ static void render_detail(void)
     if (ac->on_ground) {
         lv_label_set_text(s_stat_vals[0], L()->ground);
     } else {
-        snprintf(buf, sizeof(buf), "%d ft", ac->alt_baro_ft);
+        units_alt(ac->alt_baro_ft, buf, sizeof(buf));
         lv_label_set_text(s_stat_vals[0], buf);
     }
-    snprintf(buf, sizeof(buf), "%.0f kt", (double)ac->gs_kts);
+    units_speed(ac->gs_kts, buf, sizeof(buf));
     lv_label_set_text(s_stat_vals[1], buf);
-    snprintf(buf, sizeof(buf), "%+d fpm", ac->baro_rate_fpm);
+    units_vrate(ac->baro_rate_fpm, buf, sizeof(buf));
     lv_label_set_text(s_stat_vals[2], buf);
     snprintf(buf, sizeof(buf), "%.1f km", ac->dist_nm >= 0 ? ac->dist_nm * 1.852 : 0.0);
     lv_label_set_text(s_stat_vals[3], buf);
@@ -2173,12 +3523,12 @@ static void render_detail(void)
     }
     if (ac->category[0]) {
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s %s",
-                       el ? "   \xC2\xB7   " : "", L()->cat_word, ac->category);
+                       el ? "  \xC2\xB7  " : "", L()->cat_word, ac->category);
     }
     flight_class_t fc = flight_class(ac);
     if (fc != FCLS_LINER) {
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                       el ? "   \xC2\xB7   " : "", L()->cls_names[fc]);
+                       el ? "  \xC2\xB7  " : "", L()->cls_names[fc]);
     }
     if (rt != NULL && rt->valid && !ac->on_ground && ac->gs_kts > 80 &&
         rt->destination.tz_known) {
@@ -2194,7 +3544,7 @@ static void render_detail(void)
             snprintf(hh, sizeof(hh), "%02d:%02d", tm.tm_hour, tm.tm_min);
             snprintf(af, sizeof(af), L()->arr_fmt, hh);
             el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                           el ? "   \xC2\xB7   " : "", af);
+                           el ? "  \xC2\xB7  " : "", af);
         }
     }
     char apt[8];
@@ -2208,7 +3558,7 @@ static void render_detail(void)
         char ap[64];
         snprintf(ap, sizeof(ap), L()->apr_fmt, where, eta_min);
         el += snprintf(extra + el, sizeof(extra) - el, "%s%s",
-                       el ? "   \xC2\xB7   " : "", ap);
+                       el ? "  \xC2\xB7  " : "", ap);
     }
     lv_label_set_text(s_extra_label, extra);
 
@@ -2267,15 +3617,18 @@ void ui_update(const aircraft_list_t *list)
         t->dir_deg = list->ac[i].dir_deg;
         t->alt_ft = list->ac[i].alt_baro_ft;
         t->ground = list->ac[i].on_ground;
+        t->fcls = (uint8_t)flight_sprite(&list->ac[i]);
     }
     s_shown_count = list->count < MAX_SHOWN ? list->count : MAX_SHOWN;
     for (int i = 0; i < s_shown_count; i++) {
         s_shown[i].ac = list->ac[i];
         const route_info_t *rt = routes_get_cached(list->ac[i].callsign);
         if (rt != NULL && rt->valid && list->ac[i].has_pos &&
-            !geo_route_plausible(rt->origin.lat, rt->origin.lon,
-                                 rt->destination.lat, rt->destination.lon,
-                                 list->ac[i].lat, list->ac[i].lon)) {
+            !geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
+                                     rt->destination.lat, rt->destination.lon,
+                                     list->ac[i].lat, list->ac[i].lon,
+                                     list->ac[i].track_deg, list->ac[i].gs_kts,
+                                     list->ac[i].baro_rate_fpm)) {
             /* Stale/reused callsign in the route DB - don't show nonsense. */
             rt = NULL;
         }
@@ -2317,20 +3670,120 @@ void ui_update(const aircraft_list_t *list)
         strlcpy(s_selected_hex, s_shown[0].ac.hex, sizeof(s_selected_hex));
     }
 
+    render_list_rows();
+
+    render_list_selection();
+    render_right();
+    render_ambient();
+}
+
+static const char *ship_type_word(uint8_t t)
+{
+    if (t == 30) return "FISHING";
+    if (t == 31 || t == 32 || t == 52) return "TUG";
+    if (t == 35) return "MILITARY";
+    if (t == 36) return "SAIL";
+    if (t == 37) return "PLEASURE";
+    if (t >= 60 && t <= 69) return "PASSENGER";
+    if (t >= 70 && t <= 79) return "CARGO";
+    if (t >= 80 && t <= 89) return "TANKER";
+    return "SHIP";
+}
+
+/* on the radar map view the list mirrors the visible frame */
+static bool radar_view_filter(double lat, double lon, float dist_km)
+{
+    if (s_view_mode != VIEW_RADAR || !s_radar_view_ok) {
+        return true;
+    }
+    int x, y;
+    return radar_place(lat, lon, dist_km, true,
+                       settings_get()->radius_nm, &x, &y);
+}
+
+static void render_list_rows(void)
+{
+    bool ships_on = settings_get()->ships_enabled;
+    if (s_list_mode_btnm != NULL) {
+        if (ships_on) {
+            lv_obj_clear_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    uint8_t mode = ships_on ? s_list_mode : 0;
+
+    ship_t *ships = ui_ship_buf();
+    int n_ships = 0;
+    if (mode != 0 && ships != NULL) {
+        n_ships = ships_get(ships, MAX_SHIPS);
+        /* nearest first */
+        for (int i = 1; i < n_ships; i++) {
+            ship_t tmp = ships[i];
+            int j = i - 1;
+            while (j >= 0 && ships[j].dist_km > tmp.dist_km) {
+                ships[j + 1] = ships[j];
+                j--;
+            }
+            ships[j + 1] = tmp;
+        }
+    }
+    int n_planes = 0;
+    if (mode != 1) {
+        for (int i = 0; i < s_shown_count && n_planes < MAX_SHOWN; i++) {
+            if (radar_view_filter(s_shown[i].ac.lat, s_shown[i].ac.lon,
+                                  (float)(s_shown[i].ac.dist_nm * 1.852))) {
+                s_row_plane_idx[n_planes++] = i;
+            }
+        }
+    }
+    s_list_plane_rows = n_planes;
+    s_row_ship_count = 0;
+    for (int i = 0; s_row_ships != NULL && i < n_ships && s_row_ship_count < MAX_SHOWN; i++) {
+        if (radar_view_filter(ships[i].lat, ships[i].lon, ships[i].dist_km)) {
+            s_row_ships[s_row_ship_count++] = ships[i];
+        }
+    }
+
     for (int i = 0; i < MAX_SHOWN; i++) {
-        if (i < s_shown_count) {
-            const aircraft_t *ac = &s_shown[i].ac;
+        if (i >= n_planes && i - n_planes < n_ships) {
+            const ship_t *sh = &ships[i - n_planes];
+            lv_obj_t *row = s_list_rows[i];
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_t *cs_label = lv_obj_get_child(row, 0);
+            char nm[24];
+            if (sh->name[0]) {
+                strlcpy(nm, sh->name, sizeof(nm));
+            } else {
+                snprintf(nm, sizeof(nm), "%lu", (unsigned long)sh->mmsi);
+            }
+            label_set_if_changed(cs_label, nm);
+            lv_obj_set_style_text_color(cs_label, lv_color_hex(0x4fd1c5), 0);
+            lv_obj_t *typechip = lv_obj_get_child(row, 1);
+            label_set_if_changed(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
+            lv_obj_set_style_text_color(typechip, lv_color_hex(0x4fd1c5), 0);
+            char info[64];
+            char us[20];
+            snprintf(info, sizeof(info), "%s  %s  %.1f km",
+                     ship_type_word(sh->stype),
+                     units_speed(sh->sog_kt, us, sizeof(us)), (double)sh->dist_km);
+            label_set_if_changed(lv_obj_get_child(row, 2), info);
+            lv_obj_add_flag(lv_obj_get_child(row, 3), LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        if (i < n_planes) {
+            const aircraft_t *ac = &s_shown[s_row_plane_idx[i]].ac;
             lv_obj_t *row = s_list_rows[i];
             lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
 
             lv_obj_t *cs_label = lv_obj_get_child(row, 0);
-            lv_label_set_text(cs_label, ac->callsign[0] ? ac->callsign : ac->hex);
+            label_set_if_changed(cs_label, ac->callsign[0] ? ac->callsign : ac->hex);
             /* gold for military / heavies / watchlist hits */
             bool interesting = flight_is_interesting(ac, settings_get()->watch_regs);
             lv_obj_set_style_text_color(cs_label,
                                         interesting ? lv_color_hex(0xffd166) : COL_TEXT, 0);
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
-            lv_label_set_text(typechip, ac->type_icao[0] ? ac->type_icao : "?");
+            label_set_if_changed(typechip, ac->type_icao[0] ? ac->type_icao : "?");
             lv_obj_set_style_text_color(typechip, class_color(flight_class(ac)), 0);
 
             char info[64];
@@ -2343,13 +3796,15 @@ void ui_update(const aircraft_list_t *list)
                 } else if (ac->baro_rate_fpm < -300) {
                     trend = LV_SYMBOL_DOWN " ";
                 }
-                snprintf(info, sizeof(info), "%s%d ft  %.0f kt  %.1f km",
-                         trend, ac->alt_baro_ft, (double)ac->gs_kts, ac->dist_nm * 1.852);
+                char ua[20], us[20];
+                snprintf(info, sizeof(info), "%s%s  %s  %.1f km",
+                         trend, units_alt(ac->alt_baro_ft, ua, sizeof(ua)),
+                         units_speed(ac->gs_kts, us, sizeof(us)), ac->dist_nm * 1.852);
             }
-            lv_label_set_text(lv_obj_get_child(row, 2), info);
+            label_set_if_changed(lv_obj_get_child(row, 2), info);
 
             lv_obj_t *logo_img = lv_obj_get_child(row, 3);
-            const char *code = airline_code(ac, &s_shown[i].route);
+            const char *code = airline_code(ac, &s_shown[s_row_plane_idx[i]].route);
             const lv_img_dsc_t *logo = code ? logos_get(code) : NULL;
             if (logo != NULL) {
                 lv_img_set_src(logo_img, logo);
@@ -2361,8 +3816,4 @@ void ui_update(const aircraft_list_t *list)
             lv_obj_add_flag(s_list_rows[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
-
-    render_list_selection();
-    render_right();
-    render_ambient();
 }

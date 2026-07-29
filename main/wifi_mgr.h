@@ -16,3 +16,6 @@ esp_err_t wifi_mgr_scan(wifi_ap_record_t *records, uint16_t *count);
 bool wifi_mgr_wait_connected(int timeout_ms);
 
 bool wifi_mgr_is_connected(void);
+
+/* Last STA disconnect reason (wifi_err_reason_t), 0 = none yet. */
+int wifi_mgr_last_reason(void);

@@ -5,6 +5,8 @@
 
 #include "lvgl.h"
 #include "app_port.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #ifdef __ANDROID__
 #include <SDL.h>
@@ -28,12 +30,25 @@ void android_glue_init(void);
 
 /* Same boot sequence as esp32flight's app_main, on SDL. */
 
+static int s_deferred_view = -1;
+
+static void deferred_view_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(20000));
+    if (lvgl_port_lock(-1)) {
+        ui_set_view(s_deferred_view);
+        lvgl_port_unlock();
+    }
+    vTaskDelete(NULL);
+}
+
 int main(int argc, char **argv)
 {
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
     tzset();
 
     int shot_ms = 0;
+    int view = -1;
     const char *shot_path = "apkflight-shot.bmp";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--shot") == 0) {
@@ -41,6 +56,8 @@ int main(int argc, char **argv)
             if (i + 1 < argc) {
                 shot_path = argv[++i];
             }
+        } else if (strcmp(argv[i], "--view") == 0 && i + 1 < argc) {
+            view = atoi(argv[++i]);   /* 0 detail .. 4 retro, for screenshots */
         } else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
             int w = 0, h = 0;   /* e.g. --size 1280x800: tablet layout test */
             if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
@@ -75,7 +92,15 @@ int main(int argc, char **argv)
     STEP("ui_init");
     if (lvgl_port_lock(-1)) {
         ui_init();
+        if (view >= 0 && view < 5) {
+            ui_set_view(view);
+        }
         lvgl_port_unlock();
+    }
+    if (view >= 5) {
+        /* overlays need a selected flight; give the radar 20 s to find one */
+        s_deferred_view = view;
+        xTaskCreate(deferred_view_task, "dview", 8192, NULL, 3, NULL);
     }
 
     STEP("start tasks");

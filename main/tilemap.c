@@ -10,6 +10,8 @@
 #include "esp_log.h"
 
 #include "extra/libs/png/lodepng.h"
+#include "rainviewer.h"
+#include "settings.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -34,7 +36,7 @@ void tilemap_init(void)
  * instantly and survive short network outages. Guarded by s_render_mux
  * (all access happens inside a render). */
 #define TCACHE_N       128
-#define TCACHE_BUDGET  (1536 * 1024)
+#define TCACHE_BUDGET  (768 * 1024)   /* PSRAM got crowded; transient buffers need headroom */
 
 typedef struct {
     uint32_t key;           /* (z << 26) | (tx << 13) | ty */
@@ -125,7 +127,16 @@ void tilemap_project(const tile_view_t *v, double lat, double lon, int *x, int *
     double nx, ny;
     merc_norm(lat, lon, &nx, &ny);
     double world = (double)TILE_PX * (1 << v->z);
-    *x = (int)(nx * world - v->px0);
+    /* views that cross the antimeridian have px0 outside [0, world);
+       pick the copy of the world that lands nearest the view center */
+    double px = nx * world - v->px0;
+    double center = v->w / 2.0;
+    if (px - center > world / 2.0) {
+        px -= world;
+    } else if (center - px > world / 2.0) {
+        px += world;
+    }
+    *x = (int)px;
     *y = (int)(ny * world - v->py0);
 }
 
@@ -186,6 +197,7 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     unsigned char *rgba = NULL;
     unsigned w = 0, h = 0;
     if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
+        free(rgba);   /* lodepng may allocate even when it reports an error */
         return false;
     }
 
@@ -209,10 +221,142 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     return true;
 }
 
+/* Fetch one RainViewer tile and alpha-blend it over dst. Failures are
+ * non-fatal: rain is a garnish, not the map. */
+/* RainViewer serves real data only up to this zoom; above it the API
+ * returns a "Zoom Level Not Supported" placeholder tile (verified
+ * empirically: z8+ responses are a constant 1.4 KB plate). For closer
+ * views we fetch the z7 parent and magnify the right quadrant. */
+#define RAIN_MAX_Z 7
+
+static void blit_rain_tile(esp_http_client_handle_t client, tile_sink_t *sink,
+                           const char *frame, uint16_t *dst, int dst_w, int dst_h,
+                           int z, int tx, int ty, int ox, int oy)
+{
+    int shift = z > RAIN_MAX_Z ? z - RAIN_MAX_Z : 0;
+    int zc = z - shift;
+    int ptx = tx >> shift;
+    int pty = ty >> shift;
+    /* this tile's quadrant inside the parent tile, in parent pixels */
+    int sub_x = (tx - (ptx << shift)) * (TILE_PX >> shift);
+    int sub_y = (ty - (pty << shift)) * (TILE_PX >> shift);
+
+    uint32_t key = 0x80000000u |
+                   (((uint32_t)rainviewer_generation() & 0xF) << 27) |
+                   (((uint32_t)zc & 0xF) << 23) |
+                   (((uint32_t)ptx & 0x7FF) << 12) | ((uint32_t)pty & 0xFFF);
+    uint32_t clen = 0;
+    const uint8_t *fetch_buf = tcache_get(key, &clen);
+    size_t len = clen;
+
+    if (fetch_buf == NULL) {
+        char url[224];
+        snprintf(url, sizeof(url), "%s/256/%d/%d/%d/2/1_1.png", frame, zc, ptx, pty);
+        sink->len = 0;
+        esp_http_client_set_url(client, url);
+        esp_err_t err = esp_http_client_perform(client);
+        int status = esp_http_client_get_status_code(client);
+        if (err != ESP_OK || status != 200 || sink->len < 8) {
+            esp_http_client_close(client);
+            return;
+        }
+        tcache_put(key, sink->buf, sink->len);
+        fetch_buf = sink->buf;
+        len = sink->len;
+    }
+
+    unsigned char *rgba = NULL;
+    unsigned w = 0, h = 0;
+    if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
+        free(rgba);   /* lodepng may allocate even when it reports an error */
+        return;
+    }
+    for (int y = 0; y < TILE_PX; y++) {
+        int dy = oy + y;
+        if (dy < 0 || dy >= dst_h) {
+            continue;
+        }
+        /* source row in parent pixels, 8.8 fixed point for bilinear */
+        int fy = (sub_y << 8) + ((y << 8) >> shift);
+        int sy = fy >> 8;
+        if (sy >= (int)h) {
+            continue;
+        }
+        int wy = fy & 0xFF;
+        int sy1 = sy + 1 < (int)h ? sy + 1 : sy;
+        const unsigned char *row0 = rgba + (size_t)sy * w * 4;
+        const unsigned char *row1 = rgba + (size_t)sy1 * w * 4;
+        for (int x = 0; x < TILE_PX; x++) {
+            int dx = ox + x;
+            if (dx < 0 || dx >= dst_w) {
+                continue;
+            }
+            int fx = (sub_x << 8) + ((x << 8) >> shift);
+            int sx = fx >> 8;
+            if (sx >= (int)w) {
+                continue;
+            }
+            int a, cr, cg, cb;
+            if (shift == 0) {
+                const unsigned char *pc = row0 + sx * 4;
+                a = pc[3];
+                cr = pc[0];
+                cg = pc[1];
+                cb = pc[2];
+            } else {
+                /* bilinear with premultiplied color so transparent
+                   neighbours do not darken the echo edges */
+                int wx = fx & 0xFF;
+                int sx1 = sx + 1 < (int)w ? sx + 1 : sx;
+                const unsigned char *p00 = row0 + sx * 4;
+                const unsigned char *p01 = row0 + sx1 * 4;
+                const unsigned char *p10 = row1 + sx * 4;
+                const unsigned char *p11 = row1 + sx1 * 4;
+                int w00 = (256 - wx) * (256 - wy);
+                int w01 = wx * (256 - wy);
+                int w10 = (256 - wx) * wy;
+                int w11 = wx * wy;
+                a = (p00[3] * w00 + p01[3] * w01 + p10[3] * w10 + p11[3] * w11) >> 16;
+                if (a > 0) {
+                    cr = (p00[0] * p00[3] * (w00 >> 4) + p01[0] * p01[3] * (w01 >> 4) +
+                          p10[0] * p10[3] * (w10 >> 4) + p11[0] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    cg = (p00[1] * p00[3] * (w00 >> 4) + p01[1] * p01[3] * (w01 >> 4) +
+                          p10[1] * p10[3] * (w10 >> 4) + p11[1] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    cb = (p00[2] * p00[3] * (w00 >> 4) + p01[2] * p01[3] * (w01 >> 4) +
+                          p10[2] * p10[3] * (w10 >> 4) + p11[2] * p11[3] * (w11 >> 4)) /
+                         ((a << 12) + 1);
+                    if (cr > 255) cr = 255;
+                    if (cg > 255) cg = 255;
+                    if (cb > 255) cb = 255;
+                } else {
+                    cr = cg = cb = 0;
+                }
+            }
+            a = a * 3 / 4;      /* keep the basemap readable */
+            if (a < 10) {
+                continue;
+            }
+            uint16_t bg = dst[(size_t)dy * dst_w + dx];
+            int br = (bg >> 11) << 3, bgc = ((bg >> 5) & 0x3F) << 2, bb = (bg & 0x1F) << 3;
+            int r = (cr * a + br * (255 - a)) / 255;
+            int g = (cg * a + bgc * (255 - a)) / 255;
+            int b = (cb * a + bb * (255 - a)) / 255;
+            dst[(size_t)dy * dst_w + dx] =
+                ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        }
+    }
+    free(rgba);
+}
+
+#define TM_LAYER_BASE 1
+#define TM_LAYER_RAIN 2
+
 static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
                         double lat_min, double lat_max,
                         double lon_min, double lon_max,
-                        tile_view_t *out_view)
+                        tile_view_t *out_view, int layers)
 {
     double nx0, ny0, nx1, ny1;
     merc_norm(lat_max, lon_min, &nx0, &ny0);   /* top-left */
@@ -245,16 +389,13 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     if (py0 + dst_h > world) {
         py0 = world - dst_h;
     }
-    if (px0 < 0) {
-        px0 = 0;
-    }
-    if (px0 + dst_w > world) {
-        px0 = world > dst_w ? world - dst_w : 0;
-    }
+    /* no X clamp: longitude wraps, and antimeridian views need px0
+       outside [0, world); the tile loop wraps tile indexes instead */
 
-    /* dark background for any gaps */
+    /* dark background for any gaps (pure black in rain-only mode) */
+    uint16_t bgcol = (layers & TM_LAYER_BASE) ? 0x10A2 : 0x0000;
     for (size_t i = 0; i < (size_t)dst_w * dst_h; i++) {
-        dst[i] = 0x10A2;    /* ~#101418 */
+        dst[i] = bgcol;
     }
 
     tile_sink_t sink = {
@@ -287,22 +428,27 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     int tiles_max = 1 << z;
     int ok = 0, total = 0;
     bool offline = false;
-    struct { int16_t tx, ty; } failed[32];
+    struct { int16_t tx, txw, ty; } failed[32];
     int failed_n = 0;
+    if (!(layers & TM_LAYER_BASE)) {
+        ok = 1;         /* rain-only: nothing mandatory below */
+        total = 1;
+        goto rain_pass;
+    }
     for (int ty = ty0; ty <= ty1 && !offline; ty++) {
         if (ty < 0 || ty >= tiles_max) {
             continue;
         }
         for (int tx = tx0; tx <= tx1; tx++) {
-            if (tx < 0 || tx >= tiles_max) {
-                continue;
-            }
+            /* wrap around the antimeridian instead of skipping */
+            int txw = ((tx % tiles_max) + tiles_max) % tiles_max;
             total++;
-            if (blit_tile(client, &sink, dst, dst_w, dst_h, z, tx, ty,
+            if (blit_tile(client, &sink, dst, dst_w, dst_h, z, txw, ty,
                           (int)(tx * TILE_PX - px0), (int)(ty * TILE_PX - py0))) {
                 ok++;
             } else if (failed_n < 32) {
                 failed[failed_n].tx = tx;
+                failed[failed_n].txw = txw;
                 failed[failed_n].ty = ty;
                 failed_n++;
             }
@@ -317,12 +463,30 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     /* one retry pass: early requests occasionally fail while the TLS
      * connection warms up */
     for (int i = 0; i < failed_n; i++) {
-        if (blit_tile(client, &sink, dst, dst_w, dst_h, z, failed[i].tx, failed[i].ty,
+        if (blit_tile(client, &sink, dst, dst_w, dst_h, z, failed[i].txw, failed[i].ty,
                       (int)(failed[i].tx * TILE_PX - px0),
                       (int)(failed[i].ty * TILE_PX - py0))) {
             ok++;
         }
     }
+rain_pass:
+    /* optional precipitation layer on top (RainViewer, same tile grid) */
+    if ((layers & TM_LAYER_RAIN) && ok > 0) {
+        const char *frame = rainviewer_frame_path();
+        if (frame[0] != '\0') {
+            for (int ty = ty0; ty <= ty1; ty++) {
+                if (ty < 0 || ty >= tiles_max) {
+                    continue;
+                }
+                for (int tx = tx0; tx <= tx1; tx++) {
+                    int txw = ((tx % tiles_max) + tiles_max) % tiles_max;
+                    blit_rain_tile(client, &sink, frame, dst, dst_w, dst_h, z, txw, ty,
+                                   (int)(tx * TILE_PX - px0), (int)(ty * TILE_PX - py0));
+                }
+            }
+        }
+    }
+
     esp_http_client_cleanup(client);
     free(sink.buf);
 
@@ -347,8 +511,29 @@ bool tilemap_render(uint16_t *dst, int dst_w, int dst_h,
     if (s_render_mux != NULL) {
         xSemaphoreTake(s_render_mux, portMAX_DELAY);
     }
+    int layers = TM_LAYER_BASE;
+    if (settings_get()->rain_overlay) {
+        layers |= TM_LAYER_RAIN;
+    }
     bool ok = render_impl(dst, dst_w, dst_h,
-                          lat_min, lat_max, lon_min, lon_max, out_view);
+                          lat_min, lat_max, lon_min, lon_max, out_view, layers);
+    if (s_render_mux != NULL) {
+        xSemaphoreGive(s_render_mux);
+    }
+    return ok;
+}
+
+bool tilemap_render_rain(uint16_t *dst, int dst_w, int dst_h,
+                         double lat_min, double lat_max,
+                         double lon_min, double lon_max,
+                         tile_view_t *out_view)
+{
+    if (s_render_mux != NULL) {
+        xSemaphoreTake(s_render_mux, portMAX_DELAY);
+    }
+    bool ok = render_impl(dst, dst_w, dst_h,
+                          lat_min, lat_max, lon_min, lon_max, out_view,
+                          TM_LAYER_RAIN);
     if (s_render_mux != NULL) {
         xSemaphoreGive(s_render_mux);
     }

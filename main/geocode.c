@@ -6,6 +6,7 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "http_util.h"
+#include "settings.h"
 
 static const char *TAG = "geocode";
 
@@ -92,12 +93,15 @@ esp_err_t geocode_reverse(double lat, double lon, char *city, size_t city_len)
     }
     city[0] = '\0';
 
-    /* zoom=10 resolves to city/town granularity */
+    /* zoom=10 resolves to city/town granularity. Ask for names in the UI
+     * language (with English fallback): accept-language=local returns the
+     * native script, and the bundled fonts only cover Latin, so a fixed
+     * location in Taipei used to render as tofu boxes in the header. */
     char url[192];
     snprintf(url, sizeof(url),
              "https://nominatim.openstreetmap.org/reverse"
-             "?lat=%.4f&lon=%.4f&format=jsonv2&zoom=10&accept-language=local",
-             lat, lon);
+             "?lat=%.4f&lon=%.4f&format=jsonv2&zoom=10&accept-language=%s",
+             lat, lon, settings_get()->lang == 1 ? "pl,en" : "en");
 
     char *buf = malloc(8 * 1024);
     if (buf == NULL) {

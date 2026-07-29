@@ -19,6 +19,9 @@
 #include "obslog.h"
 #include "alertlog.h"
 #include "settings.h"
+#include "airports.h"
+#include "ui.h"
+#include "ui_settings.h"
 #include "flight_model.h"
 #include "waveshare_rgb_lcd_port.h"
 
@@ -69,45 +72,49 @@ static const char INDEX_HTML[] =
 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
 "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
 "<style>"
-"body{background:#0b0f1a;color:#e8edf5;font-family:system-ui,sans-serif;margin:0;padding:16px}"
-"h1{color:#4da3ff;font-size:22px;margin:0 0 4px}"
-".dim{color:#8794ad;font-size:14px}"
+"body{background:#0c1510;color:#e7f2ea;font-family:system-ui,sans-serif;margin:0 auto;padding:18px;max-width:1180px}"
+"h1{color:#5dd39e;font-size:24px;margin:0 0 4px;letter-spacing:.3px}"
+"h1 .mark{display:inline-block;transform:rotate(-45deg);margin-right:2px}"
+".dim{color:#86a695;font-size:14px}"
 "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}"
-"th{color:#8794ad;text-align:left;padding:6px 8px;border-bottom:1px solid #24314f}"
-"td{padding:7px 8px;border-bottom:1px solid #141b2d}"
+"th{color:#86a695;text-align:left;padding:6px 8px;border-bottom:1px solid #23402f}"
+"td{padding:7px 8px;border-bottom:1px solid #14231b}"
 "tr.em td{background:#4a1010}"
-".bar{background:#1a2338;height:6px;border-radius:3px;min-width:70px}"
-".bar i{display:block;background:#4da3ff;height:6px;border-radius:3px}"
+".bar{background:#1a2f24;height:6px;border-radius:3px;min-width:70px}"
+".bar i{display:block;background:#5dd39e;height:6px;border-radius:3px}"
 ".cards{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}"
-".card{background:#141b2d;border-radius:10px;padding:10px 14px;font-size:13px;color:#8794ad}"
-".card b{display:block;color:#e8edf5;font-size:17px}"
+".card{background:#14231b;border:1px solid #23402f;border-radius:12px;padding:10px 14px;font-size:13px;color:#86a695;box-shadow:0 2px 8px rgba(0,0,0,.25)}"
+".card b{display:block;color:#e7f2ea;font-size:17px}"
 "#map{height:380px;border-radius:12px;margin-top:14px}"
 ".plane{font-size:20px;line-height:20px;text-shadow:0 0 3px #000}"
-"#ota{margin-top:22px;padding-top:12px;border-top:1px solid #24314f}"
-"button{background:#4da3ff;color:#06101f;border:0;border-radius:8px;padding:8px 14px;font-weight:600}"
+"#ota{margin-top:22px;padding-top:12px;border-top:1px solid #23402f}"
+"button{background:#5dd39e;color:#06130c;border:0;border-radius:10px;padding:8px 16px;font-weight:700;cursor:pointer}"
+"button:hover:not(:disabled){filter:brightness(1.12)}"
 "button:disabled{opacity:.35}"
-"a{color:#4da3ff}"
-".sect{margin-top:22px;padding-top:12px;border-top:1px solid #24314f}"
-".sect h3{margin:0 0 10px;font-size:16px;color:#e8edf5}"
+"a{color:#5dd39e}"
+".sect{margin-top:22px;padding-top:12px;border-top:1px solid #23402f}"
+".sect h3{margin:0 0 10px;font-size:16px;color:#e7f2ea}"
 ".grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}"
-".grid2 label{font-size:12px;color:#8794ad;display:block;margin-bottom:2px}"
-"input,select{width:100%;box-sizing:border-box;background:#141b2d;border:1px solid #24314f;color:#e8edf5;border-radius:6px;padding:7px}"
+".grid2 label{font-size:12px;color:#86a695;display:block;margin-bottom:2px}"
+"input,select{width:100%;box-sizing:border-box;background:#14231b;border:1px solid #23402f;color:#e7f2ea;border-radius:8px;padding:7px}"
+"input:focus,select:focus{outline:none;border-color:#5dd39e}"
+"tbody tr:hover td{background:#14231b}"
 "#hq{width:200px;display:inline-block}"
 "tr.gold td b{color:#ffd166}"
-".sech{grid-column:1/-1;color:#4da3ff;font-size:12px;font-weight:700;margin-top:10px;text-transform:uppercase;letter-spacing:.6px}"
-".help{font-size:12px;color:#66738c;margin-top:3px;line-height:1.4}"
+".sech{grid-column:1/-1;color:#5dd39e;font-size:12px;font-weight:700;margin-top:10px;text-transform:uppercase;letter-spacing:.6px}"
+".help{font-size:12px;color:#6d8a7a;margin-top:3px;line-height:1.4}"
 ".tabs{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}"
-".tab{background:#141b2d;color:#8794ad;font-weight:600}"
-".tab.on{background:#4da3ff;color:#06101f}"
+".tab{background:#14231b;color:#86a695;font-weight:600;border-radius:999px;border:1px solid #23402f}"
+".tab.on{background:#5dd39e;color:#06130c;border-color:#5dd39e}"
 ".tabpane{display:none}.tabpane.on{display:block}"
-".cfgcard{background:#10182b;border:1px solid #1d2942;border-radius:12px;padding:14px 16px;margin-top:14px}"
-".cfgcard h4{margin:0 0 10px;color:#4da3ff;font-size:12px;text-transform:uppercase;letter-spacing:.7px}"
-".api dt{color:#4da3ff;font-family:ui-monospace,SFMono-Regular,monospace;font-size:14px;margin-top:16px}"
-".api dd{margin:4px 0 0;color:#8794ad;font-size:13px;line-height:1.5}"
-"code{background:#141b2d;border-radius:6px;padding:1px 5px;font-size:12px;color:#c7cfdd}"
-"pre{background:#141b2d;border-radius:8px;padding:8px 10px;overflow-x:auto;font-size:12px;color:#c7cfdd}"
+".cfgcard{background:#101d16;border:1px solid #21382b;border-radius:12px;padding:14px 16px;margin-top:14px}"
+".cfgcard h4{margin:0 0 10px;color:#5dd39e;font-size:12px;text-transform:uppercase;letter-spacing:.7px}"
+".api dt{color:#5dd39e;font-family:ui-monospace,SFMono-Regular,monospace;font-size:14px;margin-top:16px}"
+".api dd{margin:4px 0 0;color:#86a695;font-size:13px;line-height:1.5}"
+"code{background:#14231b;border-radius:6px;padding:1px 5px;font-size:12px;color:#cfe4d6}"
+"pre{background:#14231b;border-radius:8px;padding:8px 10px;overflow-x:auto;font-size:12px;color:#cfe4d6}"
 "</style></head><body>"
-"<h1>esp32flight</h1><div class='dim' id='hdr'>loading...</div>"
+"<h1><span class=\'mark\'>\xe2\x9c\x88</span>esp32flight</h1><div class='dim' id='hdr'>loading...</div>"
 "<div class='tabs'>"
 "<button class='tab on' id='tb_live' onclick=\"showTab('live')\">Live</button>"
 "<button class='tab' id='tb_hist' onclick=\"showTab('hist')\">History</button>"
@@ -139,10 +146,14 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Location</h4><div class='grid2'>"
 "<div><label>Location mode</label><select id='c_fixed'><option value='0'>auto (IP geolocation)</option><option value='1'>fixed coordinates</option></select>"
 "<div class='help'>Auto locates the device by its internet address at boot. Pick fixed to watch a different area.</div></div>"
-"<div><label>Latitude</label><input id='c_lat' type='number' step='0.0001'></div>"
-"<div><label>Longitude</label><input id='c_lon' type='number' step='0.0001'></div>"
-"<div><label>Radius (nautical miles, 5-250)</label><input id='c_radius_nm' type='number'>"
-"<div class='help'>Search radius around the location. 54 nm is about 100 km.</div></div>"
+"<div><label>City or airport code</label><input id='c_city' placeholder='city name, EPGD or GDN, Enter'>"
+"<div id='c_cityres' class='help'></div></div>"
+"<div><label>Favorite locations</label><div id='favbox' class='help'></div>"
+"<div class='help'>Save the coordinates above under a name and switch with one click. Three slots.</div></div>"
+"<div><label>Latitude</label><input id='c_lat' inputmode='decimal' placeholder='51.1079'></div>"
+"<div><label>Longitude</label><input id='c_lon' inputmode='decimal' placeholder='17.0385'></div>"
+"<div><label>Radius (nautical miles, 1-250)</label><input id='c_radius_nm' type='number'>"
+"<div class='help'>Search radius around the location. 54 nm is about 100 km; a radius of 1-2 nm shows just what passes overhead.</div></div>"
 "</div></div>"
 "<div class='cfgcard'><h4>Filters</h4><div class='grid2'>"
 "<div><label>Hide ground traffic</label><select id='c_hide_ground'><option value='0'>no</option><option value='1'>yes</option></select>"
@@ -155,11 +166,26 @@ static const char INDEX_HTML[] =
 "<label><input type='checkbox' id='c_cls3'> military</label>"
 "<label><input type='checkbox' id='c_cls4'> other</label>"
 "</div><div class='help'>Show only the selected classes. Military comes from the community aircraft database; class of others from the ADS-B emitter category.</div></div>"
+"<div><label>Rain radar overlay</label><select id='c_rain_overlay'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Precipitation from RainViewer blended over the radar and maps.</div></div>"
+"<div><label>Screensaver style</label><select id='c_amb_style'><option value='0'>sky map</option><option value='1'>retro radar</option></select></div>"
 "<div><label>Altitude from (ft, 0 = off)</label><input id='c_alt_min_ft' type='number'></div>"
 "<div><label>Altitude to (ft, 0 = off)</label><input id='c_alt_max_ft' type='number'></div>"
 "<div><label>Airport (ICAO or IATA)</label><input id='c_filter_airport' placeholder='KRK'>"
 "<div class='help'>Flights departing from or arriving at this airport, filtered by the mode on the right. Applies once a flight's route is resolved.</div></div>"
 "<div><label>Airport filter mode</label><select id='c_filter_apt_exclude'><option value='0'>show only this airport</option><option value='1'>hide this airport</option></select></div>"
+"</div></div>"
+"<div class='cfgcard'><h4>Layers and extra objects</h4><div class='grid2'>"
+"<div><label>Airspace zones (openAIP)</label><select id='c_airspace_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>CTR, TMA and danger zone outlines on the radar map. Needs an openAIP key (Integrations).</div></div>"
+"<div><label>ISS on the radar</label><select id='c_iss_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>The Space Station as a radar object when its track crosses your area, with an above-horizon indicator.</div></div>"
+"<div><label>Weather balloons (SondeHub)</label><select id='c_sonde_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Radiosondes tracked by the SondeHub community within 250 km.</div></div>"
+"<div><label>Ships (AIS)</label><select id='c_ships_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Vessels near you via aisstream.io. Needs a free key (Integrations).</div></div>"
+"<div><label>TAF airport forecast</label><select id='c_taf_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Terminal forecast for the nearest airport, shown next to the METAR.</div></div>"
 "</div></div>"
 "<div class='cfgcard'><h4>Alerts</h4><div class='grid2'>"
 "<div><label>ntfy.sh topic (push to your phone)</label><input id='c_ntfy_topic' placeholder='my-secret-esp32flight-8341'>"
@@ -176,10 +202,15 @@ static const char INDEX_HTML[] =
 "<div class='cfgcard'><h4>Display</h4><div class='grid2'>"
 "<div><label>Theme</label><select id='c_theme'><option value='0'>Dark</option><option value='1'>Light</option><option value='2'>Black</option><option value='3'>Nord</option><option value='4'>Solarized</option><option value='5'>Purple</option><option value='6'>Forest</option></select></div>"
 "<div><label>Language</label><select id='c_lang'><option value='0'>English</option><option value='1'>Polski</option></select></div>"
+"<div><label>Units</label><select id='c_metric_units'><option value='0'>aviation (ft, kt)</option><option value='1'>metric (m, km/h)</option></select></div>"
+"<div><label>METAR style</label><select id='c_metar_decoded'><option value='0'>raw</option><option value='1'>decoded</option></select></div>"
+"<div><label>Auto-cycle flights</label><select id='c_follow_mode'><option value='0'>on (default)</option><option value='1'>off, follow selection</option></select>"
+"<div class='help'>Off keeps the selected flight on screen until you pick another one.</div></div>"
 "<div><label>Map screensaver after (minutes, 0 = off)</label><input id='c_ambient_idle_min' type='number'>"
 "<div class='help'>Full-screen map of your area after this many idle minutes. Tap to return.</div></div>"
 "<div><label>Night mode</label><select id='c_night_enabled'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Backlight turns off during the quiet hours below; first tap wakes the screen.</div></div>"
+"<div><label>Night hours</label><select id='c_night_auto'><option value='0'>fixed hours below</option><option value='1'>auto: sunset to sunrise</option></select></div>"
 "<div><label>Night from</label><input id='c_night_start' type='time'></div>"
 "<div><label>Night until</label><input id='c_night_end' type='time'></div>"
 "</div></div>"
@@ -188,6 +219,10 @@ static const char INDEX_HTML[] =
 "<div class='help'>Sensors appear automatically in Home Assistant via MQTT discovery.</div></div>"
 "<div><label>FlightAware AeroAPI key</label><input id='c_fa_key'>"
 "<div class='help'>Optional. Adds flight numbers (FR4238) and live routes. Free Personal key: flightaware.com/aeroapi.</div></div>"
+"<div><label>openAIP API key</label><input id='c_openaip_key'>"
+"<div class='help'>Free account at openaip.net; powers the airspace zone layer.</div></div>"
+"<div><label>aisstream.io API key</label><input id='c_ais_key'>"
+"<div class='help'>Free key at aisstream.io; powers the ship layer.</div></div>"
 "<div><label>Local ADS-B receiver (dump1090/readsb)</label><input id='c_local_adsb' placeholder='http://192.168.1.50:8080/data/aircraft.json'>"
 "<div class='help'>Reads aircraft straight from your antenna instead of internet APIs; falls back automatically.</div></div>"
 "</div></div>"
@@ -215,6 +250,8 @@ static const char INDEX_HTML[] =
 "<pre>curl -X POST http://esp32flight.local/api/config -d '{\"radius_nm\":80,\"theme\":3}'</pre></dd>"
 "<dt>GET /api/log</dt>"
 "<dd>Spotting history, one aircraft per line, tab-separated: unix epoch, ICAO hex, callsign, type, airline. Rotates at about 256 KB (current + previous file are concatenated).</dd>"
+"<dt>GET /api/airport?code=EPGD</dt>"
+"<dd>Airport lookup in the onboard OurAirports database, ICAO or IATA: <code>{icao, iata, city, lat, lon}</code>. Device build only.</dd>"
 "<dt>GET /screen.bmp</dt>"
 "<dd>Live screenshot of the display as a BMP.</dd>"
 "<dt>GET /metrics</dt>"
@@ -227,7 +264,9 @@ static const char INDEX_HTML[] =
 "</dl></div>"
 "</div>"
 "<script>"
-"let map,layer,homeSet=false,routeLine=null,selHex=null;"
+"let map,layer,homeSet=false,routeLine=null,selHex=null,metric=false;"
+"const ualt=v=>metric?Math.round(v*0.3048).toLocaleString()+' m':v.toLocaleString()+' ft';"
+"const uspd=v=>metric?Math.round(v*1.852)+' km/h':v+' kt';"
 "function showTab(n){['live','hist','set','api'].forEach(k=>{"
 "document.getElementById('t_'+k).classList.toggle('on',k===n);"
 "document.getElementById('tb_'+k).classList.toggle('on',k===n);});"
@@ -242,29 +281,37 @@ static const char INDEX_HTML[] =
 "map=L.map('map').setView([lat,lon],8);"
 "L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',"
 "{attribution:'\\u00A9 OSM \\u00B7 CARTO',maxZoom:12}).addTo(map);"
-"L.circle([lat,lon],{radius:rkm*1000,color:'#4da3ff',weight:1,fill:false}).addTo(map);"
-"L.circleMarker([lat,lon],{radius:5,color:'#4da3ff',fillOpacity:1}).addTo(map);"
+"L.circle([lat,lon],{radius:rkm*1000,color:'#5dd39e',weight:1,fill:false}).addTo(map);"
+"L.circleMarker([lat,lon],{radius:5,color:'#5dd39e',fillOpacity:1}).addTo(map);"
 "map.on('click',()=>{if(routeLine){map.removeLayer(routeLine);routeLine=null;selHex=null;}});"
 "layer=L.layerGroup().addTo(map);}"
 "function showRoute(f){if(routeLine)map.removeLayer(routeLine);"
 "routeLine=L.polyline([[f.route.from_lat,f.route.from_lon],[f.lat,f.lon],[f.route.to_lat,f.route.to_lon]],"
-"{color:'#4da3ff',weight:2,dashArray:'4'}).addTo(map);selHex=f.hex;}"
+"{color:'#5dd39e',weight:2,dashArray:'4'}).addTo(map);selHex=f.hex;}"
 "function drawMap(d){if(!d.lat)return;ensureMap(d.lat,d.lon,d.radius_km||100);"
 "if(!layer)return;layer.clearLayers();"
 "(d.flights||[]).forEach(f=>{if(f.lat===undefined)return;"
-"const ic=L.divIcon({className:'plane',html:`<div style='transform:rotate(${(f.track||0)-45}deg)'>\\u2708</div>`});"
+"const g=f.spr===2?'\\uD83D\\uDE81':f.spr===3?'\\uD83D\\uDEE9':f.spr===5?'\\uD83C\\uDF88':'\\u2708';"
+"const rot=(f.spr===2||f.spr===5)?0:(f.track||0)-45;"
+"const ic=L.divIcon({className:'plane',html:`<div style='transform:rotate(${rot}deg)'>${g}</div>`});"
 "if(f.trail&&f.trail.length>1)L.polyline(f.trail,{color:'#ffd166',weight:1,opacity:.5}).addTo(layer);"
 "const m=L.marker([f.lat,f.lon],{icon:ic}).addTo(layer);"
-"let t=`<b>${f.callsign}</b><br>${f.airline||''} ${f.type||''}<br>${f.alt_ft} ft \\u00B7 ${f.gs_kt} kt`;"
+"let t=`<b>${f.callsign}</b><br>${f.airline||''} ${f.type||''}<br>${ualt(f.alt_ft)} \\u00B7 ${uspd(f.gs_kt)}`;"
 "if(f.route){t+=`<br>${f.route.from} \\u2192 ${f.route.to} (${f.route.progress}%)`;"
 "m.on('click',()=>showRoute(f));"
 "if(f.hex===selHex)showRoute(f);}"
-"m.bindTooltip(f.callsign,{permanent:false}).bindPopup(t);});}"
+"m.bindTooltip(f.callsign,{permanent:false}).bindPopup(t);});"
+"if(d.iss)L.circleMarker([d.iss.lat,d.iss.lon],{radius:8,color:'#9be8ff',weight:2,fillOpacity:.5})"
+".addTo(layer).bindPopup(`<b>ISS</b><br>${d.iss.alt_km} km \u00B7 elev ${d.iss.elev_deg}\u00B0`);"
+"(d.sondes||[]).forEach(sn=>L.circleMarker([sn.lat,sn.lon],{radius:6,color:'#ffb347',weight:2,fillOpacity:.5})"
+".addTo(layer).bindPopup(`<b>${sn.type||'sonde'} ${sn.serial}</b><br>${(sn.alt_m/1000).toFixed(1)} km ${sn.vel_v>=0?'\u2191':'\u2193'}`));"
+"(d.ships||[]).forEach(sh=>L.circleMarker([sh.lat,sh.lon],{radius:5,color:'#4fd1c5',weight:2,fillOpacity:.5})"
+".addTo(layer).bindPopup(`<b>${sh.name||'ship'}</b><br>${sh.sog_kt.toFixed(1)} kt \u00B7 ${sh.cog}\u00B0`));}"
 "async function load(){try{"
-"const r=await fetch('/api/state');const d=await r.json();"
+"const r=await fetch('/api/state');const d=await r.json();metric=!!d.metric;"
 "let w=d.weather?` &nbsp;|&nbsp; ${d.weather.temp_c}\\u00B0C ${d.weather.desc}, wind ${d.weather.wind_kmh} km/h`:'';"
 "const n=d.net||{};"
-"document.getElementById('hdr').innerHTML=`${d.city||''} (${(+d.lat).toFixed(3)}, ${(+d.lon).toFixed(3)}), radius ${d.radius_km} km${w}`;+((d.stats&&d.stats.metar)?`<br>${d.stats.metar}`:'');"
+"document.getElementById('hdr').innerHTML=`${d.city||''} (${(+d.lat).toFixed(3)}, ${(+d.lon).toFixed(3)}), radius ${d.radius_km} km${w}`+((d.stats&&d.stats.metar)?`<br><span style='font-family:ui-monospace,monospace;font-size:12px'>${d.stats.metar}${(d.stats.taf?`<br>${d.stats.taf}`:'')}</span>`:'');"
 "const s=d.stats||{};document.getElementById('cards').innerHTML="
 "`<div class='card'>Network<b>${n.ssid?`${n.ssid} ${n.rssi||''} dBm`:location.host}</b>${[n.ip,n.mdns,n.heap_int?`RAM ${Math.round(n.heap_int/1024)} KB`:'',s.version?`v${s.version}`:''].filter(Boolean).join(' \\u00B7 ')}</div>`+"
 "`<div class='card'>Unique aircraft<b>${s.unique_aircraft||0}</b></div>`+"
@@ -272,7 +319,7 @@ static const char INDEX_HTML[] =
 "`<div class='card'>Fastest<b>${s.max_gs_kt||0} kt</b></div>`+"
 "`<div class='card'>Farthest<b>${s.max_dist_km||0} km (${s.max_dist_callsign||'-'})</b></div>`+"
 "`<div class='card'>Uptime<b>${s.uptime_min||0} min</b></div>`+"
-"((s.days&&s.days.length)?`<div class='card'>Last days<b style='display:flex;align-items:flex-end;gap:2px;height:28px'>${s.days.slice(-14).map(dd=>`<i title='${dd.d}: ${dd.u}' style='display:block;width:8px;background:#4da3ff;height:${Math.max(2,Math.round(28*dd.u/Math.max(...s.days.map(x=>x.u),1)))}px'></i>`).join('')}</b></div>`:'');"
+"((s.days&&s.days.length)?`<div class='card'>Last days<b style='display:flex;align-items:flex-end;gap:2px;height:28px'>${s.days.slice(-14).map(dd=>`<i title='${dd.d}: ${dd.u}' style='display:block;width:8px;background:#5dd39e;height:${Math.max(2,Math.round(28*dd.u/Math.max(...s.days.map(x=>x.u),1)))}px'></i>`).join('')}</b></div>`:'');"
 "const ob=document.getElementById('otabtn');ob.disabled=!d.ota_enabled;"
 "document.getElementById('otastat').textContent=d.ota_enabled?'':'locked - enable OTA in device settings';"
 "drawMap(d);"
@@ -283,8 +330,41 @@ static const char INDEX_HTML[] =
 "const flag=f.cc?String.fromCodePoint(...[...f.cc].map(ch=>127397+ch.charCodeAt(0)))+' ':'';"
 "return `<tr${em?' class=em':(f.interesting?' class=gold':'')}><td>${flag}<b>${f.callsign}</b>${f.flight_iata?` <span class=dim>${f.flight_iata}</span>`:''}${em?' \\u26A0 '+f.squawk:''}</td>"
 "<td>${f.airline||'<span class=dim>-</span>'}</td><td>${f.type||''}</td><td>${rt}</td><td>${pr}</td>"
-"<td>${f.alt_ft?f.alt_ft.toLocaleString()+' ft':'gnd'}</td><td>${f.gs_kt} kt</td><td>${f.dist_km} km</td></tr>`;"
+"<td>${f.alt_ft?ualt(f.alt_ft):'gnd'}</td><td>${uspd(f.gs_kt)}</td><td>${f.dist_km} km</td></tr>`;"
 "}).join('');}catch(e){}}"
+"document.addEventListener('keydown',async e=>{"
+"if(e.target.id!=='c_city'||e.key!=='Enter')return;e.preventDefault();"
+"const q=e.target.value.trim();if(!q)return;"
+"const box=document.getElementById('c_cityres');box.textContent='searching...';"
+"if(/^[a-z]{3,4}$/i.test(q)){try{const ar=await fetch('/api/airport?code='+q);"
+"if(ar.ok){const ap=await ar.json();"
+"document.getElementById('c_lat').value=ap.lat.toFixed(4);"
+"document.getElementById('c_lon').value=ap.lon.toFixed(4);"
+"document.getElementById('c_fixed').value='1';"
+"box.textContent=`airport ${ap.icao}${ap.iata?' / '+ap.iata:''}: ${ap.city}`;return;}}catch(err){}}"
+"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5');"
+"const d=await r.json();const res=d.results||[];"
+"if(!res.length){box.textContent='no matches';return}"
+"box.innerHTML=res.map((c,i)=>`<a href='#' data-i='${i}'>${c.name}, ${c.country_code} (${c.admin1||''})</a>`).join(' \u00B7 ');"
+"box.querySelectorAll('a').forEach(a=>a.onclick=ev=>{ev.preventDefault();const c=res[+a.dataset.i];"
+"document.getElementById('c_lat').value=c.latitude.toFixed(4);"
+"document.getElementById('c_lon').value=c.longitude.toFixed(4);"
+"document.getElementById('c_fixed').value='1';box.textContent=`set to ${c.name}`;});"
+"}catch(err){box.textContent='search failed'}});"
+"let favs=[[],[],[]];"
+"function favRender(){const b=document.getElementById('favbox');"
+"b.innerHTML=favs.map((f,i)=>f&&f.name?`<div>${f.name} (${(+f.lat).toFixed(2)}, ${(+f.lon).toFixed(2)}) `+"
+"`<a href='#' data-a='use' data-i='${i}'>use</a> \u00B7 <a href='#' data-a='del' data-i='${i}'>clear</a></div>`"
+":`<div>slot ${i+1}: <a href='#' data-a='save' data-i='${i}'>save current</a></div>`).join('');"
+"b.querySelectorAll('a').forEach(a=>a.onclick=ev=>{ev.preventDefault();const i=+a.dataset.i;"
+"if(a.dataset.a==='use'){document.getElementById('c_lat').value=(+favs[i].lat).toFixed(4);"
+"document.getElementById('c_lon').value=(+favs[i].lon).toFixed(4);document.getElementById('c_fixed').value='1';}"
+"else if(a.dataset.a==='del'){favs[i]={};favRender();}"
+"else{const la=parseFloat(String(document.getElementById('c_lat').value).replace(',','.'));"
+"const lo=parseFloat(String(document.getElementById('c_lon').value).replace(',','.'));"
+"if(!isFinite(la)||!isFinite(lo)){alert('Set coordinates first');return;}"
+"const nm=prompt('Name this location:','')||'';if(!nm)return;"
+"favs[i]={name:nm,lat:la,lon:lo};favRender();}});}"
 "async function loadCfg(){try{const r=await fetch('/api/config');const c=await r.json();"
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
@@ -293,13 +373,15 @@ static const char INDEX_HTML[] =
 "const mm=v=>`${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`;"
 "document.getElementById('c_night_start').value=mm(c.night_start_min||1380);"
 "document.getElementById('c_night_end').value=mm(c.night_end_min||390);"
+"favs=(c.favs||[]).map(f=>f&&f.name?f:{});favRender();"
 "document.getElementById('cfgsave').disabled=false;}catch(e){}}"
 "async function saveCfg(){const c={};"
-"['ssid','pass','web_pass','ntfy_topic','mqtt_uri','fa_key','watch_regs','webhook_url','local_adsb','filter_airport'].forEach(k=>{const v=document.getElementById('c_'+k).value;if((k!=='pass'&&k!=='web_pass')||v)c[k]=v;});"
+"['ssid','pass','web_pass','ntfy_topic','mqtt_uri','fa_key','watch_regs','webhook_url','local_adsb','filter_airport','openaip_key','ais_key'].forEach(k=>{const v=document.getElementById('c_'+k).value;if((k!=='pass'&&k!=='web_pass')||v)c[k]=v;});"
 "c.cpa_alerts=document.getElementById('c_cpa_alerts').value==='1';"
 "c.cpa_all=document.getElementById('c_cpa_all').value==='1';"
 "c.filter_apt_exclude=document.getElementById('c_filter_apt_exclude').value==='1';"
 "c.night_enabled=document.getElementById('c_night_enabled').value==='1';"
+"c.night_auto=document.getElementById('c_night_auto').value==='1';"
 "c.ambient_idle_min=+document.getElementById('c_ambient_idle_min').value;"
 "c.alt_min_ft=+document.getElementById('c_alt_min_ft').value;c.alt_max_ft=+document.getElementById('c_alt_max_ft').value;"
 "const pm=id=>{const v=document.getElementById(id).value.split(':');return (+v[0])*60+(+v[1]||0);};"
@@ -307,7 +389,14 @@ static const char INDEX_HTML[] =
 "c.fixed=document.getElementById('c_fixed').value==='1';"
 "c.hide_ground=document.getElementById('c_hide_ground').value==='1';"
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
-"c.lat=+document.getElementById('c_lat').value;c.lon=+document.getElementById('c_lon').value;"
+"c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
+"['taf','iss','sonde','ships','airspace'].forEach(k=>c[k+'_enabled']=document.getElementById('c_'+k+'_enabled').value==='1');"
+"['metric_units','metar_decoded','follow_mode'].forEach(k=>c[k]=document.getElementById('c_'+k).value==='1');"
+"c.favs=favs.map(f=>f&&f.name?f:{name:'',lat:0,lon:0});"
+"c.amb_style=+document.getElementById('c_amb_style').value;"
+"const num=v=>parseFloat(String(v).replace(',','.'));"
+"const la=num(document.getElementById('c_lat').value),lo=num(document.getElementById('c_lon').value);"
+"if(isFinite(la)&&Math.abs(la)<=90)c.lat=la;if(isFinite(lo)&&Math.abs(lo)<=180)c.lon=lo;"
 "c.radius_nm=+document.getElementById('c_radius_nm').value;"
 "c.theme=+document.getElementById('c_theme').value;c.lang=+document.getElementById('c_lang').value;"
 "const st=document.getElementById('cfgstat');st.textContent='saving...';"
@@ -338,13 +427,13 @@ static esp_err_t screen_get(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no framebuffer");
     }
 
-    uint8_t *snap = heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM);
+    /* streamed in bands: a full-frame snapshot needs 768 KB contiguous,
+       which is exactly what a busy PSRAM cannot promise */
+    enum { SNAP_BAND_ROWS = 24 };
+    uint8_t *snap = heap_caps_malloc((size_t)W * SNAP_BAND_ROWS * 2,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (snap == NULL) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no mem");
-    }
-    if (lvgl_port_lock(3000)) {
-        memcpy(snap, fb, data_size);
-        lvgl_port_unlock();
     }
 
     uint8_t hdr[66] = { 0 };
@@ -367,9 +456,14 @@ static esp_err_t screen_get(httpd_req_t *req)
 
     httpd_resp_set_type(req, "image/bmp");
     httpd_resp_send_chunk(req, (char *)hdr, sizeof(hdr));
-    for (uint32_t sent = 0; sent < data_size; sent += 64 * 1024) {
-        uint32_t n = data_size - sent < 64 * 1024 ? data_size - sent : 64 * 1024;
-        if (httpd_resp_send_chunk(req, (char *)snap + sent, n) != ESP_OK) {
+    for (int y = 0; y < H; y += SNAP_BAND_ROWS) {
+        int rows = H - y < SNAP_BAND_ROWS ? H - y : SNAP_BAND_ROWS;
+        size_t n = (size_t)W * rows * 2;
+        if (lvgl_port_lock(1000)) {
+            memcpy(snap, fb + (size_t)y * W * 2, n);
+            lvgl_port_unlock();
+        }
+        if (httpd_resp_send_chunk(req, (char *)snap, n) != ESP_OK) {
             break;
         }
     }
@@ -385,8 +479,16 @@ static esp_err_t root_get(httpd_req_t *req)
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
+static int64_t s_state_access_us;
+
+bool web_state_wanted(void)
+{
+    return esp_timer_get_time() - s_state_access_us < 300LL * 1000 * 1000;
+}
+
 static esp_err_t api_get(httpd_req_t *req)
 {
+    s_state_access_us = esp_timer_get_time();
     AUTH_GUARD(req);
     char *copy = NULL;
     size_t len = 0;
@@ -426,6 +528,8 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "radius_nm", c->radius_nm);
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
+    cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
     cJSON_AddStringToObject(root, "ntfy_topic", c->ntfy_topic);
@@ -438,6 +542,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "cpa_alerts", c->cpa_alerts);
     cJSON_AddBoolToObject(root, "cpa_all", c->cpa_all);
     cJSON_AddBoolToObject(root, "night_enabled", c->night_enabled);
+    cJSON_AddBoolToObject(root, "night_auto", c->night_auto);
     cJSON_AddNumberToObject(root, "night_start_min", c->night_start_min);
     cJSON_AddNumberToObject(root, "night_end_min", c->night_end_min);
     cJSON_AddNumberToObject(root, "ambient_idle_min", c->ambient_idle_min);
@@ -445,6 +550,24 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "filter_apt_exclude", c->filter_apt_exclude);
     cJSON_AddNumberToObject(root, "alt_min_ft", c->alt_min_ft);
     cJSON_AddNumberToObject(root, "alt_max_ft", c->alt_max_ft);
+    cJSON_AddBoolToObject(root, "taf_enabled", c->taf_enabled);
+    cJSON_AddBoolToObject(root, "iss_enabled", c->iss_enabled);
+    cJSON_AddBoolToObject(root, "sonde_enabled", c->sonde_enabled);
+    cJSON_AddBoolToObject(root, "ships_enabled", c->ships_enabled);
+    cJSON_AddBoolToObject(root, "airspace_enabled", c->airspace_enabled);
+    cJSON_AddStringToObject(root, "openaip_key", c->openaip_key);
+    cJSON_AddStringToObject(root, "ais_key", c->ais_key);
+    cJSON_AddBoolToObject(root, "metric_units", c->metric_units);
+    cJSON_AddBoolToObject(root, "metar_decoded", c->metar_decoded);
+    cJSON_AddBoolToObject(root, "follow_mode", c->follow_mode);
+    cJSON *jf = cJSON_AddArrayToObject(root, "favs");
+    for (int f = 0; f < 3; f++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "name", c->fav_name[f]);
+        cJSON_AddNumberToObject(e, "lat", c->fav_lat[f]);
+        cJSON_AddNumberToObject(e, "lon", c->fav_lon[f]);
+        cJSON_AddItemToArray(jf, e);
+    }
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
@@ -490,6 +613,12 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "fixed")))) {
         c->use_fixed_loc = cJSON_IsTrue(j);
     }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "rain_overlay")))) {
+        c->rain_overlay = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "amb_style")))) {
+        c->amb_style = j->valueint == 1 ? 1 : 0;
+    }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "hide_ground")))) {
         c->hide_ground = cJSON_IsTrue(j);
     }
@@ -511,6 +640,9 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "night_enabled")))) {
         c->night_enabled = cJSON_IsTrue(j);
     }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "night_auto")))) {
+        c->night_auto = cJSON_IsTrue(j);
+    }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "night_start_min")))) {
         c->night_start_min = (int)j->valuedouble;
     }
@@ -526,15 +658,62 @@ static esp_err_t config_post(httpd_req_t *req)
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "alt_max_ft")))) {
         c->alt_max_ft = (int)j->valuedouble;
     }
-    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat")))) {
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "taf_enabled")))) {
+        c->taf_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "iss_enabled")))) {
+        c->iss_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "sonde_enabled")))) {
+        c->sonde_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "ships_enabled")))) {
+        c->ships_enabled = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "airspace_enabled")))) {
+        c->airspace_enabled = cJSON_IsTrue(j);
+    }
+    set_str_field(root, "openaip_key", c->openaip_key, sizeof(c->openaip_key));
+    set_str_field(root, "ais_key", c->ais_key, sizeof(c->ais_key));
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "metric_units")))) {
+        c->metric_units = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "metar_decoded")))) {
+        c->metar_decoded = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "follow_mode")))) {
+        c->follow_mode = cJSON_IsTrue(j);
+    }
+    const cJSON *jfav = cJSON_GetObjectItem(root, "favs");
+    if (cJSON_IsArray(jfav)) {
+        for (int f = 0; f < 3; f++) {
+            const cJSON *e = cJSON_GetArrayItem((cJSON *)jfav, f);
+            const cJSON *nm = e ? cJSON_GetObjectItem(e, "name") : NULL;
+            const cJSON *la = e ? cJSON_GetObjectItem(e, "lat") : NULL;
+            const cJSON *lo = e ? cJSON_GetObjectItem(e, "lon") : NULL;
+            if (cJSON_IsString(nm) && nm->valuestring[0] &&
+                cJSON_IsNumber(la) && cJSON_IsNumber(lo) &&
+                la->valuedouble >= -90 && la->valuedouble <= 90 &&
+                lo->valuedouble >= -180 && lo->valuedouble <= 180) {
+                strlcpy(c->fav_name[f], nm->valuestring, sizeof(c->fav_name[f]));
+                c->fav_lat[f] = la->valuedouble;
+                c->fav_lon[f] = lo->valuedouble;
+            } else {
+                c->fav_name[f][0] = '\0';
+            }
+        }
+    }
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lat"))) &&
+        j->valuedouble >= -90.0 && j->valuedouble <= 90.0) {
         c->lat = j->valuedouble;
     }
-    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lon")))) {
+    if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "lon"))) &&
+        j->valuedouble >= -180.0 && j->valuedouble <= 180.0) {
         c->lon = j->valuedouble;
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "radius_nm")))) {
         int r = (int)j->valuedouble;
-        if (r >= 5 && r <= 250) {
+        if (r >= 1 && r <= 250) {
             c->radius_nm = r;
         }
     }
@@ -605,6 +784,55 @@ static esp_err_t alerts_get(httpd_req_t *req)
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
+
+#ifndef APKFLIGHT
+/* airport-code location lookup for the panel (ICAO or IATA) */
+static esp_err_t airport_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    char q[32] = "", code[8] = "";
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK ||
+        httpd_query_key_value(q, "code", code, sizeof(code)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "code=EPGD or GDN");
+    }
+    airport_t ap;
+    if (!airports_lookup_any(code, &ap)) {
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "unknown airport");
+    }
+    char json[256];
+    snprintf(json, sizeof(json),
+             "{\"icao\":\"%s\",\"iata\":\"%s\",\"city\":\"%s\","
+             "\"lat\":%.6f,\"lon\":%.6f}",
+             ap.icao, ap.iata, ap.city, ap.lat, ap.lon);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, json);
+}
+
+/* undocumented helper for remote screenshots: /view?m=N switches the view */
+static esp_err_t view_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    char q[32] = "", val[8] = "";
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "m", val, sizeof(val)) == ESP_OK) {
+        int m = atoi(val);
+        if (lvgl_port_lock(1000)) {
+            if (m == 30) {
+                ui_set_update_available(true, "v9.9.9");   /* test helper */
+            } else if (m >= 20 && m <= 24) {
+                ui_settings_show_tab(m - 20);   /* screenshot helper */
+            } else if (m >= 10 && m <= 12) {
+                ui_set_list_mode(m - 10);   /* 10 planes, 11 ships, 12 all */
+            } else {
+                ui_set_view(m);
+            }
+            lvgl_port_unlock();
+        }
+        return httpd_resp_sendstr(req, "ok");
+    }
+    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "m=0..6");
+}
+#endif
 
 static esp_err_t ota_post(httpd_req_t *req)
 {
@@ -696,6 +924,9 @@ static esp_err_t metrics_get(httpd_req_t *req)
              "esp32flight_internal_heap_largest_block %u\n"
              "esp32flight_psram_free_bytes %u\n"
              "esp32flight_psram_total_bytes %u\n"
+             "esp32flight_internal_heap_min_free_bytes %u\n"
+             "esp32flight_psram_min_free_bytes %u\n"
+             "esp32flight_reset_reason %d\n"
              "esp32flight_uptime_seconds %lld\n",
              count, unique, alt, nearest,
              (unsigned)esp_get_free_heap_size(),
@@ -704,6 +935,9 @@ static esp_err_t metrics_get(httpd_req_t *req)
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
              (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM),
+             (int)esp_reset_reason(),
              (long long)(esp_timer_get_time() / 1000000LL));
     httpd_resp_set_type(req, "text/plain; version=0.0.4");
     return httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
@@ -737,6 +971,7 @@ void web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
+    config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
 
     httpd_handle_t server = NULL;
@@ -752,6 +987,10 @@ void web_server_start(void)
         { .uri = "/api/log", .method = HTTP_GET, .handler = log_get },
         { .uri = "/api/alerts", .method = HTTP_GET, .handler = alerts_get },
         { .uri = "/screen.bmp", .method = HTTP_GET, .handler = screen_get },
+#ifndef APKFLIGHT
+        { .uri = "/view", .method = HTTP_GET, .handler = view_get },
+        { .uri = "/api/airport", .method = HTTP_GET, .handler = airport_get },
+#endif
         { .uri = "/metrics", .method = HTTP_GET, .handler = metrics_get },
         { .uri = "/ota", .method = HTTP_POST, .handler = ota_post },
     };

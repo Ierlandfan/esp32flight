@@ -321,18 +321,20 @@ static void hexdb_fallback(char *buf, route_info_t *slot)
 }
 
 static bool route_fits_position(const route_info_t *rt,
-                                double ac_lat, double ac_lon, bool has_pos)
+                                double ac_lat, double ac_lon, bool has_pos,
+                                float track_deg, float gs_kts, int vrate_fpm)
 {
     if (!rt->valid || !has_pos) {
         return rt->valid;
     }
-    return geo_route_plausible(rt->origin.lat, rt->origin.lon,
-                               rt->destination.lat, rt->destination.lon,
-                               ac_lat, ac_lon);
+    return geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
+                                   rt->destination.lat, rt->destination.lon,
+                                   ac_lat, ac_lon, track_deg, gs_kts, vrate_fpm);
 }
 
 const route_info_t *routes_fetch(const char *callsign,
-                                 double ac_lat, double ac_lon, bool has_pos)
+                                 double ac_lat, double ac_lon, bool has_pos,
+                                 float track_deg, float gs_kts, int vrate_fpm)
 {
     const route_info_t *cached = routes_get_cached(callsign);
     if (cached != NULL) {
@@ -344,18 +346,34 @@ const route_info_t *routes_fetch(const char *callsign,
         return NULL;
     }
 
-    char url[96];
-    snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
-    esp_err_t err = http_get_to_buffer(url, buf, 8192, NULL);
-    /* 200 (parsed below) and 404 are authoritative answers; timeouts,
-     * rate limits and server errors are not - those must retry soon
-     * instead of poisoning the negative cache for half an hour. */
-    bool authoritative = (err == ESP_OK) || (err == ESP_ERR_HTTP_BASE + 404);
-
     route_info_t *slot = cache_slot(callsign);   /* negative by default */
     if (slot == NULL) {
         free(buf);
         return NULL;
+    }
+
+    /* adsb.lol routeset first: we hand it the aircraft position and it
+     * validates the route server-side, so it survives the stale shuttle
+     * entries that plague the plain callsign tables. */
+    lol_routeset(buf, slot, ac_lat, ac_lon, has_pos);
+    if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts, vrate_fpm)) {
+        ESP_LOGW(TAG, "%s: routeset %s->%s doesn't fit position",
+                 callsign, slot->origin.icao, slot->destination.icao);
+        slot->valid = false;
+        memset(&slot->origin, 0, sizeof(slot->origin));
+        memset(&slot->destination, 0, sizeof(slot->destination));
+    }
+    bool authoritative = slot->valid;
+
+    char url[96];
+    esp_err_t err = ESP_FAIL;
+    if (!slot->valid) {
+        snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
+        err = http_get_to_buffer(url, buf, 8192, NULL);
+        /* 200 (parsed below) and 404 are authoritative answers; timeouts,
+         * rate limits and server errors are not - those must retry soon
+         * instead of poisoning the negative cache for half an hour. */
+        authoritative = (err == ESP_OK) || (err == ESP_ERR_HTTP_BASE + 404);
     }
 
     if (err == ESP_OK) {
@@ -386,7 +404,8 @@ const route_info_t *routes_fetch(const char *callsign,
         }
     }
 
-    if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
+    if (err == ESP_OK && slot->valid &&
+        !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts, vrate_fpm)) {
         ESP_LOGW(TAG, "%s: adsbdb route %s->%s doesn't fit position, trying hexdb",
                  callsign, slot->origin.icao, slot->destination.icao);
         slot->valid = false;
@@ -394,16 +413,8 @@ const route_info_t *routes_fetch(const char *callsign,
         memset(&slot->destination, 0, sizeof(slot->destination));
     }
     if (!slot->valid) {
-        lol_routeset(buf, slot, ac_lat, ac_lon, has_pos);
-        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
-            ESP_LOGW(TAG, "%s: routeset %s->%s doesn't fit position",
-                     callsign, slot->origin.icao, slot->destination.icao);
-            slot->valid = false;
-        }
-    }
-    if (!slot->valid) {
         hexdb_fallback(buf, slot);
-        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos)) {
+        if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts, vrate_fpm)) {
             ESP_LOGW(TAG, "%s: hexdb route %s->%s doesn't fit position either",
                      callsign, slot->origin.icao, slot->destination.icao);
             slot->valid = false;

@@ -13,7 +13,13 @@ CFLAGS  := -O2 -std=gnu11 -Wno-format \
            -include shim/path_remap.h \
            -I. -Ishim -Ivendor -I$(ESPF)/main -I$(LVGL) -I$(LVGL)/src \
            $(shell sdl2-config --cflags) -I$(shell sdl2-config --prefix)/include
+CURL_PREFIX := $(shell brew --prefix curl 2>/dev/null)
+ifneq ($(CURL_PREFIX),)
+CFLAGS  += -I$(CURL_PREFIX)/include
+LDLIBS  := $(shell sdl2-config --libs) -L$(CURL_PREFIX)/lib -lcurl -lpthread -lm
+else
 LDLIBS  := $(shell sdl2-config --libs) -lcurl -lpthread -lm
+endif
 
 LVGL_SRC := $(shell find $(LVGL)/src -name '*.c')
 

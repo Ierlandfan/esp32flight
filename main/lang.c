@@ -1,4 +1,5 @@
 #include "lang.h"
+#include <string.h>
 #include "lvgl.h"
 #include "settings.h"
 
@@ -51,6 +52,31 @@ static const lang_t k_en = {
     .cat_word = "Cat.",
     .sec_classes = "AIRCRAFT CLASSES",
     .cls_names = { "Airliner", "Light", "Helicopter", "Military", "Other" },
+    .sec_layers = "LAYERS AND EXTRA OBJECTS",
+    .rain_lbl = "Rain radar (RainViewer)",
+    .airspace_lbl = "Airspace zones (openAIP)",
+    .iss_lbl = "ISS on the radar",
+    .sonde_lbl = "Weather balloons (SondeHub)",
+    .ships_lbl = "Ships (AIS)",
+    .taf_lbl = "TAF airport forecast",
+    .lbl_oaip = "openAIP API key",
+    .hint_oaip = "Free key at openaip.net, needed for airspace zones",
+    .lbl_ais = "aisstream.io API key",
+    .hint_ais = "Free key at aisstream.io, needed for the ship layer",
+    .sec_notify = "NOTIFICATIONS", .sec_datasrc = "DATA SOURCES", .sec_smart = "SMART HOME",
+    .lm_planes = "Planes", .lm_ships = "Ships", .lm_all = "All",
+    .ship_dest = "DESTINATION", .ship_pos = "POSITION",
+    .units_lbl = "Units", .units_opts = "Aviation (ft, kt)\nMetric (m, km/h)",
+    .metar_lbl = "METAR", .metar_opts = "Raw\nDecoded",
+    .follow_lbl = "Auto-cycle through flights",
+    .mtr_wind = "wind", .mtr_gust = "gusts", .mtr_calm = "calm",
+    .mtr_vis = "vis", .mtr_cavok = "vis >10 km, no clouds",
+    .wifi_no_ap = "network not found - 2.4 GHz? in range?",
+    .wifi_badpass = "check the password",
+    .night_auto_lbl = "Auto (sunset to sunrise)",
+    .update_banner = "New version %s - web panel or flasher",
+    .amb_style_lbl = "Screensaver style",
+    .amb_style_opts = "Sky map\nRetro radar",
     .apr_fmt = "landing %s ~%d min",
     .lbl_fltapt = "Airport only (ICAO/IATA)",
     .lbl_altmin = "Alt from (ft)", .lbl_altmax = "Alt to (ft)",
@@ -60,7 +86,7 @@ static const lang_t k_en = {
     .cpa_scope_opts = "Interesting only\nAll aircraft",
     .apt_mode_opts = "Show only\nHide",
     .arr_fmt = "arrival ~%s local time",
-    .hint_ladsb = "Own dump1090/readsb receiver, e.g. http://ip:8080/data/aircraft.json; replaces internet APIs when reachable",
+    .hint_ladsb = "Your own dump1090/readsb receiver instead of the internet APIs",
     .avg_word = "avg", .best_word = "best",
     .stats_title = "Session statistics",
     .st_hourly = "NEW AIRCRAFT PER HOUR",
@@ -121,6 +147,31 @@ static const lang_t k_pl = {
     .cat_word = "Kat.",
     .sec_classes = "KLASY STATKÓW",
     .cls_names = { "Rejsowe", "Małe", "Śmigłowce", "Wojskowe", "Inne" },
+    .sec_layers = "WARSTWY I DODATKOWE OBIEKTY",
+    .rain_lbl = "Radar opadów (RainViewer)",
+    .airspace_lbl = "Strefy przestrzeni (openAIP)",
+    .iss_lbl = "ISS na radarze",
+    .sonde_lbl = "Balony meteo (SondeHub)",
+    .ships_lbl = "Statki (AIS)",
+    .taf_lbl = "Prognoza lotniskowa TAF",
+    .lbl_oaip = "Klucz API openAIP",
+    .hint_oaip = "Darmowy klucz na openaip.net, potrzebny do stref przestrzeni",
+    .lbl_ais = "Klucz API aisstream.io",
+    .hint_ais = "Darmowy klucz na aisstream.io, potrzebny do warstwy statków",
+    .sec_notify = "POWIADOMIENIA", .sec_datasrc = "ŹRÓDŁA DANYCH", .sec_smart = "SMART HOME",
+    .lm_planes = "Samoloty", .lm_ships = "Statki", .lm_all = "Wszystko",
+    .ship_dest = "CEL", .ship_pos = "POZYCJA",
+    .units_lbl = "Jednostki", .units_opts = "Lotnicze (ft, kt)\nMetryczne (m, km/h)",
+    .metar_lbl = "METAR", .metar_opts = "Surowy\nOpisowy",
+    .follow_lbl = "Auto-przełączanie lotów",
+    .mtr_wind = "wiatr", .mtr_gust = "porywy", .mtr_calm = "cisza",
+    .mtr_vis = "widz.", .mtr_cavok = "widz. >10 km, bez chmur",
+    .wifi_no_ap = "nie widzę sieci - 2,4 GHz? zasięg?",
+    .wifi_badpass = "sprawdź hasło",
+    .night_auto_lbl = "Auto (od zachodu do wschodu)",
+    .update_banner = "Nowa wersja %s - panel www lub flasher",
+    .amb_style_lbl = "Styl wygaszacza",
+    .amb_style_opts = "Mapa nieba\nRetro radar",
     .apr_fmt = "lądowanie %s ~%d min",
     .lbl_fltapt = "Tylko lotnisko (ICAO/IATA)",
     .lbl_altmin = "Pułap od (ft)", .lbl_altmax = "Pułap do (ft)",
@@ -130,7 +181,7 @@ static const lang_t k_pl = {
     .cpa_scope_opts = "Tylko ciekawe\nWszystkie",
     .apt_mode_opts = "Pokazuj tylko\nUkryj",
     .arr_fmt = "przylot ~%s czasu lokalnego",
-    .hint_ladsb = "Własny odbiornik dump1090/readsb, np. http://ip:8080/data/aircraft.json; zastępuje API z internetu gdy dostępny",
+    .hint_ladsb = "Własny odbiornik dump1090/readsb zamiast API z internetu",
     .avg_word = "śr.", .best_word = "rekord",
     .stats_title = "Statystyki sesji",
     .st_hourly = "NOWE MASZYNY WG GODZIN",
@@ -167,4 +218,30 @@ const char *lang_compass(int deg)
 {
     static const char *dirs[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
     return dirs[((deg % 360) + 382) / 45 % 8];
+}
+
+/* METAR weather-group tokens, localized. Order matters: prefixes first. */
+const char *lang_metar_wx(const char *code, int lang_pl)
+{
+    static const struct { const char *c, *en, *pl; } k[] = {
+        { "TS", "thunderstorm", "burza" },
+        { "SH", "showers", "przelotnie" },
+        { "FZ", "freezing", "marznące" },
+        { "RA", "rain", "deszcz" },
+        { "DZ", "drizzle", "mżawka" },
+        { "SN", "snow", "śnieg" },
+        { "GR", "hail", "grad" },
+        { "GS", "small hail", "krupa" },
+        { "FG", "fog", "mgła" },
+        { "BR", "mist", "zamglenie" },
+        { "HZ", "haze", "opar" },
+        { "FU", "smoke", "dym" },
+        { "VC", "nearby", "w pobliżu" },
+    };
+    for (unsigned i = 0; i < sizeof(k) / sizeof(k[0]); i++) {
+        if (strncmp(code, k[i].c, 2) == 0) {
+            return lang_pl ? k[i].pl : k[i].en;
+        }
+    }
+    return NULL;
 }

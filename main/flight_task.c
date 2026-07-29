@@ -23,6 +23,7 @@
 #include "lvgl_port.h"
 #include "routes.h"
 #include "settings.h"
+#include <math.h>
 #include "geo_math.h"
 #include "http_util.h"
 #include "faflight.h"
@@ -33,6 +34,9 @@
 #include "airports.h"
 #include "dailystats.h"
 #include "metar.h"
+#include "extras.h"
+#include "ships.h"
+#include "airspace.h"
 #include "regcountry.h"
 #include "trails.h"
 #include "tz.h"
@@ -266,7 +270,7 @@ static void check_updates(void)
                 ESP_LOGI(TAG, "update available: %s (running %s)",
                          tag->valuestring, esp_app_get_description()->version);
                 if (lvgl_port_lock(1000)) {
-                    ui_set_update_available(true);
+                    ui_set_update_available(true, tag->valuestring);
                     lvgl_port_unlock();
                 }
             }
@@ -295,6 +299,9 @@ static const aircraft_t *find_emergency(const aircraft_list_t *list)
 static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
                               double lat, double lon, const char *city, int radius_nm)
 {
+    if (!web_state_wanted()) {
+        return;   /* nobody is looking at /api/state right now */
+    }
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "city", city);
     cJSON_AddNumberToObject(root, "lat", lat);
@@ -334,6 +341,54 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
 #endif
     /* ota_enabled is injected live by the /api/state handler, not cached here */
 
+    cJSON_AddBoolToObject(root, "metric", settings_get()->metric_units);
+    iss_state_t iss;
+    if (extras_get_iss(&iss)) {
+        cJSON *ji = cJSON_AddObjectToObject(root, "iss");
+        cJSON_AddNumberToObject(ji, "lat", iss.lat);
+        cJSON_AddNumberToObject(ji, "lon", iss.lon);
+        cJSON_AddNumberToObject(ji, "alt_km", (int)iss.alt_km);
+        cJSON_AddNumberToObject(ji, "dist_km", (int)iss.dist_km);
+        cJSON_AddNumberToObject(ji, "elev_deg", (int)iss.elev_deg);
+        cJSON_AddNumberToObject(ji, "az_deg", (int)iss.az_deg);
+    }
+    sonde_t sondes[MAX_SONDES];
+    int n_sondes = extras_get_sondes(sondes, MAX_SONDES);
+    if (n_sondes > 0) {
+        cJSON *jsn = cJSON_AddArrayToObject(root, "sondes");
+        for (int i = 0; i < n_sondes; i++) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "serial", sondes[i].serial);
+            cJSON_AddStringToObject(e, "type", sondes[i].type);
+            cJSON_AddNumberToObject(e, "lat", sondes[i].lat);
+            cJSON_AddNumberToObject(e, "lon", sondes[i].lon);
+            cJSON_AddNumberToObject(e, "alt_m", (int)sondes[i].alt_m);
+            cJSON_AddNumberToObject(e, "vel_v", sondes[i].vel_v);
+            cJSON_AddNumberToObject(e, "dist_km", (int)sondes[i].dist_km);
+            cJSON_AddItemToArray(jsn, e);
+        }
+    }
+    static ship_t *ships;
+    if (ships == NULL) {
+        ships = heap_caps_malloc(MAX_SHIPS * sizeof(ship_t),
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    int n_ships = ships != NULL ? ships_get(ships, MAX_SHIPS) : 0;
+    if (n_ships > 0) {
+        cJSON *jsh = cJSON_AddArrayToObject(root, "ships");
+        for (int i = 0; i < n_ships; i++) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "name", ships[i].name);
+            cJSON_AddNumberToObject(e, "mmsi", ships[i].mmsi);
+            cJSON_AddNumberToObject(e, "lat", ships[i].lat);
+            cJSON_AddNumberToObject(e, "lon", ships[i].lon);
+            cJSON_AddNumberToObject(e, "sog_kt", ships[i].sog_kt);
+            cJSON_AddNumberToObject(e, "cog", (int)ships[i].cog_deg);
+            cJSON_AddNumberToObject(e, "dist_km", (int)ships[i].dist_km);
+            cJSON_AddItemToArray(jsh, e);
+        }
+    }
+
     cJSON *js = cJSON_AddObjectToObject(root, "stats");
     cJSON_AddNumberToObject(js, "unique_aircraft", s_stats.unique);
     cJSON_AddNumberToObject(js, "max_alt_ft", s_stats.max_alt_ft);
@@ -343,6 +398,9 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
     cJSON_AddNumberToObject(js, "uptime_min", (int)(esp_timer_get_time() / 60000000LL));
     if (metar_get()[0] != '\0') {
         cJSON_AddStringToObject(js, "metar", metar_get());
+    }
+    if (settings_get()->taf_enabled && taf_get()[0] != '\0') {
+        cJSON_AddStringToObject(js, "taf", taf_get());
     }
     dailystats_to_json(js, "days");
     cJSON_AddStringToObject(js, "version", esp_app_get_description()->version);
@@ -371,9 +429,11 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
         cJSON_AddNumberToObject(jf, "gs_kt", (int)ac->gs_kts);
         cJSON_AddNumberToObject(jf, "dist_km", (double)(int)(ac->dist_nm * 1.852f * 10) / 10);
         cJSON_AddStringToObject(jf, "squawk", ac->squawk);
+        cJSON_AddNumberToObject(jf, "cls", flight_class(ac));
+        cJSON_AddNumberToObject(jf, "spr", flight_sprite(ac));
         if (ac->has_pos) {
-            cJSON_AddNumberToObject(jf, "lat", ac->lat);
-            cJSON_AddNumberToObject(jf, "lon", ac->lon);
+            cJSON_AddNumberToObject(jf, "lat", round(ac->lat * 1e5) / 1e5);
+            cJSON_AddNumberToObject(jf, "lon", round(ac->lon * 1e5) / 1e5);
             cJSON_AddNumberToObject(jf, "track", (int)ac->track_deg);
             float tlat[12], tlon[12];
             int tn = trails_get(ac->hex, tlat, tlon, 12);
@@ -381,8 +441,8 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
                 cJSON *jt2 = cJSON_AddArrayToObject(jf, "trail");
                 for (int k = 0; k < tn; k++) {
                     cJSON *pt = cJSON_CreateArray();
-                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(tlat[k]));
-                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(tlon[k]));
+                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(round(tlat[k] * 1e4) / 1e4));
+                    cJSON_AddItemToArray(pt, cJSON_CreateNumber(round(tlon[k] * 1e4) / 1e4));
                     cJSON_AddItemToArray(jt2, pt);
                 }
             }
@@ -472,10 +532,23 @@ static void flight_task(void *arg)
         snprintf(sbuf, sizeof(sbuf), L()->setup_wifi, LV_SYMBOL_SETTINGS);
         set_status(sbuf);
     }
-    if (!wifi_mgr_wait_connected(-1)) {
-        set_status("Wi-Fi failed");
-        vTaskDelete(NULL);
-        return;
+    while (!wifi_mgr_wait_connected(10000)) {
+        if (settings_get()->wifi_ssid[0]) {
+            int r = wifi_mgr_last_reason();
+            const char *hint = NULL;
+            if (r == 201) {
+                hint = L()->wifi_no_ap;
+            } else if (r == 2 || r == 3 || r == 15 || r == 204 || r == 205) {
+                hint = L()->wifi_badpass;
+            }
+            char sbuf[96];
+            if (hint != NULL) {
+                snprintf(sbuf, sizeof(sbuf), "%s (%s)", L()->connecting, hint);
+            } else {
+                strlcpy(sbuf, L()->connecting, sizeof(sbuf));
+            }
+            set_status(sbuf);
+        }
     }
 
     esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
@@ -581,6 +654,9 @@ static void flight_task(void *arg)
             }
             if (metar_station[0] != '\0') {
                 metar_fetch(metar_station);
+                if (settings_get()->taf_enabled) {
+                    taf_fetch(metar_station);
+                }
             }
             time_t dnow = time(NULL);
             if (dnow > 1600000000) {
@@ -596,6 +672,9 @@ static void flight_task(void *arg)
             }
             last_weather_ms = now_ms;
         }
+        extras_poll(lat, lon);
+        ships_poll(lat, lon);
+        airspace_poll(lat, lon);
         esp_err_t err = flight_fetch_nearby(lat, lon, radius_nm, list);
         if (err == ESP_OK) {
             consecutive_failures = 0;
@@ -622,7 +701,9 @@ static void flight_task(void *arg)
             for (int i = 0; i < top && lookups < MAX_ROUTE_LOOKUPS_PER_CYCLE; i++) {
                 const char *cs = list->ac[i].callsign;
                 if (cs[0] != '\0' && routes_get_cached(cs) == NULL) {
-                    routes_fetch(cs, list->ac[i].lat, list->ac[i].lon, list->ac[i].has_pos);
+                    routes_fetch(cs, list->ac[i].lat, list->ac[i].lon, list->ac[i].has_pos,
+                                 list->ac[i].track_deg, list->ac[i].gs_kts,
+                                 list->ac[i].baro_rate_fpm);
                     lookups++;
                     vTaskDelay(pdMS_TO_TICKS(250));
                 }
@@ -650,11 +731,14 @@ static void flight_task(void *arg)
 
             /* Commercial flight numbers, when a FlightAware key is set */
             if (settings_get()->fa_key[0] != '\0') {
+                int fa_done = 0;
                 for (int i = 0; i < top; i++) {
                     if (flight_is_airline(&list->ac[i]) &&
                         faflight_get_cached(list->ac[i].callsign) == NULL) {
                         faflight_fetch(list->ac[i].callsign);
-                        break;  /* one lookup per cycle */
+                        if (++fa_done >= 2) {
+                            break;  /* two lookups per cycle */
+                        }
                     }
                 }
             }

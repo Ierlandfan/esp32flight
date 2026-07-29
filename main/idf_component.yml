@@ -10,6 +10,8 @@ dependencies:
 
   espressif/mdns: "^1"
 
+  espressif/esp_websocket_client: "^1"
+
   # M5Stack Tab5 (ESP32-P4): MIPI-DSI panel + Wi-Fi over the ESP32-C6 co-processor
   espressif/esp_lcd_ili9881c:
     version: "^1"

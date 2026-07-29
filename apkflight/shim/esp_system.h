@@ -11,3 +11,10 @@ void android_restart(void);
 #endif
 
 #define esp_get_free_heap_size() (64u * 1024 * 1024)
+
+typedef int esp_reset_reason_t;
+
+static inline esp_reset_reason_t esp_reset_reason(void)
+{
+    return 0;   /* the app process has no hardware reset reasons */
+}

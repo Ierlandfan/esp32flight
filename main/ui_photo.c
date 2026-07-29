@@ -134,6 +134,7 @@ void ui_photo_open(const char *hex, const char *callsign)
     lv_obj_set_size(s_overlay, LV_HOR_RES, LV_VER_RES);
     lv_obj_set_pos(s_overlay, 0, 0);
     lv_obj_set_style_bg_color(s_overlay, COL_BG, 0);
+    lv_obj_set_style_bg_opa(s_overlay, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_overlay, 0, 0);
     lv_obj_set_style_radius(s_overlay, 0, 0);
     lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
@@ -148,6 +149,8 @@ void ui_photo_open(const char *hex, const char *callsign)
     lv_obj_set_size(btn_close, 52, 40);
     lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, -12, 8);
     lv_obj_set_style_bg_color(btn_close, COL_PANEL, 0);
+    lv_obj_set_style_border_color(btn_close, COL_DIM, 0);
+    lv_obj_set_style_border_width(btn_close, 1, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);

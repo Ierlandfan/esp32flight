@@ -38,6 +38,8 @@ void settings_load(void)
     s_settings.hide_ground = true;
     s_settings.hide_private = false;
     s_settings.show_classes = FCLS_ALL_MASK;
+    s_settings.rain_overlay = false;
+    s_settings.amb_style = 0;
     s_settings.theme = 0;
     s_settings.lang = 1;
     s_settings.ota_enabled = false;   /* never persisted, armed per session */
@@ -51,6 +53,18 @@ void settings_load(void)
     s_settings.filter_apt_exclude = false;
     s_settings.alt_min_ft = 0;
     s_settings.alt_max_ft = 0;
+    s_settings.taf_enabled = false;
+    s_settings.iss_enabled = false;
+    s_settings.sonde_enabled = false;
+    s_settings.ships_enabled = false;
+    s_settings.airspace_enabled = false;
+    s_settings.openaip_key[0] = '\0';
+    s_settings.ais_key[0] = '\0';
+    s_settings.metric_units = false;
+    s_settings.metar_decoded = false;
+    s_settings.follow_mode = false;
+    s_settings.night_auto = false;
+    memset(s_settings.fav_name, 0, sizeof(s_settings.fav_name));
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
@@ -77,7 +91,7 @@ void settings_load(void)
     }
 
     int32_t radius = 0;
-    if (nvs_get_i32(h, "radius_nm", &radius) == ESP_OK && radius >= 5 && radius <= 250) {
+    if (nvs_get_i32(h, "radius_nm", &radius) == ESP_OK && radius >= 1 && radius <= 250) {
         s_settings.radius_nm = radius;
     }
     uint8_t hide = 0;
@@ -90,6 +104,12 @@ void settings_load(void)
     uint8_t cls = 0;
     if (nvs_get_u8(h, "show_cls", &cls) == ESP_OK && (cls & FCLS_ALL_MASK)) {
         s_settings.show_classes = cls & FCLS_ALL_MASK;
+    }
+    if (nvs_get_u8(h, "rain", &hide) == ESP_OK) {
+        s_settings.rain_overlay = hide != 0;
+    }
+    if (nvs_get_u8(h, "amb_style", &hide) == ESP_OK) {
+        s_settings.amb_style = hide == 1 ? 1 : 0;
     }
     uint8_t theme = 0;
     if (nvs_get_u8(h, "theme", &theme) == ESP_OK) {
@@ -137,6 +157,50 @@ void settings_load(void)
     if (nvs_get_i32(h, "amb_idle", &m) == ESP_OK && m >= 0 && m <= 240) {
         s_settings.ambient_idle_min = m;
     }
+    if (nvs_get_u8(h, "taf", &b8) == ESP_OK) {
+        s_settings.taf_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "iss", &b8) == ESP_OK) {
+        s_settings.iss_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "sonde", &b8) == ESP_OK) {
+        s_settings.sonde_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "ships", &b8) == ESP_OK) {
+        s_settings.ships_enabled = b8 != 0;
+    }
+    if (nvs_get_u8(h, "airsp", &b8) == ESP_OK) {
+        s_settings.airspace_enabled = b8 != 0;
+    }
+    get_str(h, "oaipkey", s_settings.openaip_key, sizeof(s_settings.openaip_key));
+    get_str(h, "aiskey", s_settings.ais_key, sizeof(s_settings.ais_key));
+    if (nvs_get_u8(h, "metric", &b8) == ESP_OK) {
+        s_settings.metric_units = b8 != 0;
+    }
+    if (nvs_get_u8(h, "mdec", &b8) == ESP_OK) {
+        s_settings.metar_decoded = b8 != 0;
+    }
+    if (nvs_get_u8(h, "follow", &b8) == ESP_OK) {
+        s_settings.follow_mode = b8 != 0;
+    }
+    if (nvs_get_u8(h, "nauto", &b8) == ESP_OK) {
+        s_settings.night_auto = b8 != 0;
+    }
+    for (int f = 0; f < 3; f++) {
+        char key[12], val[64] = "";
+        snprintf(key, sizeof(key), "fav%d", f);
+        get_str(h, key, val, sizeof(val));
+        if (val[0]) {
+            /* "lat|lon|name" */
+            double la, lo;
+            char nm[24] = "";
+            if (sscanf(val, "%lf|%lf|%23[^\n]", &la, &lo, nm) >= 2) {
+                s_settings.fav_lat[f] = la;
+                s_settings.fav_lon[f] = lo;
+                strlcpy(s_settings.fav_name[f], nm, sizeof(s_settings.fav_name[f]));
+            }
+        }
+    }
     nvs_close(h);
     ESP_LOGI(TAG, "loaded: ssid=\"%s\" fixed_loc=%d radius=%d nm lang=%d theme=%d",
              s_settings.wifi_ssid, s_settings.use_fixed_loc, s_settings.radius_nm,
@@ -163,6 +227,8 @@ esp_err_t settings_save(void)
     nvs_set_u8(h, "hide_gnd", s_settings.hide_ground ? 1 : 0);
     nvs_set_u8(h, "hide_priv", s_settings.hide_private ? 1 : 0);
     nvs_set_u8(h, "show_cls", s_settings.show_classes);
+    nvs_set_u8(h, "rain", s_settings.rain_overlay ? 1 : 0);
+    nvs_set_u8(h, "amb_style", s_settings.amb_style);
     nvs_set_u8(h, "theme", (uint8_t)s_settings.theme);
     nvs_set_u8(h, "lang", (uint8_t)s_settings.lang);
     nvs_set_str(h, "ntfy", s_settings.ntfy_topic);
@@ -182,6 +248,29 @@ esp_err_t settings_save(void)
     nvs_set_i32(h, "night_s", s_settings.night_start_min);
     nvs_set_i32(h, "night_e", s_settings.night_end_min);
     nvs_set_i32(h, "amb_idle", s_settings.ambient_idle_min);
+    nvs_set_u8(h, "taf", s_settings.taf_enabled ? 1 : 0);
+    nvs_set_u8(h, "iss", s_settings.iss_enabled ? 1 : 0);
+    nvs_set_u8(h, "sonde", s_settings.sonde_enabled ? 1 : 0);
+    nvs_set_u8(h, "ships", s_settings.ships_enabled ? 1 : 0);
+    nvs_set_u8(h, "airsp", s_settings.airspace_enabled ? 1 : 0);
+    nvs_set_str(h, "oaipkey", s_settings.openaip_key);
+    nvs_set_str(h, "aiskey", s_settings.ais_key);
+    nvs_set_u8(h, "metric", s_settings.metric_units ? 1 : 0);
+    nvs_set_u8(h, "mdec", s_settings.metar_decoded ? 1 : 0);
+    nvs_set_u8(h, "follow", s_settings.follow_mode ? 1 : 0);
+    nvs_set_u8(h, "nauto", s_settings.night_auto ? 1 : 0);
+    for (int f = 0; f < 3; f++) {
+        char key[12], val[64];
+        snprintf(key, sizeof(key), "fav%d", f);
+        if (s_settings.fav_name[f][0]) {
+            snprintf(val, sizeof(val), "%.6f|%.6f|%s",
+                     s_settings.fav_lat[f], s_settings.fav_lon[f],
+                     s_settings.fav_name[f]);
+        } else {
+            val[0] = '\0';
+        }
+        nvs_set_str(h, key, val);
+    }
 
     err = nvs_commit(h);
     nvs_close(h);

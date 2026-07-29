@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "waveshare_rgb_lcd_port.h"
 
@@ -19,6 +20,9 @@ static const char *TAG = "canflight";
 
 void app_main(void)
 {
+    /* first thing in the log after any spontaneous restart: why it happened */
+    ESP_LOGW("boot", "reset reason: %d (4=panic 5=int_wdt 6=task_wdt 7=other_wdt 9=brownout)",
+             (int)esp_reset_reason());
     /* Local time for the clock and ETAs (Europe/Warsaw with DST) */
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
     tzset();

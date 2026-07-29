@@ -281,3 +281,16 @@ void waveshare_lcd_get_res(int *w, int *h)
     *w = s_lw;
     *h = s_lh;
 }
+
+/* settings text fields paste this on long-press */
+const char *apk_clipboard_text(void)
+{
+    static char buf[160];
+    char *t = SDL_GetClipboardText();
+    if (t == NULL) {
+        return "";
+    }
+    strlcpy(buf, t, sizeof(buf));
+    SDL_free(t);
+    return buf;
+}

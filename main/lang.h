@@ -40,11 +40,25 @@ typedef struct {
     const char *cat_word;        /* ADS-B emitter category label */
     const char *sec_classes;             /* class filter section header */
     const char *cls_names[5];            /* flight_class_t display names */
+    const char *sec_layers, *rain_lbl;   /* precipitation overlay */
+    const char *amb_style_lbl, *amb_style_opts;   /* screensaver style */
     const char *apr_fmt;         /* approach: city/icao, minutes */
     const char *lbl_fltapt, *lbl_altmin, *lbl_altmax;
     const char *sec_traffic, *sec_watch, *sec_alerts;
     const char *sec_look, *sec_screen, *sec_webpanel, *sec_updates;
     const char *cpa_scope_opts;  /* dropdown: interesting-only / all */
+    const char *iss_lbl, *sonde_lbl, *ships_lbl, *airspace_lbl, *taf_lbl;
+    const char *lbl_oaip, *hint_oaip, *lbl_ais, *hint_ais;
+    const char *sec_notify, *sec_datasrc, *sec_smart;
+    const char *lm_planes, *lm_ships, *lm_all;   /* list content toggle */
+    const char *ship_dest, *ship_pos;            /* ship detail tiles */
+    const char *units_lbl, *units_opts;          /* aviation vs metric */
+    const char *metar_lbl, *metar_opts;          /* raw vs decoded */
+    const char *follow_lbl;                      /* stick to selected flight */
+    const char *mtr_wind, *mtr_gust, *mtr_calm, *mtr_vis, *mtr_cavok;
+    const char *wifi_no_ap, *wifi_badpass;
+    const char *night_auto_lbl;
+    const char *update_banner;   /* new release available, %s = tag */
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;
@@ -71,3 +85,5 @@ const char *lang_weather_desc(int code);
 
 /* 8-sector compass label ("NW") for a bearing in degrees. */
 const char *lang_compass(int deg);
+
+const char *lang_metar_wx(const char *code, int lang_pl);
