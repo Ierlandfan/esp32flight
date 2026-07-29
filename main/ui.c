@@ -3154,12 +3154,45 @@ void ui_init(void)
     lv_timer_create(idle_timer_cb, 10000, NULL);
 }
 
-void ui_set_update_available(bool available)
+static bool s_update_avail;
+static char s_update_tag[16];
+static lv_timer_t *s_gear_blink;
+
+static void gear_blink_cb(lv_timer_t *t)
 {
+    static bool on;
+    on = !on;
     if (s_gear_label != NULL) {
         lv_obj_set_style_text_color(s_gear_label,
-                                    available ? lv_color_hex(0xffd166) : COL_TEXT, 0);
+                                    on ? lv_color_hex(0xffd166) : COL_TEXT, 0);
     }
+}
+
+void ui_set_update_available(bool available, const char *tag)
+{
+    s_update_avail = available;
+    if (tag != NULL) {
+        strlcpy(s_update_tag, tag, sizeof(s_update_tag));
+    }
+    if (available && s_gear_blink == NULL) {
+        s_gear_blink = lv_timer_create(gear_blink_cb, 600, NULL);
+    } else if (!available && s_gear_blink != NULL) {
+        lv_timer_del(s_gear_blink);
+        s_gear_blink = NULL;
+        if (s_gear_label != NULL) {
+            lv_obj_set_style_text_color(s_gear_label, COL_TEXT, 0);
+        }
+    }
+}
+
+bool ui_update_available(void)
+{
+    return s_update_avail;
+}
+
+const char *ui_update_tag(void)
+{
+    return s_update_tag;
 }
 
 static lv_obj_t *s_flyover_banner;

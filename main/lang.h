@@ -58,6 +58,7 @@ typedef struct {
     const char *mtr_wind, *mtr_gust, *mtr_calm, *mtr_vis, *mtr_cavok;
     const char *wifi_no_ap, *wifi_badpass;
     const char *night_auto_lbl;
+    const char *update_banner;   /* new release available, %s = tag */
     const char *apt_mode_opts;   /* dropdown: show only / hide */
     const char *arr_fmt;         /* local arrival time, %s = HH:MM */
     const char *avg_word, *best_word;

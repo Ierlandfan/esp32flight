@@ -1,3 +1,4 @@
+#include "ui.h"
 #include "ui_settings.h"
 #include "esp_log.h"
 #include "esp_app_desc.h"
@@ -527,6 +528,16 @@ void ui_settings_open(void)
     lv_obj_set_style_text_color(title, COL_ACCENT, 0);
     lv_label_set_text_fmt(title, LV_SYMBOL_SETTINGS " %s", L()->settings_title);
     lv_obj_set_pos(title, 14, 12);
+
+    if (ui_update_available()) {
+        lv_obj_t *up = lv_label_create(s_overlay);
+        lv_obj_set_style_text_font(up, &font_pl_14, 0);
+        lv_obj_set_style_text_color(up, lv_color_hex(0xffd166), 0);
+        char upt[96];
+        snprintf(upt, sizeof(upt), L()->update_banner, ui_update_tag());
+        lv_label_set_text_fmt(up, LV_SYMBOL_DOWNLOAD " %s", upt);
+        lv_obj_align(up, LV_ALIGN_TOP_MID, -20, 16);
+    }
 
     snprintf(buf, sizeof(buf), LV_SYMBOL_SAVE "  %s", L()->save);
     add_button(s_overlay, LV_HOR_RES - 230, 6, 150, 38, buf, save_cb, COL_ACCENT);

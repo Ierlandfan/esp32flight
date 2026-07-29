@@ -270,7 +270,7 @@ static void check_updates(void)
                 ESP_LOGI(TAG, "update available: %s (running %s)",
                          tag->valuestring, esp_app_get_description()->version);
                 if (lvgl_port_lock(1000)) {
-                    ui_set_update_available(true);
+                    ui_set_update_available(true, tag->valuestring);
                     lvgl_port_unlock();
                 }
             }
