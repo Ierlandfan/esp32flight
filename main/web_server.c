@@ -21,6 +21,7 @@
 #include "settings.h"
 #include "airports.h"
 #include "ui.h"
+#include "ui_settings.h"
 #include "flight_model.h"
 #include "waveshare_rgb_lcd_port.h"
 
@@ -816,7 +817,9 @@ static esp_err_t view_get(httpd_req_t *req)
         httpd_query_key_value(q, "m", val, sizeof(val)) == ESP_OK) {
         int m = atoi(val);
         if (lvgl_port_lock(1000)) {
-            if (m >= 10 && m <= 12) {
+            if (m >= 20 && m <= 24) {
+                ui_settings_show_tab(m - 20);   /* screenshot helper */
+            } else if (m >= 10 && m <= 12) {
                 ui_set_list_mode(m - 10);   /* 10 planes, 11 ships, 12 all */
             } else {
                 ui_set_view(m);

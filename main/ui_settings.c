@@ -494,6 +494,16 @@ static lv_obj_t *tab_page(lv_obj_t *tv, const char *name)
     return page;
 }
 
+static lv_obj_t *s_tabview;
+
+void ui_settings_show_tab(int idx)
+{
+    ui_settings_open();
+    if (s_tabview != NULL && idx >= 0 && idx <= 4) {
+        lv_tabview_set_act(s_tabview, (uint32_t)idx, LV_ANIM_OFF);
+    }
+}
+
 void ui_settings_open(void)
 {
     if (s_overlay != NULL) {
@@ -523,6 +533,7 @@ void ui_settings_open(void)
     add_button(s_overlay, LV_HOR_RES - 66, 6, 54, 38, LV_SYMBOL_CLOSE, close_cb, COL_PANEL);
 
     lv_obj_t *tv = lv_tabview_create(s_overlay, LV_DIR_TOP, 44);
+    s_tabview = tv;
     lv_obj_set_size(tv, LV_HOR_RES, LV_VER_RES - 50);
     lv_obj_set_pos(tv, 0, 50);
     lv_obj_set_style_bg_color(tv, COL_BG, 0);
@@ -649,56 +660,58 @@ void ui_settings_open(void)
 
     /* --- System --- */
     p = tab_page(tv, L()->tab_system);
+    /* System tab on a strict grid: two columns (x 0 and 380), labels 24 px
+     * above their control, 56 px row pitch, 66 px between sections. */
     add_section(p, L()->sec_look, 0);
-    add_label(p, L()->theme_lbl, 0, 30);
-    s_dd_theme = add_dropdown(p, 0, 54, 180, NULL);
+    add_label(p, L()->theme_lbl, 0, 32);
+    s_dd_theme = add_dropdown(p, 0, 56, 300, NULL);
     lv_dropdown_set_options(s_dd_theme, theme_names_option_string());
     lv_dropdown_set_selected(s_dd_theme, cfg->theme < THEME_COUNT ? cfg->theme : 0);
-    add_label(p, L()->language_lbl, 220, 30);
-    s_dd_lang = add_dropdown(p, 220, 54, 180, NULL);
+    add_label(p, L()->language_lbl, 380, 32);
+    s_dd_lang = add_dropdown(p, 380, 56, 300, NULL);
     lv_dropdown_set_options(s_dd_lang, "English\nPolski");
     lv_dropdown_set_selected(s_dd_lang, cfg->lang == 1 ? 1 : 0);
-    add_label(p, L()->units_lbl, 440, 30);
-    s_dd_units = add_dropdown(p, 440, 54, 300, NULL);
+    add_label(p, L()->units_lbl, 0, 112);
+    s_dd_units = add_dropdown(p, 0, 136, 300, NULL);
     lv_dropdown_set_options(s_dd_units, L()->units_opts);
     lv_dropdown_set_selected(s_dd_units, cfg->metric_units ? 1 : 0);
-
-    add_section(p, L()->sec_screen, 122);
-    add_label(p, L()->metar_lbl, 600, 30);
-    s_dd_metar = add_dropdown(p, 600, 54, 140, NULL);
+    add_label(p, L()->metar_lbl, 380, 112);
+    s_dd_metar = add_dropdown(p, 380, 136, 300, NULL);
     lv_dropdown_set_options(s_dd_metar, L()->metar_opts);
     lv_dropdown_set_selected(s_dd_metar, cfg->metar_decoded ? 1 : 0);
-    s_sw_cycle = add_switch(p, L()->follow_lbl, 0, 206, !cfg->follow_mode);
-    s_sw_nauto = add_switch(p, L()->night_auto_lbl, 380, 206, cfg->night_auto);
-    s_sw_night = add_switch(p, L()->night_lbl, 0, 154, cfg->night_enabled);
-    add_label(p, L()->night_from, 380, 148);
+
+    add_section(p, L()->sec_screen, 202);
+    s_sw_night = add_switch(p, L()->night_lbl, 0, 234, cfg->night_enabled);
+    add_label(p, L()->night_from, 380, 228);
     snprintf(buf, sizeof(buf), "%02d:%02d", cfg->night_start_min / 60, cfg->night_start_min % 60);
-    s_ta_night_from = add_textarea(p, 380, 172, 110, buf, false);
-    add_label(p, L()->night_to, 510, 148);
+    s_ta_night_from = add_textarea(p, 380, 252, 110, buf, false);
+    add_label(p, L()->night_to, 510, 228);
     snprintf(buf, sizeof(buf), "%02d:%02d", cfg->night_end_min / 60, cfg->night_end_min % 60);
-    s_ta_night_to = add_textarea(p, 510, 172, 110, buf, false);
-    add_label(p, L()->amb_idle_lbl, 0, 278);
+    s_ta_night_to = add_textarea(p, 510, 252, 110, buf, false);
+    s_sw_nauto = add_switch(p, L()->night_auto_lbl, 0, 306, cfg->night_auto);
+    s_sw_cycle = add_switch(p, L()->follow_lbl, 0, 358, !cfg->follow_mode);
+    add_label(p, L()->amb_idle_lbl, 0, 416);
     snprintf(buf, sizeof(buf), "%d", cfg->ambient_idle_min);
-    s_ta_amb_idle = add_textarea(p, 630, 272, 110, buf, false);
-    add_label(p, L()->amb_style_lbl, 0, 334);
-    s_dd_amb_style = add_dropdown(p, 520, 328, 220, NULL);
+    s_ta_amb_idle = add_textarea(p, 630, 410, 110, buf, false);
+    add_label(p, L()->amb_style_lbl, 0, 472);
+    s_dd_amb_style = add_dropdown(p, 520, 466, 220, NULL);
     lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
     lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */
-    int nety = 390;
+    int nety = 528;
 #else
-    add_section(p, L()->sec_webpanel, 390);
-    s_ta_webpass = add_textarea(p, 0, 422, 360, cfg->web_pass, false);
-    add_hint(p, L()->lbl_webpass, 0, 468, 360);
+    add_section(p, L()->sec_webpanel, 528);
+    s_ta_webpass = add_textarea(p, 0, 560, 360, cfg->web_pass, false);
+    add_hint(p, L()->lbl_webpass, 0, 606, 360);
 
-    add_section(p, L()->sec_updates, 502);
-    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 534, cfg->ota_enabled);
+    add_section(p, L()->sec_updates, 640);
+    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 672, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 580);
+    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 718);
     lv_obj_set_style_text_font(hint, &font_pl_14, 0);
-    int nety = 628;
+    int nety = 766;
 #endif
 
     char netbuf[120] = "";
