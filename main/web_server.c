@@ -78,7 +78,7 @@ static const char INDEX_HTML[] =
 ".dim{color:#86a695;font-size:14px}"
 "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}"
 "th{color:#86a695;text-align:left;padding:6px 8px;border-bottom:1px solid #23402f}"
-"th.r,td.r{text-align:right}td.r{font-variant-numeric:tabular-nums}"
+"th.r,td.r{text-align:right}td.r{font-variant-numeric:tabular-nums;white-space:nowrap}"
 "td{padding:7px 8px;border-bottom:1px solid #14231b}"
 "tr.em td{background:#4a1010}"
 ".bar{background:#1a2f24;height:6px;border-radius:3px;min-width:70px}"
