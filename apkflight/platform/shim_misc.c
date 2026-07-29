@@ -17,9 +17,11 @@ int64_t esp_timer_get_time(void)
     return now - t0;
 }
 
+#include "apk_version.h"
+
 const esp_app_desc_t *esp_app_get_description(void)
 {
-    #ifdef APK_VERSION
+#ifdef APK_VERSION
     static esp_app_desc_t d = { .version = APK_VERSION };
 #else
     static esp_app_desc_t d = { .version = "0.0.0" };

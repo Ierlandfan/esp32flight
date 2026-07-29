@@ -28,3 +28,4 @@ apkflight/android/keystore.properties
 build-*/
 .DS_Store
 assets-8mb/
+apkflight/shim/apk_version.h

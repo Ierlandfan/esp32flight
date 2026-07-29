@@ -5,8 +5,14 @@ ESPF     := $(APK_ROOT)/..
 LVGL     := $(ESPF)/managed_components/lvgl__lvgl
 PREBUILT := $(APK_ROOT)/third_party/prebuilt/$(TARGET_ARCH_ABI)
 
-# One version for firmware and app: taken from the firmware's PROJECT_VER
+# One version for firmware and app: taken from the firmware's PROJECT_VER.
+# Emitted as a generated header, not a -D flag: make tracks header changes,
+# so bumping PROJECT_VER rebuilds the shim (a -D change would be ignored by
+# incremental builds and the app would keep reporting the old version).
 APKVER := $(shell sed -n 's/.*PROJECT_VER "\(.*\)".*/\1/p' $(ESPF)/CMakeLists.txt)
+APKVER_H := $(APK_ROOT)/shim/apk_version.h
+$(shell new='#define APK_VERSION "$(APKVER)"'; \
+        [ -f $(APKVER_H) ] && [ "$$(cat $(APKVER_H))" = "$$new" ] || echo "$$new" > $(APKVER_H))
 
 # --- curl + mbedTLS built by scripts/build_android_deps.sh ---
 
@@ -46,7 +52,7 @@ include $(PREBUILT_STATIC_LIBRARY)
 include $(CLEAR_VARS)
 LOCAL_MODULE := main
 
-CORE_EXCLUDE := main.c lvgl_port.c waveshare_rgb_lcd_port.c wifi_mgr.c \
+CORE_EXCLUDE := main.c lvgl_port.c waveshare_rgb_lcd_port.c tab5_lcd_port.c wifi_mgr.c \
                 mqtt_pub.c settings.c http_util.c
 
 LVGL_SRC := $(shell find $(LVGL)/src -name '*.c')
@@ -60,7 +66,7 @@ LOCAL_C_INCLUDES := $(APK_ROOT) $(APK_ROOT)/shim $(APK_ROOT)/vendor \
                     $(ESPF)/main $(LVGL) $(LVGL)/src
 
 LOCAL_CFLAGS := -O2 -Wno-format \
-                -DLV_CONF_INCLUDE_SIMPLE -DLV_LVGL_H_INCLUDE_SIMPLE -DAPKFLIGHT_NO_WIFI -DAPKFLIGHT -DAPK_VERSION=\"$(APKVER)\" \
+                -DLV_CONF_INCLUDE_SIMPLE -DLV_LVGL_H_INCLUDE_SIMPLE -DAPKFLIGHT_NO_WIFI -DAPKFLIGHT \
                 -include $(APK_ROOT)/shim/path_remap.h
 
 LOCAL_SHARED_LIBRARIES := SDL2

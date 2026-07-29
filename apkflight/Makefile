@@ -4,12 +4,15 @@
 ESPF := ..
 LVGL := $(ESPF)/managed_components/lvgl__lvgl
 
-# One version for firmware and app: taken from the firmware's PROJECT_VER
+# One version for firmware and app: taken from the firmware's PROJECT_VER.
+# Written to a header (not -D) so incremental builds notice version bumps.
 APKVER := $(shell sed -n 's/.*PROJECT_VER "\(.*\)".*/\1/p' $(ESPF)/CMakeLists.txt)
+$(shell new='#define APK_VERSION "$(APKVER)"'; \
+        [ -f shim/apk_version.h ] && [ "$$(cat shim/apk_version.h)" = "$$new" ] || echo "$$new" > shim/apk_version.h)
 
 CC      := clang
 CFLAGS  := -O2 -std=gnu11 -Wno-format \
-           -DLV_CONF_INCLUDE_SIMPLE -DLV_LVGL_H_INCLUDE_SIMPLE -DAPKFLIGHT_NO_WIFI -DAPKFLIGHT -DAPK_VERSION=\"$(APKVER)\" \
+           -DLV_CONF_INCLUDE_SIMPLE -DLV_LVGL_H_INCLUDE_SIMPLE -DAPKFLIGHT_NO_WIFI -DAPKFLIGHT \
            -include shim/path_remap.h \
            -I. -Ishim -Ivendor -I$(ESPF)/main -I$(LVGL) -I$(LVGL)/src \
            $(shell sdl2-config --cflags) -I$(shell sdl2-config --prefix)/include
@@ -24,7 +27,7 @@ endif
 LVGL_SRC := $(shell find $(LVGL)/src -name '*.c')
 
 # Device-only modules replaced by platform/ or shim/ equivalents
-CORE_EXCLUDE := main.c lvgl_port.c waveshare_rgb_lcd_port.c wifi_mgr.c \
+CORE_EXCLUDE := main.c lvgl_port.c waveshare_rgb_lcd_port.c tab5_lcd_port.c wifi_mgr.c \
                 mqtt_pub.c settings.c http_util.c
 CORE_SRC := $(filter-out $(addprefix $(ESPF)/main/, $(CORE_EXCLUDE)), \
                          $(wildcard $(ESPF)/main/*.c))
