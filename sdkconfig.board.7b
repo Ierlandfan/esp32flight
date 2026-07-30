@@ -1,0 +1,5 @@
+# Stack on top of sdkconfig.defaults for the Waveshare ESP32-S3-Touch-LCD-7B
+# (1024x600, CH32V003 helper MCU):
+#   idf.py -B build-7b -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.7b' \
+#     -D SDKCONFIG=build-7b/sdkconfig build
+CONFIG_CANFLIGHT_BOARD_WAVESHARE_7B=y

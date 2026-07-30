@@ -21,12 +21,15 @@ typedef struct {
     int data[16];               /* B0..B4, G0..G5, R0..R4 */
     int i2c_sda, i2c_scl;
     bool has_ch422g;            /* backlight + touch reset via expander */
-    int bl_gpio;                /* when !has_ch422g */
-    int tp_rst_gpio;            /* when !has_ch422g */
+    bool has_ch32v003;          /* 7B: helper MCU at 0x24 (regs, not CH422G) */
+    int bl_gpio;                /* when neither expander is present */
+    int tp_rst_gpio;            /* when neither expander is present */
+    /* RGB timing set (the 1024x600 panel needs its own) */
+    int hs_pulse, hs_bp, hs_fp, vs_pulse, vs_bp, vs_fp;
     bool tp_mirror;             /* GT911 reports mirrored coordinates */
 } board_cfg_t;
 
-static const board_cfg_t k_waveshare = {
+__attribute__((unused)) static const board_cfg_t k_waveshare = {
     /* One PCB family: the 4.3", 5" and 7" Waveshare 800x480 boards share
      * every pin, the expander and the timings (verified against the
      * official demos of both the 7 and the 4.3 repos), so this single
@@ -40,10 +43,32 @@ static const board_cfg_t k_waveshare = {
     .has_ch422g = true,
     .bl_gpio = -1,
     .tp_rst_gpio = -1,
+    .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
     .tp_mirror = false,
 };
 
-static const board_cfg_t k_guition = {
+__attribute__((unused)) static const board_cfg_t k_waveshare_7b = {
+    /* Type-B 7": same RGB wiring as the 800x480 family, but a 1024x600
+     * panel with its own timings and a CH32V003 helper MCU (I2C 0x24,
+     * register protocol: 0x02 mode, 0x03 outputs, 0x05 backlight PWM).
+     * Values verified against waveshareteam/ESP32-S3-Touch-LCD-7B. */
+    .name = "Waveshare ESP32-S3-Touch-LCD-7B (1024x600)",
+    .de = 5, .vsync = 3, .hsync = 46, .pclk = 7,
+    .data = { 14, 38, 18, 17, 10,       /* B0..B4 */
+              39, 0, 45, 48, 47, 21,    /* G0..G5 */
+              1, 2, 42, 41, 40 },       /* R0..R4 */
+    .i2c_sda = 8, .i2c_scl = 9,
+    .has_ch422g = false,
+    .has_ch32v003 = true,
+    .bl_gpio = -1,
+    .tp_rst_gpio = -1,
+    .hs_pulse = 162, .hs_bp = 152, .hs_fp = 48,
+    .vs_pulse = 45, .vs_bp = 13, .vs_fp = 3,
+    .tp_mirror = false,
+};
+
+__attribute__((unused)) static const board_cfg_t k_guition = {
     .name = "Guition JC8048W550",
     .de = 40, .vsync = 41, .hsync = 39, .pclk = 42,
     .data = { 8, 3, 46, 9, 1,           /* B0..B4 */
@@ -53,6 +78,8 @@ static const board_cfg_t k_guition = {
     .has_ch422g = false,
     .bl_gpio = 2,
     .tp_rst_gpio = 38,
+    .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
     .tp_mirror = false,
 };
 
@@ -111,6 +138,36 @@ static esp_err_t ch422g_write(uint8_t addr, uint8_t val)
                                       I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
 }
 
+/* CH32V003 helper MCU on the 7B (I2C 0x24): register writes, not the
+ * CH422G address scheme. 0x02 pin modes, 0x03 output byte, 0x05 PWM.
+ * IO1 = TP_RST, IO2 = backlight enable, IO3 = LCD_RST, IO4 = SD_CS. */
+static uint8_t s_ch32_out = 0xFF;
+
+static esp_err_t ch32v003_reg_write(uint8_t reg, uint8_t val)
+{
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, buf, 2,
+                                      I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+}
+
+static void ch32v003_output(uint8_t pin, uint8_t value)
+{
+    if (value) {
+        s_ch32_out |= (1 << pin);
+    } else {
+        s_ch32_out &= ~(1 << pin);
+    }
+    ch32v003_reg_write(0x03, s_ch32_out);
+}
+
+/* 0-100; the vendor driver caps at 97 because 100 makes the panel flicker */
+static void ch32v003_backlight_pct(int pct)
+{
+    if (pct > 97) pct = 97;
+    if (pct < 0) pct = 0;
+    ch32v003_reg_write(0x05, (uint8_t)(pct * 255 / 100));
+}
+
 /* Board detection: only the Waveshare has the CH422G expander, and probing
  * an I2C address is harmless on the Guition (those pins are RGB data lines,
  * still idle at this point; I2C is open-drain). */
@@ -122,6 +179,12 @@ static void board_detect(void)
 #elif CONFIG_CANFLIGHT_BOARD_GUITION_JC8048W550
     s_board = &k_guition;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+#elif CONFIG_CANFLIGHT_BOARD_WAVESHARE_7B
+    s_board = &k_waveshare_7b;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+    /* all helper-MCU pins to output, everything released (high) */
+    ch32v003_reg_write(0x02, 0xFF);
+    ch32v003_reg_write(0x03, s_ch32_out);
 #else
     i2c_master_init(k_waveshare.i2c_sda, k_waveshare.i2c_scl);
     if (ch422g_write(0x24, 0x01) == ESP_OK) {
@@ -137,7 +200,28 @@ static void board_detect(void)
 
 static void touch_reset(void)
 {
-    if (s_board->has_ch422g) {
+    if (s_board->has_ch32v003) {
+        gpio_config_t io_conf = {
+            .intr_type = GPIO_INTR_DISABLE,
+            .pin_bit_mask = 1ULL << GPIO_TOUCH_INT,
+            .mode = GPIO_MODE_OUTPUT,
+        };
+        gpio_config(&io_conf);
+
+        /* LCD panel reset first (IO3), then GT911 with INT held low so it
+         * comes up at address 0x5D, exactly like the CH422G flow */
+        ch32v003_output(3, 0);
+        esp_rom_delay_us(20 * 1000);
+        ch32v003_output(3, 1);
+        esp_rom_delay_us(120 * 1000);
+
+        ch32v003_output(1, 0);              /* TP_RST low */
+        esp_rom_delay_us(100 * 1000);
+        gpio_set_level(GPIO_TOUCH_INT, 0);  /* INT low during reset -> addr 0x5D */
+        esp_rom_delay_us(100 * 1000);
+        ch32v003_output(1, 1);              /* TP_RST high */
+        esp_rom_delay_us(200 * 1000);
+    } else if (s_board->has_ch422g) {
         gpio_config_t io_conf = {
             .intr_type = GPIO_INTR_DISABLE,
             .pin_bit_mask = 1ULL << GPIO_TOUCH_INT,
@@ -178,12 +262,12 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
             .pclk_hz = EXAMPLE_LCD_PIXEL_CLOCK_HZ,
             .h_res = EXAMPLE_LCD_H_RES,
             .v_res = EXAMPLE_LCD_V_RES,
-            .hsync_pulse_width = 4,
-            .hsync_back_porch = 8,
-            .hsync_front_porch = 8,
-            .vsync_pulse_width = 4,
-            .vsync_back_porch = 8,
-            .vsync_front_porch = 8,
+            .hsync_pulse_width = s_board->hs_pulse,
+            .hsync_back_porch = s_board->hs_bp,
+            .hsync_front_porch = s_board->hs_fp,
+            .vsync_pulse_width = s_board->vs_pulse,
+            .vsync_back_porch = s_board->vs_bp,
+            .vsync_front_porch = s_board->vs_fp,
             .flags = {
                 .pclk_active_neg = 1,
             },
@@ -286,6 +370,11 @@ static esp_err_t bl_gpio_set(int level)
 
 esp_err_t waveshare_rgb_lcd_bl_on(void)
 {
+    if (s_board->has_ch32v003) {
+        ch32v003_output(2, 1);
+        ch32v003_backlight_pct(90);
+        return ESP_OK;
+    }
     if (!s_board->has_ch422g) {
         return bl_gpio_set(1);
     }
@@ -295,6 +384,11 @@ esp_err_t waveshare_rgb_lcd_bl_on(void)
 
 esp_err_t waveshare_rgb_lcd_bl_off(void)
 {
+    if (s_board->has_ch32v003) {
+        ch32v003_backlight_pct(0);
+        ch32v003_output(2, 0);
+        return ESP_OK;
+    }
     if (!s_board->has_ch422g) {
         return bl_gpio_set(0);
     }

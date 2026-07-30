@@ -137,6 +137,15 @@ menu "Example Configuration"
 
             config CANFLIGHT_BOARD_GUITION_JC8048W550
                 bool "Force Guition JC8048W550 (5 inch)"
+
+            config CANFLIGHT_BOARD_WAVESHARE_7B
+                bool "Waveshare ESP32-S3-Touch-LCD-7B (1024x600)"
+                help
+                    The type-B 7 inch board: 1024x600 panel, CH32V003
+                    helper MCU instead of the CH422G (same I2C address
+                    0x24, different protocol, real brightness PWM).
+                    The resolution differs, so this is a dedicated
+                    build, not part of the auto-detected binary.
         endchoice
 
         config CANFLIGHT_WIFI_SSID

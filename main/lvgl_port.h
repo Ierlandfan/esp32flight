@@ -25,6 +25,10 @@ extern "C" {
 /* M5Stack Tab5: 5" 1280x720 (landscape UI over the portrait MIPI-DSI panel) */
 #define LVGL_PORT_H_RES             (1280)
 #define LVGL_PORT_V_RES             (720)
+#elif CONFIG_CANFLIGHT_BOARD_WAVESHARE_7B
+/* Waveshare 7B: 1024x600 */
+#define LVGL_PORT_H_RES             (1024)
+#define LVGL_PORT_V_RES             (600)
 #else
 #define LVGL_PORT_H_RES             (800)
 #define LVGL_PORT_V_RES             (480)
