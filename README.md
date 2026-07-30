@@ -8,10 +8,13 @@
 </p>
 
 <p align="center">
+  <a href="https://discord.gg/CwH8XKRnpz"><img src="https://img.shields.io/badge/Discord-join%20the%20esp32flight%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the esp32flight Discord"></a>
+</p>
+
+<p align="center">
   <a href="https://theqkash.github.io/esp32flight/"><img src="https://img.shields.io/badge/flash-from%20your%20browser-4da3ff?style=flat-square" alt="browser flasher"></a>
   <a href="https://github.com/theqkash/esp32flight/releases"><img src="https://badgen.net/github/release/theqkash/esp32flight?color=2ea44f" alt="latest release"></a>
   <a href="https://github.com/theqkash/esp32flight/releases/latest"><img src="https://img.shields.io/badge/android-apk%20download-3ddc84?style=flat-square&logo=android&logoColor=white" alt="Android APK"></a>
-  <a href="https://discord.gg/CwH8XKRnpz"><img src="https://img.shields.io/badge/discord-join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT"></a>
   <a href="https://ko-fi.com/theqkash"><img src="https://img.shields.io/badge/ko--fi-support%20the%20project-ff5e5b?style=flat-square&logo=kofi&logoColor=white" alt="Ko-fi"></a>
 </p>
