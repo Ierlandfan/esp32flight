@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_app_format.h"
+#include "esp_app_desc.h"
 #include "mbedtls/base64.h"
 #include "esp_timer.h"
 #include "esp_system.h"

@@ -9,7 +9,7 @@ PREBUILT := $(APK_ROOT)/third_party/prebuilt/$(TARGET_ARCH_ABI)
 # Emitted as a generated header, not a -D flag: make tracks header changes,
 # so bumping PROJECT_VER rebuilds the shim (a -D change would be ignored by
 # incremental builds and the app would keep reporting the old version).
-APKVER := $(shell sed -n 's/.*PROJECT_VER "\(.*\)".*/\1/p' $(ESPF)/CMakeLists.txt)
+APKVER := $(shell sed -n 's/.*set(PROJECT_VER "\([0-9.]*\)").*/\1/p' $(ESPF)/CMakeLists.txt | head -1)
 APKVER_H := $(APK_ROOT)/shim/apk_version.h
 $(shell new='#define APK_VERSION "$(APKVER)"'; \
         [ -f $(APKVER_H) ] && [ "$$(cat $(APKVER_H))" = "$$new" ] || echo "$$new" > $(APKVER_H))

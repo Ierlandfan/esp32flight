@@ -6,7 +6,7 @@ LVGL := $(ESPF)/managed_components/lvgl__lvgl
 
 # One version for firmware and app: taken from the firmware's PROJECT_VER.
 # Written to a header (not -D) so incremental builds notice version bumps.
-APKVER := $(shell sed -n 's/.*PROJECT_VER "\(.*\)".*/\1/p' $(ESPF)/CMakeLists.txt)
+APKVER := $(shell sed -n 's/.*set(PROJECT_VER "\([0-9.]*\)").*/\1/p' $(ESPF)/CMakeLists.txt | head -1)
 $(shell new='#define APK_VERSION "$(APKVER)"'; \
         [ -f shim/apk_version.h ] && [ "$$(cat shim/apk_version.h)" = "$$new" ] || echo "$$new" > shim/apk_version.h)
 
