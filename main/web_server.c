@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_app_format.h"
 #include "mbedtls/base64.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -77,6 +78,8 @@ static const char INDEX_HTML[] =
 "h1 .mark{display:inline-block;transform:rotate(-45deg);margin-right:2px}"
 ".dim{color:#86a695;font-size:14px}"
 "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}"
+".tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}"
+".tw table{min-width:640px}"
 "th{color:#86a695;text-align:left;padding:6px 8px;border-bottom:1px solid #23402f}"
 "th.r,td.r{text-align:right}td.r{font-variant-numeric:tabular-nums;white-space:nowrap}"
 "td{padding:7px 8px;border-bottom:1px solid #14231b}"
@@ -125,12 +128,14 @@ static const char INDEX_HTML[] =
 "<div id='t_live' class='tabpane on'>"
 "<div class='cards' id='cards'></div>"
 "<div id='map'></div>"
-"<table><thead><tr><th>Flight</th><th>Airline</th><th>Aircraft</th><th>Route</th>"
+"<div class='tw'><table><thead><tr><th>Flight</th><th>Airline</th><th>Aircraft</th><th>Route</th>"
 "<th>Progress</th><th class='r'>Alt</th><th class='r'>Speed</th><th class='r'>Dist</th></tr></thead>"
-"<tbody id='rows'></tbody></table>"
+"<tbody id='rows'></tbody></table></div>"
 "</div>"
 "<div id='t_set' class='tabpane'>"
-"<div id='ota'><span class='dim'>Firmware update (.bin): </span>"
+"<div id='ota'><div class='cfgcard' style='margin:0 0 12px'><h4>Which file do I need?</h4>"
+"<div id='otahelp' class='help'>checking this device...</div></div>"
+"<span class='dim'>Firmware update (.bin): </span>"
 "<input type='file' id='fw'> <button id='otabtn' onclick='ota()' disabled>Flash</button> <span id='otastat' class='dim'></span>"
 "<div class='dim' style='margin-top:8px'>"
 "<a href='/screen.bmp'>screenshot</a> &middot; <a href='/api/state'>api</a> &middot; <a href='/api/log' download='esp32flight-log.tsv'>log CSV</a> &middot; <a href='/metrics'>metrics</a> &middot; "
@@ -201,6 +206,8 @@ static const char INDEX_HTML[] =
 "<div class='help'>Every alert POSTs JSON {source, title, message} to this address (Node-RED, n8n, Discord/Slack bridges).</div></div>"
 "</div></div>"
 "<div class='cfgcard'><h4>Display</h4><div class='grid2'>"
+"<div><label>Brighter map tiles</label><select id='c_map_light'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Lifts the dark map style for readability. New tiles only; the device reloads its map after a restart.</div></div>"
 "<div><label>Theme</label><select id='c_theme'><option value='0'>Dark</option><option value='1'>Light</option><option value='2'>Black</option><option value='3'>Nord</option><option value='4'>Solarized</option><option value='5'>Purple</option><option value='6'>Forest</option></select></div>"
 "<div><label>Language</label><select id='c_lang'><option value='0'>English</option><option value='1'>Polski</option></select></div>"
 "<div><label>Units</label><select id='c_metric_units'><option value='0'>aviation (ft, kt)</option><option value='1'>metric (m, km/h)</option></select></div>"
@@ -227,15 +234,21 @@ static const char INDEX_HTML[] =
 "<div><label>Local ADS-B receiver (dump1090/readsb)</label><input id='c_local_adsb' placeholder='http://192.168.1.50:8080/data/aircraft.json'>"
 "<div class='help'>Reads aircraft straight from your antenna instead of internet APIs; falls back automatically.</div></div>"
 "</div></div>"
+"<div class='cfgcard'><h4>Backup</h4><div class='grid2'>"
+"<div><label>Download</label><a href='/api/backup' download><button type='button'>Backup settings (JSON)</button></a>"
+"<div class='help'>Everything including Wi-Fi and API keys. Keep it private.</div></div>"
+"<div><label>Restore</label><input type='file' id='bkfile' accept='.json'> <button type='button' onclick='restoreBk()'>Restore and restart</button> <span id='bkstat' class='dim'></span>"
+"<div class='help'>Loads a backup JSON and restarts the device with those settings.</div></div>"
+"</div></div>"
 "<div style='margin-top:14px'><button id='cfgsave' onclick='saveCfg()' disabled>Save and restart</button> <span id='cfgstat' class='dim'></span></div></div>"
 "</div>"
 "<div id='t_hist' class='tabpane'>"
 "<div class='sect'><h3>Spotting history</h3>"
 "<input id='hq' placeholder='filter (callsign, type...)'> <button onclick='loadHist()'>Load</button>"
-"<table><tbody id='hrows'></tbody></table></div>"
+"<div class='tw'><table><tbody id='hrows'></tbody></table></div></div>"
 "<div class='sect'><h3>Alert history</h3>"
 "<div class='help'>Emergency squawks, watchlist hits and flyover predictions that triggered a notification.</div>"
-"<table><tbody id='arows'></tbody></table></div>"
+"<div class='tw'><table><tbody id='arows'></tbody></table></div></div>"
 "</div>"
 "<div id='t_api' class='tabpane'>"
 "<div class='sect api'><h3>HTTP API</h3>"
@@ -288,7 +301,10 @@ static const char INDEX_HTML[] =
 "L.circle([lat,lon],{radius:rkm*1000,color:'#5dd39e',weight:1,fill:false}).addTo(map);"
 "L.circleMarker([lat,lon],{radius:5,color:'#5dd39e',fillOpacity:1}).addTo(map);"
 "map.on('click',()=>{if(routeLine){map.removeLayer(routeLine);routeLine=null;selHex=null;}});"
-"layer=L.layerGroup().addTo(map);}"
+"layer=L.layerGroup().addTo(map);"
+"const inv=()=>map.invalidateSize();"
+"addEventListener('resize',inv);addEventListener('orientationchange',()=>setTimeout(inv,300));"
+"if(window.ResizeObserver)new ResizeObserver(inv).observe(document.getElementById('map'));}"
 "function showRoute(f){if(routeLine)map.removeLayer(routeLine);"
 "routeLine=L.polyline([[f.route.from_lat,f.route.from_lon],[f.lat,f.lon],[f.route.to_lat,f.route.to_lon]],"
 "{color:'#5dd39e',weight:2,dashArray:'4'}).addTo(map);selHex=f.hex;}"
@@ -340,6 +356,14 @@ static const char INDEX_HTML[] =
 "`<div class='card'>Uptime<b>${s.uptime_min||0} min</b></div>`+"
 "((s.days&&s.days.length)?`<div class='card'>Last days<b style='display:flex;align-items:flex-end;gap:2px;height:28px'>${s.days.slice(-14).map(dd=>`<i title='${dd.d}: ${dd.u}' style='display:block;width:8px;background:#5dd39e;height:${Math.max(2,Math.round(28*dd.u/Math.max(...s.days.map(x=>x.u),1)))}px'></i>`).join('')}</b></div>`:'');"
 "const ob=document.getElementById('otabtn');ob.disabled=!d.ota_enabled;"
+"const bn=(d.stats&&d.stats.board)||'';const vv=(d.stats&&d.stats.version)||'X.Y.Z';"
+"const ota7b=/7B/i.test(bn),otaP4=/Tab5/i.test(bn);"
+"document.getElementById('otahelp').innerHTML="
+"`This device reports itself as <b>${bn||'unknown board'}</b>.<br>`+"
+"`Update here with <code>esp32flight-v${vv}-ota.bin</code>`+"
+"(otaP4?` <b>(Tab5 build)</b>`:ota7b?` <b>(7B build)</b>`:``)+"
+"`, taken from the <a href='https://github.com/theqkash/esp32flight/releases/latest'>latest release</a>. `+"
+"`The <code>-full.bin</code> files are only for the very first install over USB, they are not for this page.`;"
 "document.getElementById('otastat').textContent=d.ota_enabled?'':'locked - enable OTA in device settings';"
 "drawMap(d);"
 "document.getElementById('rows').innerHTML=(d.flights||[]).map(f=>{"
@@ -367,7 +391,7 @@ static const char INDEX_HTML[] =
 "document.getElementById('c_lon').value=ap.lon.toFixed(4);"
 "document.getElementById('c_fixed').value='1';"
 "box.textContent=`airport ${ap.icao}${ap.iata?' / '+ap.iata:''}: ${ap.city}`;return;}}catch(err){}}"
-"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5');"
+"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5&language='+((navigator.language||'en').slice(0,2)));"
 "const d=await r.json();const res=d.results||[];"
 "if(!res.length){box.textContent='no matches';return}"
 "box.innerHTML=res.map((c,i)=>`<a href='#' data-i='${i}'>${c.name}, ${c.country_code} (${c.admin1||''})</a>`).join(' \u00B7 ');"
@@ -390,6 +414,13 @@ static const char INDEX_HTML[] =
 "if(!isFinite(la)||!isFinite(lo)){alert('Set coordinates first');return;}"
 "const nm=prompt('Name this location:','')||'';if(!nm)return;"
 "favs[i]={name:nm,lat:la,lon:lo};favRender();}});}"
+"async function restoreBk(){const f=document.getElementById('bkfile').files[0];"
+"if(!f){document.getElementById('bkstat').textContent='pick a file first';return}"
+"const t=await f.text();try{JSON.parse(t)}catch(e){document.getElementById('bkstat').textContent='not valid JSON';return}"
+"document.getElementById('bkstat').textContent='restoring...';"
+"try{const r=await fetch('/api/config',{method:'POST',body:t});"
+"document.getElementById('bkstat').textContent=r.ok?'restored - device restarting':'restore failed';}"
+"catch(e){document.getElementById('bkstat').textContent='restore failed'}}"
 "async function loadCfg(){try{const r=await fetch('/api/config');const c=await r.json();"
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
@@ -415,6 +446,7 @@ static const char INDEX_HTML[] =
 "c.hide_ground=document.getElementById('c_hide_ground').value==='1';"
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
+"c.map_light=document.getElementById('c_map_light').value==='1';"
 "['taf','iss','sonde','ships','airspace'].forEach(k=>c[k+'_enabled']=document.getElementById('c_'+k+'_enabled').value==='1');"
 "['metric_units','metar_decoded','follow_mode'].forEach(k=>c[k]=document.getElementById('c_'+k).value==='1');"
 "c.favs=favs.map(f=>f&&f.name?f:{name:'',lat:0,lon:0});"
@@ -554,6 +586,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
     cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddBoolToObject(root, "map_light", c->map_light);
     cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
@@ -609,10 +642,78 @@ static void set_str_field(const cJSON *root, const char *key, char *dst, size_t 
     }
 }
 
+
+/* Full configuration snapshot, secrets included: the restore path is
+ * simply POSTing this JSON back to /api/config. Keep keys in sync with
+ * config_post. */
+static esp_err_t backup_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    const settings_t *c = settings_get();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "ssid", c->wifi_ssid);
+    cJSON_AddStringToObject(root, "pass", c->wifi_pass);
+    cJSON_AddStringToObject(root, "web_pass", c->web_pass);
+    cJSON_AddStringToObject(root, "ntfy_topic", c->ntfy_topic);
+    cJSON_AddStringToObject(root, "mqtt_uri", c->mqtt_uri);
+    cJSON_AddStringToObject(root, "fa_key", c->fa_key);
+    cJSON_AddStringToObject(root, "watch_regs", c->watch_regs);
+    cJSON_AddStringToObject(root, "webhook_url", c->webhook_url);
+    cJSON_AddStringToObject(root, "local_adsb", c->local_adsb);
+    cJSON_AddStringToObject(root, "filter_airport", c->filter_airport);
+    cJSON_AddStringToObject(root, "openaip_key", c->openaip_key);
+    cJSON_AddStringToObject(root, "ais_key", c->ais_key);
+    cJSON_AddBoolToObject(root, "fixed", c->use_fixed_loc);
+    cJSON_AddNumberToObject(root, "lat", c->lat);
+    cJSON_AddNumberToObject(root, "lon", c->lon);
+    cJSON_AddNumberToObject(root, "radius_nm", c->radius_nm);
+    cJSON_AddNumberToObject(root, "theme", c->theme);
+    cJSON_AddNumberToObject(root, "lang", c->lang);
+    cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddBoolToObject(root, "map_light", c->map_light);
+    cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
+    cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
+    cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
+    cJSON_AddBoolToObject(root, "cpa_alerts", c->cpa_alerts);
+    cJSON_AddBoolToObject(root, "cpa_all", c->cpa_all);
+    cJSON_AddBoolToObject(root, "filter_apt_exclude", c->filter_apt_exclude);
+    cJSON_AddBoolToObject(root, "night_enabled", c->night_enabled);
+    cJSON_AddBoolToObject(root, "night_auto", c->night_auto);
+    cJSON_AddNumberToObject(root, "night_start_min", c->night_start_min);
+    cJSON_AddNumberToObject(root, "night_end_min", c->night_end_min);
+    cJSON_AddNumberToObject(root, "ambient_idle_min", c->ambient_idle_min);
+    cJSON_AddNumberToObject(root, "alt_min_ft", c->alt_min_ft);
+    cJSON_AddNumberToObject(root, "alt_max_ft", c->alt_max_ft);
+    cJSON_AddBoolToObject(root, "taf_enabled", c->taf_enabled);
+    cJSON_AddBoolToObject(root, "iss_enabled", c->iss_enabled);
+    cJSON_AddBoolToObject(root, "sonde_enabled", c->sonde_enabled);
+    cJSON_AddBoolToObject(root, "ships_enabled", c->ships_enabled);
+    cJSON_AddBoolToObject(root, "airspace_enabled", c->airspace_enabled);
+    cJSON_AddBoolToObject(root, "metric_units", c->metric_units);
+    cJSON_AddBoolToObject(root, "metar_decoded", c->metar_decoded);
+    cJSON_AddBoolToObject(root, "follow_mode", c->follow_mode);
+    cJSON *favs = cJSON_AddArrayToObject(root, "favs");
+    for (int f = 0; f < 3; f++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "name", c->fav_name[f]);
+        cJSON_AddNumberToObject(e, "lat", c->fav_lat[f]);
+        cJSON_AddNumberToObject(e, "lon", c->fav_lon[f]);
+        cJSON_AddItemToArray(favs, e);
+    }
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Content-Disposition",
+                       "attachment; filename=\"esp32flight-backup.json\"");
+    esp_err_t err = httpd_resp_send(req, json ? json : "{}", HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return err;
+}
+
 static esp_err_t config_post(httpd_req_t *req)
 {
     AUTH_GUARD(req);
-    char body[1024];
+    static char body[4096];   /* config posts and full backup restores */
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty body");
@@ -640,6 +741,9 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "rain_overlay")))) {
         c->rain_overlay = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "map_light")))) {
+        c->map_light = cJSON_IsTrue(j);
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "amb_style")))) {
         c->amb_style = j->valueint == 1 ? 1 : 0;
@@ -881,12 +985,40 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     char *buf = malloc(4096);
     int remaining = req->content_len;
+    bool checked = false;
     while (remaining > 0) {
         int n = httpd_req_recv(req, buf, remaining < 4096 ? remaining : 4096);
         if (n <= 0) {
             free(buf);
             esp_ota_abort(ota);
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv failed");
+        }
+        if (!checked && req->content_len - remaining + n > 512) {
+            /* the app descriptor sits early in the image; refuse a binary
+               built for a different board variant before writing further.
+               Variant = the part of the version after the first dash. */
+            checked = true;
+            const esp_app_desc_t *inc =
+                (const esp_app_desc_t *)(buf + sizeof(esp_image_header_t)
+                                             + sizeof(esp_image_segment_header_t));
+            if (inc->magic_word == ESP_APP_DESC_MAGIC_WORD) {
+                const char *run_v = esp_app_get_description()->version;
+                const char *inc_v = inc->version;
+                const char *rd = strchr(run_v, '-');
+                const char *id = strchr(inc_v, '-');
+                bool same = (rd == NULL && id == NULL) ||
+                            (rd != NULL && id != NULL && strcmp(rd, id) == 0);
+                if (!same) {
+                    char msg[160];
+                    snprintf(msg, sizeof(msg),
+                             "wrong build for this board: file is %s, device runs %s",
+                             inc_v, run_v);
+                    ESP_LOGW(TAG, "OTA rejected: %s", msg);
+                    free(buf);
+                    esp_ota_abort(ota);
+                    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
+                }
+            }
         }
         if (esp_ota_write(ota, buf, n) != ESP_OK) {
             free(buf);
@@ -1009,6 +1141,7 @@ void web_server_start(void)
         { .uri = "/api/state", .method = HTTP_GET, .handler = api_get },
         { .uri = "/api/config", .method = HTTP_GET, .handler = config_get },
         { .uri = "/api/config", .method = HTTP_POST, .handler = config_post },
+        { .uri = "/api/backup", .method = HTTP_GET, .handler = backup_get },
         { .uri = "/api/log", .method = HTTP_GET, .handler = log_get },
         { .uri = "/api/alerts", .method = HTTP_GET, .handler = alerts_get },
         { .uri = "/screen.bmp", .method = HTTP_GET, .handler = screen_get },

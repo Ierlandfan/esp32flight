@@ -73,6 +73,7 @@ static int           s_generation;   /* bumped each open/close */
 /* manual pan/zoom state (reset on each open) */
 static double s_zoom_mul = 1.0;
 static double s_pan_dlat, s_pan_dlon;
+static double s_base_clat, s_base_clon;   /* route-box center before pan */
 static double s_half_lat, s_half_lon;   /* current view half-spans */
 
 static void close_cb(lv_event_t *e)
@@ -243,6 +244,11 @@ static void zoom_cb(lv_event_t *e)
     if (next < 0.05) next = 0.05;
     if (next > 8.0) next = 8.0;
     s_zoom_mul = next;
+    /* zooming means "show me the plane", not the route midpoint (#8) */
+    if (s_ac.has_pos) {
+        s_pan_dlat = s_ac.lat - s_base_clat;
+        s_pan_dlon = s_ac.lon - s_base_clon;
+    }
     spawn_tiles();
 }
 
@@ -299,6 +305,7 @@ static void build_content(void)
     lv_obj_set_style_bg_color(btn_close, COL_PANEL, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
+    lv_obj_set_style_text_font(xl, &lv_font_montserrat_16, 0);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);
     lv_obj_center(xl);
 
@@ -483,8 +490,10 @@ static void map_tiles_task(void *arg)
 
     /* manual pan/zoom on top of the automatic route view */
     {
-        double clat = (latmin + latmax) / 2.0 + s_pan_dlat;
-        double clon = (lonmin + lonmax) / 2.0 + s_pan_dlon;
+        s_base_clat = (latmin + latmax) / 2.0;
+        s_base_clon = (lonmin + lonmax) / 2.0;
+        double clat = s_base_clat + s_pan_dlat;
+        double clon = s_base_clon + s_pan_dlon;
         double hlat = ((latmax - latmin) / 2.0 + mlat) * s_zoom_mul;
         double hlon = ((lonmax - lonmin) / 2.0 + mlon) * s_zoom_mul;
         if (hlat < 0.05) hlat = 0.05;
@@ -562,6 +571,10 @@ void ui_map_open(const aircraft_t *ac, const route_info_t *rt)
     lv_obj_set_style_radius(s_overlay, 0, 0);
     lv_obj_set_style_pad_all(s_overlay, 0, 0);
     lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    /* gestures are delivered to the first object WITHOUT the bubble flag;
+       with the default flags they bubble past everyone into the void, so
+       swipe-pan never fired anywhere (found via the desktop test build) */
+    lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     lv_obj_add_event_cb(s_overlay, pan_gesture_cb, LV_EVENT_GESTURE, NULL);
 
@@ -570,3 +583,4 @@ void ui_map_open(const aircraft_t *ac, const route_info_t *rt)
     /* a still-running worker will respawn itself for this generation */
     spawn_tiles();
 }
+

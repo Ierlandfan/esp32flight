@@ -40,6 +40,7 @@
 #include "regcountry.h"
 #include "trails.h"
 #include "tz.h"
+#include "waveshare_rgb_lcd_port.h"
 #include "ui.h"
 #include "weather.h"
 #include "web_server.h"
@@ -404,6 +405,7 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
     }
     dailystats_to_json(js, "days");
     cJSON_AddStringToObject(js, "version", esp_app_get_description()->version);
+    cJSON_AddStringToObject(js, "board", waveshare_lcd_board_name());
     cJSON *jh = cJSON_AddArrayToObject(js, "hours");
     for (int i = 0; i < 24; i++) {
         cJSON_AddItemToArray(jh, cJSON_CreateNumber(s_stats.hours[i]));
@@ -473,13 +475,15 @@ static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
             if (now > 1600000000) {
                 char lt[8];
                 struct tm tm;
-                if (rt->origin.tz_known) {
+                if (rt->origin.tz_known &&
+                    !(tz_home_known() && rt->origin.tz_offset_s == tz_home_offset())) {
                     time_t l = now + rt->origin.tz_offset_s;
                     gmtime_r(&l, &tm);
                     snprintf(lt, sizeof(lt), "%02d:%02d", tm.tm_hour, tm.tm_min);
                     cJSON_AddStringToObject(jr, "from_time", lt);
                 }
-                if (rt->destination.tz_known) {
+                if (rt->destination.tz_known &&
+                    !(tz_home_known() && rt->destination.tz_offset_s == tz_home_offset())) {
                     time_t l = now + rt->destination.tz_offset_s;
                     gmtime_r(&l, &tm);
                     snprintf(lt, sizeof(lt), "%02d:%02d", tm.tm_hour, tm.tm_min);

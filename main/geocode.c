@@ -1,4 +1,5 @@
 #include "geocode.h"
+#include "settings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,9 +35,12 @@ esp_err_t geocode_search(const char *query, geocode_result_t *results, int max, 
     char encoded[96];
     url_encode(query, encoded, sizeof(encoded));
     char url[224];
+    /* the catalogue matches native names only under the right language:
+       "warszawa" with language=en finds just a district in Ohio */
+    const char *lang = settings_get()->lang == 1 ? "pl" : "en";
     snprintf(url, sizeof(url),
-             "https://geocoding-api.open-meteo.com/v1/search?name=%s&count=%d&language=en&format=json",
-             encoded, max);
+             "https://geocoding-api.open-meteo.com/v1/search?name=%s&count=%d&language=%s&format=json",
+             encoded, max, lang);
 
     char *buf = malloc(16 * 1024);
     if (buf == NULL) {

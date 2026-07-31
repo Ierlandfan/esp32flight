@@ -47,6 +47,7 @@ static lv_obj_t *s_sw_airsp, *s_sw_iss, *s_sw_sonde, *s_sw_ships, *s_sw_taf;
 static lv_obj_t *s_ta_oaip, *s_ta_ais;
 static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle, *s_sw_nauto;
 static lv_obj_t *s_dd_amb_style;
+static lv_obj_t *s_sw_map_light;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
 static bool s_scan_busy;
@@ -324,6 +325,7 @@ static void save_cb(lv_event_t *e)
     cfg->taf_enabled = lv_obj_has_state(s_sw_taf, LV_STATE_CHECKED);
     strlcpy(cfg->openaip_key, lv_textarea_get_text(s_ta_oaip), sizeof(cfg->openaip_key));
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
+    cfg->map_light = lv_obj_has_state(s_sw_map_light, LV_STATE_CHECKED);
     cfg->metric_units = lv_dropdown_get_selected(s_dd_units) == 1;
     cfg->metar_decoded = lv_dropdown_get_selected(s_dd_metar) == 1;
     cfg->follow_mode = !lv_obj_has_state(s_sw_cycle, LV_STATE_CHECKED);
@@ -708,21 +710,22 @@ void ui_settings_open(void)
     s_dd_amb_style = add_dropdown(p, 520, 466, 220, NULL);
     lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
     lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
+    s_sw_map_light = add_switch(p, L()->map_light_lbl, 0, 524, cfg->map_light);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */
-    int nety = 528;
+    int nety = 584;
 #else
-    add_section(p, L()->sec_webpanel, 528);
-    s_ta_webpass = add_textarea(p, 0, 560, 360, cfg->web_pass, false);
-    add_hint(p, L()->lbl_webpass, 0, 606, 360);
+    add_section(p, L()->sec_webpanel, 584);
+    s_ta_webpass = add_textarea(p, 0, 616, 360, cfg->web_pass, false);
+    add_hint(p, L()->lbl_webpass, 0, 662, 360);
 
-    add_section(p, L()->sec_updates, 640);
-    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 672, cfg->ota_enabled);
+    add_section(p, L()->sec_updates, 696);
+    lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 728, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 718);
+    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 774);
     lv_obj_set_style_text_font(hint, &font_pl_14, 0);
-    int nety = 766;
+    int nety = 822;
 #endif
 
     char netbuf[120] = "";

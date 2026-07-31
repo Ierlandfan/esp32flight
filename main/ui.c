@@ -216,6 +216,7 @@ static lv_obj_t *s_radar_panel;
 static lv_obj_t *s_radar_dots[MAX_AIRCRAFT];
 static lv_obj_t *s_radar_info;
 static lv_obj_t *s_radar_bub, *s_radar_blogo;
+static bool s_radar_bub_off;   /* tapped away by the user (#9) */
 static lv_obj_t *s_radar_range;
 static lv_obj_t *s_radar_img;
 static lv_obj_t *s_radar_rings[3];
@@ -342,12 +343,18 @@ static void home_localtime(time_t t, struct tm *tm)
     }
 }
 
-/* "14:32" local time at an airport, "" if timezone or clock unknown */
+/* "14:32" local time at an airport, "" if timezone or clock unknown.
+ * Shown only when the airport's zone differs from home: a domestic
+ * flight duplicating the header clock next to both airports read as
+ * bogus departure/arrival times to everyone who saw it (issue #7). */
 static void airport_local_time(const airport_t *ap, char *dst, size_t n)
 {
     dst[0] = '\0';
     time_t now = time(NULL);
     if (!ap->tz_known || now < 1600000000) {
+        return;
+    }
+    if (tz_home_known() && ap->tz_offset_s == tz_home_offset()) {
         return;
     }
     time_t local = now + ap->tz_offset_s;
@@ -1337,6 +1344,13 @@ static void radar_dot_cb(lv_event_t *e)
     }
     for (int j = 0; j < s_shown_count; j++) {
         if (strcmp(s_shown[j].ac.callsign, s_all[i].callsign) == 0) {
+            if (j == s_selected && s_sel_ship_mmsi == 0) {
+                /* second tap on the selected plane toggles the bubble away */
+                s_radar_bub_off = !s_radar_bub_off;
+                render_radar_panel();
+                return;
+            }
+            s_radar_bub_off = false;
             s_sel_ship_mmsi = 0;
             s_selected = j;
             strlcpy(s_selected_hex, s_shown[j].ac.hex, sizeof(s_selected_hex));
@@ -2017,7 +2031,11 @@ static void render_radar_panel(void)
             } else {
                 lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
             }
-            lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+            if (s_radar_bub_off) {
+                lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+            }
             int lx = x + 12, ly = y - 10;
             if (lx > RADAR_W - 190) {
                 lx = x - 190;
@@ -3316,6 +3334,13 @@ static void render_list_selection(void)
                   s_row_ships[si].mmsi == s_sel_ship_mmsi;
         }
         lv_obj_set_style_bg_color(s_list_rows[i], sel ? COL_ROW_SEL : COL_ROW, 0);
+        /* the dim sub-line drowns in the selection color on some themes
+           (#11): brighten it towards the text color while selected */
+        lv_obj_t *info = lv_obj_get_child(s_list_rows[i], 2);
+        if (info != NULL) {
+            lv_obj_set_style_text_color(info,
+                sel ? lv_color_mix(COL_TEXT, COL_DIM, 170) : COL_DIM, 0);
+        }
     }
 }
 
