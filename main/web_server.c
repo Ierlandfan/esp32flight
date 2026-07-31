@@ -367,7 +367,7 @@ static const char INDEX_HTML[] =
 "document.getElementById('c_lon').value=ap.lon.toFixed(4);"
 "document.getElementById('c_fixed').value='1';"
 "box.textContent=`airport ${ap.icao}${ap.iata?' / '+ap.iata:''}: ${ap.city}`;return;}}catch(err){}}"
-"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5');"
+"try{const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=5&language='+((navigator.language||'en').slice(0,2)));"
 "const d=await r.json();const res=d.results||[];"
 "if(!res.length){box.textContent='no matches';return}"
 "box.innerHTML=res.map((c,i)=>`<a href='#' data-i='${i}'>${c.name}, ${c.country_code} (${c.admin1||''})</a>`).join(' \u00B7 ');"

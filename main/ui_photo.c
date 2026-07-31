@@ -153,6 +153,7 @@ void ui_photo_open(const char *hex, const char *callsign)
     lv_obj_set_style_border_width(btn_close, 1, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
+    lv_obj_set_style_text_font(xl, &lv_font_montserrat_16, 0);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);
     lv_obj_center(xl);
 

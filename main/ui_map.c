@@ -299,6 +299,7 @@ static void build_content(void)
     lv_obj_set_style_bg_color(btn_close, COL_PANEL, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
+    lv_obj_set_style_text_font(xl, &lv_font_montserrat_16, 0);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);
     lv_obj_center(xl);
 
