@@ -2381,6 +2381,11 @@ static void amb_close(void)
         amb_restore_retro();   /* rescue the adopted retro panel first */
         lv_obj_del(s_amb);
         s_amb = NULL;
+        /* children died with the parent: drop every pointer into them, or
+           the next periodic update writes into freed memory (field crash
+           found on the 7B: weather tick after an ambient cycle) */
+        s_amb_clock = NULL;
+        s_amb_wx = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -3294,7 +3299,7 @@ void ui_set_weather(const char *text)
     if (s_weather_label != NULL) {
         lv_label_set_text(s_weather_label, text);
     }
-    if (s_amb_wx != NULL) {
+    if (s_amb != NULL && s_amb_wx != NULL) {
         lv_label_set_text(s_amb_wx, text);
     }
 }
