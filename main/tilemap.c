@@ -1,4 +1,5 @@
 #include "tilemap.h"
+#include "settings.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -213,8 +214,15 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
                 continue;
             }
             const unsigned char *p = src + x * 4;
+            int r = p[0], g = p[1], b = p[2];
+            if (settings_get()->map_light) {
+                /* one-time lift at decode: v += 30% of headroom (#10) */
+                r += ((255 - r) * 77) >> 8;
+                g += ((255 - g) * 77) >> 8;
+                b += ((255 - b) * 77) >> 8;
+            }
             dst[(size_t)dy * dst_w + dx] =
-                ((p[0] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[2] >> 3);
+                ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         }
     }
     free(rgba);

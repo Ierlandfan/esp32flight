@@ -77,6 +77,8 @@ static const char INDEX_HTML[] =
 "h1 .mark{display:inline-block;transform:rotate(-45deg);margin-right:2px}"
 ".dim{color:#86a695;font-size:14px}"
 "table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}"
+".tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}"
+".tw table{min-width:640px}"
 "th{color:#86a695;text-align:left;padding:6px 8px;border-bottom:1px solid #23402f}"
 "th.r,td.r{text-align:right}td.r{font-variant-numeric:tabular-nums;white-space:nowrap}"
 "td{padding:7px 8px;border-bottom:1px solid #14231b}"
@@ -125,12 +127,14 @@ static const char INDEX_HTML[] =
 "<div id='t_live' class='tabpane on'>"
 "<div class='cards' id='cards'></div>"
 "<div id='map'></div>"
-"<table><thead><tr><th>Flight</th><th>Airline</th><th>Aircraft</th><th>Route</th>"
+"<div class='tw'><table><thead><tr><th>Flight</th><th>Airline</th><th>Aircraft</th><th>Route</th>"
 "<th>Progress</th><th class='r'>Alt</th><th class='r'>Speed</th><th class='r'>Dist</th></tr></thead>"
-"<tbody id='rows'></tbody></table>"
+"<tbody id='rows'></tbody></table></div>"
 "</div>"
 "<div id='t_set' class='tabpane'>"
-"<div id='ota'><span class='dim'>Firmware update (.bin): </span>"
+"<div id='ota'><div class='cfgcard' style='margin:0 0 12px'><h4>Which file do I need?</h4>"
+"<div id='otahelp' class='help'>checking this device...</div></div>"
+"<span class='dim'>Firmware update (.bin): </span>"
 "<input type='file' id='fw'> <button id='otabtn' onclick='ota()' disabled>Flash</button> <span id='otastat' class='dim'></span>"
 "<div class='dim' style='margin-top:8px'>"
 "<a href='/screen.bmp'>screenshot</a> &middot; <a href='/api/state'>api</a> &middot; <a href='/api/log' download='esp32flight-log.tsv'>log CSV</a> &middot; <a href='/metrics'>metrics</a> &middot; "
@@ -167,6 +171,8 @@ static const char INDEX_HTML[] =
 "<label><input type='checkbox' id='c_cls3'> military</label>"
 "<label><input type='checkbox' id='c_cls4'> other</label>"
 "</div><div class='help'>Show only the selected classes. Military comes from the community aircraft database; class of others from the ADS-B emitter category.</div></div>"
+"<div><label>Brighter map tiles</label><select id='c_map_light'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div class='help'>Lifts the dark map style for readability. New tiles only; the device reloads its map after a restart.</div></div>"
 "<div><label>Rain radar overlay</label><select id='c_rain_overlay'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Precipitation from RainViewer blended over the radar and maps.</div></div>"
 "<div><label>Screensaver style</label><select id='c_amb_style'><option value='0'>sky map</option><option value='1'>retro radar</option></select></div>"
@@ -232,10 +238,10 @@ static const char INDEX_HTML[] =
 "<div id='t_hist' class='tabpane'>"
 "<div class='sect'><h3>Spotting history</h3>"
 "<input id='hq' placeholder='filter (callsign, type...)'> <button onclick='loadHist()'>Load</button>"
-"<table><tbody id='hrows'></tbody></table></div>"
+"<div class='tw'><table><tbody id='hrows'></tbody></table></div></div>"
 "<div class='sect'><h3>Alert history</h3>"
 "<div class='help'>Emergency squawks, watchlist hits and flyover predictions that triggered a notification.</div>"
-"<table><tbody id='arows'></tbody></table></div>"
+"<div class='tw'><table><tbody id='arows'></tbody></table></div></div>"
 "</div>"
 "<div id='t_api' class='tabpane'>"
 "<div class='sect api'><h3>HTTP API</h3>"
@@ -288,7 +294,10 @@ static const char INDEX_HTML[] =
 "L.circle([lat,lon],{radius:rkm*1000,color:'#5dd39e',weight:1,fill:false}).addTo(map);"
 "L.circleMarker([lat,lon],{radius:5,color:'#5dd39e',fillOpacity:1}).addTo(map);"
 "map.on('click',()=>{if(routeLine){map.removeLayer(routeLine);routeLine=null;selHex=null;}});"
-"layer=L.layerGroup().addTo(map);}"
+"layer=L.layerGroup().addTo(map);"
+"const inv=()=>map.invalidateSize();"
+"addEventListener('resize',inv);addEventListener('orientationchange',()=>setTimeout(inv,300));"
+"if(window.ResizeObserver)new ResizeObserver(inv).observe(document.getElementById('map'));}"
 "function showRoute(f){if(routeLine)map.removeLayer(routeLine);"
 "routeLine=L.polyline([[f.route.from_lat,f.route.from_lon],[f.lat,f.lon],[f.route.to_lat,f.route.to_lon]],"
 "{color:'#5dd39e',weight:2,dashArray:'4'}).addTo(map);selHex=f.hex;}"
@@ -340,6 +349,14 @@ static const char INDEX_HTML[] =
 "`<div class='card'>Uptime<b>${s.uptime_min||0} min</b></div>`+"
 "((s.days&&s.days.length)?`<div class='card'>Last days<b style='display:flex;align-items:flex-end;gap:2px;height:28px'>${s.days.slice(-14).map(dd=>`<i title='${dd.d}: ${dd.u}' style='display:block;width:8px;background:#5dd39e;height:${Math.max(2,Math.round(28*dd.u/Math.max(...s.days.map(x=>x.u),1)))}px'></i>`).join('')}</b></div>`:'');"
 "const ob=document.getElementById('otabtn');ob.disabled=!d.ota_enabled;"
+"const bn=(d.stats&&d.stats.board)||'';const vv=(d.stats&&d.stats.version)||'X.Y.Z';"
+"const ota7b=/7B/i.test(bn),otaP4=/Tab5/i.test(bn);"
+"document.getElementById('otahelp').innerHTML="
+"`This device reports itself as <b>${bn||'unknown board'}</b>.<br>`+"
+"`Update here with <code>esp32flight-v${vv}-ota.bin</code>`+"
+"(otaP4?` <b>(Tab5 build)</b>`:ota7b?` <b>(7B build)</b>`:``)+"
+"`, taken from the <a href='https://github.com/theqkash/esp32flight/releases/latest'>latest release</a>. `+"
+"`The <code>-full.bin</code> files are only for the very first install over USB, they are not for this page.`;"
 "document.getElementById('otastat').textContent=d.ota_enabled?'':'locked - enable OTA in device settings';"
 "drawMap(d);"
 "document.getElementById('rows').innerHTML=(d.flights||[]).map(f=>{"
@@ -415,6 +432,7 @@ static const char INDEX_HTML[] =
 "c.hide_ground=document.getElementById('c_hide_ground').value==='1';"
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
+"c.map_light=document.getElementById('c_map_light').value==='1';"
 "['taf','iss','sonde','ships','airspace'].forEach(k=>c[k+'_enabled']=document.getElementById('c_'+k+'_enabled').value==='1');"
 "['metric_units','metar_decoded','follow_mode'].forEach(k=>c[k]=document.getElementById('c_'+k).value==='1');"
 "c.favs=favs.map(f=>f&&f.name?f:{name:'',lat:0,lon:0});"
@@ -554,6 +572,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
     cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddBoolToObject(root, "map_light", c->map_light);
     cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
@@ -640,6 +659,9 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "rain_overlay")))) {
         c->rain_overlay = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "map_light")))) {
+        c->map_light = cJSON_IsTrue(j);
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "amb_style")))) {
         c->amb_style = j->valueint == 1 ? 1 : 0;
