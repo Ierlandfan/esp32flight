@@ -160,12 +160,14 @@ static void ch32v003_output(uint8_t pin, uint8_t value)
     ch32v003_reg_write(0x03, s_ch32_out);
 }
 
-/* 0-100; the vendor driver caps at 97 because 100 makes the panel flicker */
+/* 0-100; the vendor driver caps at 97 because 100 makes the panel flicker.
+ * The PWM register is inverted (measured on hardware: 90 -> ~10% light),
+ * so the duty is written as 100-pct. */
 static void ch32v003_backlight_pct(int pct)
 {
     if (pct > 97) pct = 97;
     if (pct < 0) pct = 0;
-    ch32v003_reg_write(0x05, (uint8_t)(pct * 255 / 100));
+    ch32v003_reg_write(0x05, (uint8_t)((100 - pct) * 255 / 100));
 }
 
 /* Board detection: only the Waveshare has the CH422G expander, and probing
