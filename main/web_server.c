@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_app_format.h"
 #include "mbedtls/base64.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -233,6 +234,12 @@ static const char INDEX_HTML[] =
 "<div><label>Local ADS-B receiver (dump1090/readsb)</label><input id='c_local_adsb' placeholder='http://192.168.1.50:8080/data/aircraft.json'>"
 "<div class='help'>Reads aircraft straight from your antenna instead of internet APIs; falls back automatically.</div></div>"
 "</div></div>"
+"<div class='cfgcard'><h4>Backup</h4><div class='grid2'>"
+"<div><label>Download</label><a href='/api/backup' download><button type='button'>Backup settings (JSON)</button></a>"
+"<div class='help'>Everything including Wi-Fi and API keys. Keep it private.</div></div>"
+"<div><label>Restore</label><input type='file' id='bkfile' accept='.json'> <button type='button' onclick='restoreBk()'>Restore and restart</button> <span id='bkstat' class='dim'></span>"
+"<div class='help'>Loads a backup JSON and restarts the device with those settings.</div></div>"
+"</div></div>"
 "<div style='margin-top:14px'><button id='cfgsave' onclick='saveCfg()' disabled>Save and restart</button> <span id='cfgstat' class='dim'></span></div></div>"
 "</div>"
 "<div id='t_hist' class='tabpane'>"
@@ -407,6 +414,13 @@ static const char INDEX_HTML[] =
 "if(!isFinite(la)||!isFinite(lo)){alert('Set coordinates first');return;}"
 "const nm=prompt('Name this location:','')||'';if(!nm)return;"
 "favs[i]={name:nm,lat:la,lon:lo};favRender();}});}"
+"async function restoreBk(){const f=document.getElementById('bkfile').files[0];"
+"if(!f){document.getElementById('bkstat').textContent='pick a file first';return}"
+"const t=await f.text();try{JSON.parse(t)}catch(e){document.getElementById('bkstat').textContent='not valid JSON';return}"
+"document.getElementById('bkstat').textContent='restoring...';"
+"try{const r=await fetch('/api/config',{method:'POST',body:t});"
+"document.getElementById('bkstat').textContent=r.ok?'restored - device restarting':'restore failed';}"
+"catch(e){document.getElementById('bkstat').textContent='restore failed'}}"
 "async function loadCfg(){try{const r=await fetch('/api/config');const c=await r.json();"
 "for(const k in c){const el=document.getElementById('c_'+k);if(!el)continue;"
 "if(el.tagName==='SELECT')el.value=(c[k]===true||c[k]===1||c[k]==='1')?1:( +c[k]||0);else el.value=c[k];}"
@@ -628,10 +642,78 @@ static void set_str_field(const cJSON *root, const char *key, char *dst, size_t 
     }
 }
 
+
+/* Full configuration snapshot, secrets included: the restore path is
+ * simply POSTing this JSON back to /api/config. Keep keys in sync with
+ * config_post. */
+static esp_err_t backup_get(httpd_req_t *req)
+{
+    AUTH_GUARD(req);
+    const settings_t *c = settings_get();
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "ssid", c->wifi_ssid);
+    cJSON_AddStringToObject(root, "pass", c->wifi_pass);
+    cJSON_AddStringToObject(root, "web_pass", c->web_pass);
+    cJSON_AddStringToObject(root, "ntfy_topic", c->ntfy_topic);
+    cJSON_AddStringToObject(root, "mqtt_uri", c->mqtt_uri);
+    cJSON_AddStringToObject(root, "fa_key", c->fa_key);
+    cJSON_AddStringToObject(root, "watch_regs", c->watch_regs);
+    cJSON_AddStringToObject(root, "webhook_url", c->webhook_url);
+    cJSON_AddStringToObject(root, "local_adsb", c->local_adsb);
+    cJSON_AddStringToObject(root, "filter_airport", c->filter_airport);
+    cJSON_AddStringToObject(root, "openaip_key", c->openaip_key);
+    cJSON_AddStringToObject(root, "ais_key", c->ais_key);
+    cJSON_AddBoolToObject(root, "fixed", c->use_fixed_loc);
+    cJSON_AddNumberToObject(root, "lat", c->lat);
+    cJSON_AddNumberToObject(root, "lon", c->lon);
+    cJSON_AddNumberToObject(root, "radius_nm", c->radius_nm);
+    cJSON_AddNumberToObject(root, "theme", c->theme);
+    cJSON_AddNumberToObject(root, "lang", c->lang);
+    cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
+    cJSON_AddBoolToObject(root, "map_light", c->map_light);
+    cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
+    cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
+    cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
+    cJSON_AddBoolToObject(root, "cpa_alerts", c->cpa_alerts);
+    cJSON_AddBoolToObject(root, "cpa_all", c->cpa_all);
+    cJSON_AddBoolToObject(root, "filter_apt_exclude", c->filter_apt_exclude);
+    cJSON_AddBoolToObject(root, "night_enabled", c->night_enabled);
+    cJSON_AddBoolToObject(root, "night_auto", c->night_auto);
+    cJSON_AddNumberToObject(root, "night_start_min", c->night_start_min);
+    cJSON_AddNumberToObject(root, "night_end_min", c->night_end_min);
+    cJSON_AddNumberToObject(root, "ambient_idle_min", c->ambient_idle_min);
+    cJSON_AddNumberToObject(root, "alt_min_ft", c->alt_min_ft);
+    cJSON_AddNumberToObject(root, "alt_max_ft", c->alt_max_ft);
+    cJSON_AddBoolToObject(root, "taf_enabled", c->taf_enabled);
+    cJSON_AddBoolToObject(root, "iss_enabled", c->iss_enabled);
+    cJSON_AddBoolToObject(root, "sonde_enabled", c->sonde_enabled);
+    cJSON_AddBoolToObject(root, "ships_enabled", c->ships_enabled);
+    cJSON_AddBoolToObject(root, "airspace_enabled", c->airspace_enabled);
+    cJSON_AddBoolToObject(root, "metric_units", c->metric_units);
+    cJSON_AddBoolToObject(root, "metar_decoded", c->metar_decoded);
+    cJSON_AddBoolToObject(root, "follow_mode", c->follow_mode);
+    cJSON *favs = cJSON_AddArrayToObject(root, "favs");
+    for (int f = 0; f < 3; f++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "name", c->fav_name[f]);
+        cJSON_AddNumberToObject(e, "lat", c->fav_lat[f]);
+        cJSON_AddNumberToObject(e, "lon", c->fav_lon[f]);
+        cJSON_AddItemToArray(favs, e);
+    }
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Content-Disposition",
+                       "attachment; filename=\"esp32flight-backup.json\"");
+    esp_err_t err = httpd_resp_send(req, json ? json : "{}", HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return err;
+}
+
 static esp_err_t config_post(httpd_req_t *req)
 {
     AUTH_GUARD(req);
-    char body[1024];
+    static char body[4096];   /* config posts and full backup restores */
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty body");
@@ -903,12 +985,40 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     char *buf = malloc(4096);
     int remaining = req->content_len;
+    bool checked = false;
     while (remaining > 0) {
         int n = httpd_req_recv(req, buf, remaining < 4096 ? remaining : 4096);
         if (n <= 0) {
             free(buf);
             esp_ota_abort(ota);
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv failed");
+        }
+        if (!checked && req->content_len - remaining + n > 512) {
+            /* the app descriptor sits early in the image; refuse a binary
+               built for a different board variant before writing further.
+               Variant = the part of the version after the first dash. */
+            checked = true;
+            const esp_app_desc_t *inc =
+                (const esp_app_desc_t *)(buf + sizeof(esp_image_header_t)
+                                             + sizeof(esp_image_segment_header_t));
+            if (inc->magic_word == ESP_APP_DESC_MAGIC_WORD) {
+                const char *run_v = esp_app_get_description()->version;
+                const char *inc_v = inc->version;
+                const char *rd = strchr(run_v, '-');
+                const char *id = strchr(inc_v, '-');
+                bool same = (rd == NULL && id == NULL) ||
+                            (rd != NULL && id != NULL && strcmp(rd, id) == 0);
+                if (!same) {
+                    char msg[160];
+                    snprintf(msg, sizeof(msg),
+                             "wrong build for this board: file is %s, device runs %s",
+                             inc_v, run_v);
+                    ESP_LOGW(TAG, "OTA rejected: %s", msg);
+                    free(buf);
+                    esp_ota_abort(ota);
+                    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
+                }
+            }
         }
         if (esp_ota_write(ota, buf, n) != ESP_OK) {
             free(buf);
@@ -1031,6 +1141,7 @@ void web_server_start(void)
         { .uri = "/api/state", .method = HTTP_GET, .handler = api_get },
         { .uri = "/api/config", .method = HTTP_GET, .handler = config_get },
         { .uri = "/api/config", .method = HTTP_POST, .handler = config_post },
+        { .uri = "/api/backup", .method = HTTP_GET, .handler = backup_get },
         { .uri = "/api/log", .method = HTTP_GET, .handler = log_get },
         { .uri = "/api/alerts", .method = HTTP_GET, .handler = alerts_get },
         { .uri = "/screen.bmp", .method = HTTP_GET, .handler = screen_get },
