@@ -571,6 +571,10 @@ void ui_map_open(const aircraft_t *ac, const route_info_t *rt)
     lv_obj_set_style_radius(s_overlay, 0, 0);
     lv_obj_set_style_pad_all(s_overlay, 0, 0);
     lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    /* gestures are delivered to the first object WITHOUT the bubble flag;
+       with the default flags they bubble past everyone into the void, so
+       swipe-pan never fired anywhere (found via the desktop test build) */
+    lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     lv_obj_add_event_cb(s_overlay, pan_gesture_cb, LV_EVENT_GESTURE, NULL);
 
@@ -579,3 +583,4 @@ void ui_map_open(const aircraft_t *ac, const route_info_t *rt)
     /* a still-running worker will respawn itself for this generation */
     spawn_tiles();
 }
+
