@@ -7,6 +7,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "http_util.h"
@@ -236,6 +237,16 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
         logo_fetch_want(airline_icao);   /* flash already probed: online only */
         return NULL;
     }
+    /* A probe that misses walks the whole SPIFFS object table (~100s of
+     * ms); a first render full of new airlines would stack a dozen of
+     * those and trip the task watchdog. One probe per second - skipped
+     * airlines just try again on a later pass. */
+    static int64_t s_last_probe_us;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - s_last_probe_us < 1000000) {
+        return NULL;
+    }
+    s_last_probe_us = now_us;
     char path[48];
     snprintf(path, sizeof(path), "/assets/logos/%s.png", airline_icao);
     FILE *f = fopen(path, "rb");
