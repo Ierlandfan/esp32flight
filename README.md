@@ -176,6 +176,7 @@ Three supported boards, all running the same code. The 16 MB boards share one bi
 - **Waveshare ESP32-S3-Touch-LCD-7** (7", the original target): ESP32-S3, 16 MB flash, 8 MB PSRAM, 800x480 RGB LCD (ST7262), GT911 capacitive touch. Recommended printable case: [Waveshare 7inch display case on Printables](https://www.printables.com/model/1425850-waveshare-esp32-s3-7inch-capacitive-touch-display).
 - **Waveshare ESP32-S3-Touch-LCD-4.3** (and the 4.3B): same electronics in a smaller panel; the whole Waveshare 800x480 family shares one pinout. Note: 4.3 units ship with an 8 MB flash module (WROOM-1 N8R8) - flash `esp32flight-vX.Y.Z-8mb-full.bin` on those. It bundles the ~330 most common airline logos and fetches the rest on demand from [esp32flight-logos](https://github.com/theqkash/esp32flight-logos).
 - **Guition JC8048W550** (5", budget option, ~$20): same ESP32-S3 class, 800x480 RGB LCD, GT911 touch. Support is new (pinout contributed from a community fork); if you run it, a short "works for me" in the issues is appreciated.
+- **Sunton ESP32-4827S043** (4.3", 480x272, ~$15): the Guition's low-res sibling - same pins, same GT911 (capacitive "C" units only; "R"/resistive and "N"/no-touch units are not supported). The UI renders its 800x480 design proportionally downscaled, so the physical layout matches the Waveshare 4.3 at a lower DPI. Dedicated build (`sdkconfig.board.sunton43`), not part of the auto-detect binary - the pins are identical to the Guition, so the panels cannot be told apart at boot.
 
 ## Building from source
 
