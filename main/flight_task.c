@@ -823,5 +823,13 @@ static void flight_task(void *arg)
 
 void flight_task_start(void)
 {
-    xTaskCreatePinnedToCore(flight_task, "flight_task", 8192, NULL, 4, NULL, 0);
+    BaseType_t ok = xTaskCreatePinnedToCore(flight_task, "flight_task", 8192, NULL, 4, NULL, 0);
+    if (ok != pdPASS) {
+        /* Without this task the radar silently shows "waiting for aircraft"
+         * forever - make the failure loud (seen on 480x272 bring-up: large
+         * bounce buffers fragmented internal RAM below the 8 KB stack). */
+        ESP_LOGE("flight", "flight_task create FAILED (largest free block %u B)",
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        set_status("out of memory - flight task dead");
+    }
 }

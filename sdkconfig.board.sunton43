@@ -3,6 +3,8 @@ CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043=y
 CONFIG_LV_FONT_MONTSERRAT_8=y
 CONFIG_LV_FONT_MONTSERRAT_10=y
 # 272 rows: the RGB driver needs fb_size %% (2 * bounce size) == 0, i.e.
-# 2*height must divide 272 (= 2*8*17). 17 keeps the bounce buffer at the
-# same ~16 KB as the 800x480 default; the 10-row default panics at boot.
-CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=17
+# 2*height must divide 272 (= 2*8*17); the 10-row default panics at boot.
+# 8 rows (not 17): halves the DMA-internal bounce allocation to ~15 KB -
+# at 17 rows internal RAM fragments so far that the 8 KB flight_task stack
+# no longer fits (largest free block 7 KB, task silently never started).
+CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=8
