@@ -146,6 +146,18 @@ menu "Example Configuration"
                     0x24, different protocol, real brightness PWM).
                     The resolution differs, so this is a dedicated
                     build, not part of the auto-detected binary.
+
+            config CANFLIGHT_BOARD_SUNTON_4827S043
+                bool "Sunton ESP32-4827S043 (4.3 inch, 480x272)"
+                help
+                    The low-res 4.3 inch Sunton: same pins as the Guition
+                    JC8048W550 but a 480x272 panel at 8 MHz pclk. The UI
+                    renders its 800x480 design proportionally downscaled
+                    (same physical layout as the Waveshare 4.3, lower
+                    DPI). Dedicated build - the pins match the Guition,
+                    so autodetect cannot tell them apart. Capacitive
+                    (C, GT911) touch only; R (resistive) units are not
+                    supported.
         endchoice
 
         config CANFLIGHT_WIFI_SSID

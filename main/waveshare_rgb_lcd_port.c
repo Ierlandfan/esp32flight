@@ -26,6 +26,7 @@ typedef struct {
     int tp_rst_gpio;            /* when neither expander is present */
     /* RGB timing set (the 1024x600 panel needs its own) */
     int hs_pulse, hs_bp, hs_fp, vs_pulse, vs_bp, vs_fp;
+    int pclk_hz;                /* 0 -> EXAMPLE_LCD_PIXEL_CLOCK_HZ default */
     bool tp_mirror;             /* GT911 reports mirrored coordinates */
 } board_cfg_t;
 
@@ -80,6 +81,28 @@ __attribute__((unused)) static const board_cfg_t k_guition = {
     .tp_rst_gpio = 38,
     .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
     .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
+    .tp_mirror = false,
+};
+
+__attribute__((unused)) static const board_cfg_t k_sunton_4827 = {
+    /* Sunton ESP32-4827S043 (4.3" 480x272): electrically the Guition
+     * JC8048W550's smaller sibling - same RGB wiring, I2C bus, backlight
+     * GPIO and GT911 reset, only the panel and its timings differ.
+     * Pin map and timings from rzeldent/esp32-smartdisplay (working
+     * device). The resolution differs from the 800x480 family, so this
+     * is a dedicated build, never part of the auto-detected binary. */
+    .name = "Sunton ESP32-4827S043 (480x272)",
+    .de = 40, .vsync = 41, .hsync = 39, .pclk = 42,
+    .data = { 8, 3, 46, 9, 1,           /* B0..B4 */
+              5, 6, 7, 15, 16, 4,       /* G0..G5 */
+              45, 48, 47, 21, 14 },     /* R0..R4 */
+    .i2c_sda = 19, .i2c_scl = 20,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = 38,
+    .hs_pulse = 4, .hs_bp = 43, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 12, .vs_fp = 8,
+    .pclk_hz = 8 * 1000 * 1000,
     .tp_mirror = false,
 };
 
@@ -187,6 +210,9 @@ static void board_detect(void)
     /* all helper-MCU pins to output, everything released (high) */
     ch32v003_reg_write(0x02, 0xFF);
     ch32v003_reg_write(0x03, s_ch32_out);
+#elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
+    s_board = &k_sunton_4827;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
 #else
     i2c_master_init(k_waveshare.i2c_sda, k_waveshare.i2c_scl);
     if (ch422g_write(0x24, 0x01) == ESP_OK) {
@@ -261,7 +287,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
     esp_lcd_rgb_panel_config_t panel_config = {
         .clk_src = LCD_CLK_SRC_DEFAULT,
         .timings = {
-            .pclk_hz = EXAMPLE_LCD_PIXEL_CLOCK_HZ,
+            .pclk_hz = s_board->pclk_hz ? s_board->pclk_hz
+                                        : EXAMPLE_LCD_PIXEL_CLOCK_HZ,
             .h_res = EXAMPLE_LCD_H_RES,
             .v_res = EXAMPLE_LCD_V_RES,
             .hsync_pulse_width = s_board->hs_pulse,

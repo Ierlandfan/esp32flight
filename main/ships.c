@@ -216,7 +216,16 @@ void ships_poll(double home_lat, double home_lon)
     }
 }
 
-#ifndef APKFLIGHT
+#if defined(SIMSHOT)
+/* ------------- headless sim: no AIS transport, fleet stays empty ------------- */
+
+static bool tr_active(void)    { return false; }
+static bool tr_connected(void) { return false; }
+static void tr_stop(void)      { clear_fleet(); }
+static void tr_start(void)     { }
+static bool tr_send(const char *buf, size_t len) { (void)buf; (void)len; return false; }
+
+#elif !defined(APKFLIGHT)
 /* ---------------- ESP-IDF transport: esp_websocket_client ---------------- */
 
 #include "esp_crt_bundle.h"
