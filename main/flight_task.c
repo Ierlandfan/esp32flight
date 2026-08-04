@@ -595,6 +595,12 @@ static void flight_task(void *arg)
 
     int radius_nm = settings_get()->radius_nm;
     int consecutive_failures = 0;
+    /* First cycle goes straight to the aircraft fetch: the update check,
+     * weather and METAR are each a 1-3 s TLS handshake, and running them
+     * first kept the screen on "waiting for aircraft" for a minute. They
+     * start on the next cycle, once planes are up (or after 3 dry runs). */
+    bool primed = false;
+    int fetch_attempts = 0;
     int64_t last_weather_ms = -1;
     int64_t last_update_check_ms = -1;
     static weather_t wx;
@@ -637,13 +643,13 @@ static void flight_task(void *arg)
             last_weather_ms = -1;
         }
 #endif
-        if (last_update_check_ms < 0 || tick_ms - last_update_check_ms > 24LL * 3600 * 1000) {
+        if (primed && (last_update_check_ms < 0 || tick_ms - last_update_check_ms > 24LL * 3600 * 1000)) {
             check_updates();
             last_update_check_ms = tick_ms;
         }
         /* Weather for the header, refreshed every 15 min */
         int64_t now_ms = esp_timer_get_time() / 1000;
-        if (last_weather_ms < 0 || now_ms - last_weather_ms > 15 * 60 * 1000) {
+        if (primed && (last_weather_ms < 0 || now_ms - last_weather_ms > 15 * 60 * 1000)) {
             if (weather_fetch(lat, lon, &wx) == ESP_OK) {
                 char wbuf[96];
                 /* wind before the description so truncation trims words, not data */
@@ -676,10 +682,16 @@ static void flight_task(void *arg)
             }
             last_weather_ms = now_ms;
         }
-        extras_poll(lat, lon);
-        ships_poll(lat, lon);
-        airspace_poll(lat, lon);
+        if (primed) {
+            extras_poll(lat, lon);
+            ships_poll(lat, lon);
+            airspace_poll(lat, lon);
+        }
         esp_err_t err = flight_fetch_nearby(lat, lon, radius_nm, list);
+        fetch_attempts++;
+        if (!primed && (err == ESP_OK || fetch_attempts >= 3)) {
+            primed = true;   /* don't starve weather forever on a bad link */
+        }
         if (err == ESP_OK) {
             consecutive_failures = 0;
 
