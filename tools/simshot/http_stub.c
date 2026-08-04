@@ -14,6 +14,13 @@ esp_err_t http_get_to_buffer(const char *url, char *buf, size_t buf_size, size_t
     return ESP_FAIL;
 }
 
+esp_err_t http_get_to_buffer_t(const char *url, char *buf, size_t buf_size, size_t *out_len,
+                               int timeout_ms)
+{
+    (void)timeout_ms;
+    return http_get_to_buffer(url, buf, buf_size, out_len);
+}
+
 esp_err_t http_get_to_buffer_hdr(const char *url, char *buf, size_t buf_size, size_t *out_len,
                                  const char *hdr_key, const char *hdr_val)
 {

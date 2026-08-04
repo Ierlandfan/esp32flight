@@ -96,6 +96,13 @@ static esp_err_t finish(CURL *c, struct curl_slist *hdrs, sink_t *sink,
     return ESP_OK;
 }
 
+esp_err_t http_get_to_buffer_t(const char *url, char *buf, size_t buf_size,
+                               size_t *out_len, int timeout_ms)
+{
+    (void)timeout_ms;   /* desktop libcurl path keeps its own timeouts */
+    return http_get_to_buffer_hdr(url, buf, buf_size, out_len, NULL, NULL);
+}
+
 esp_err_t http_get_to_buffer(const char *url, char *buf, size_t buf_size,
                              size_t *out_len)
 {
