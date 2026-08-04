@@ -2,3 +2,6 @@ CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043=y
 # Downscaled font tiers for the 480x272 panel
 CONFIG_LV_FONT_MONTSERRAT_8=y
 CONFIG_LV_FONT_MONTSERRAT_10=y
+# 272 rows: bounce buffer height must divide V_RES evenly (272 = 16*17;
+# the 10-row default trips "fb size must be even multiple of bounce buffer")
+CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=16
