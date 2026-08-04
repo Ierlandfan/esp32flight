@@ -817,7 +817,7 @@ static void build_list(lv_obj_t *scr)
         /* chip border and rounded corners are baked into the PNG assets */
         lv_obj_t *logo = lv_img_create(row);
         lv_img_set_pivot(logo, 0, 0);
-        lv_img_set_zoom(logo, 256 * 40 / 90);
+        lv_img_set_zoom(logo, 256 * UISY(40) / 90);
         lv_img_set_size_mode(logo, LV_IMG_SIZE_MODE_REAL);
         lv_obj_align(logo, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_flag(logo, LV_OBJ_FLAG_HIDDEN);
@@ -977,6 +977,7 @@ static lv_obj_t *plane_img(lv_obj_t *parent)
 {
     lv_obj_t *im = lv_img_create(parent);
     lv_img_set_src(im, &img_plane);
+    lv_img_set_zoom(im, UIZOOM(256));
     lv_obj_set_style_img_recolor_opa(im, LV_OPA_COVER, 0);
     lv_obj_clear_flag(im, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(im, LV_OBJ_FLAG_HIDDEN);
@@ -1058,7 +1059,7 @@ static void build_map_panel(lv_obj_t *scr)
 
     s_mb_logo = lv_img_create(bubble);
     lv_img_set_pivot(s_mb_logo, 0, 0);
-    lv_img_set_zoom(s_mb_logo, 256 * 48 / 90);
+    lv_img_set_zoom(s_mb_logo, 256 * UISY(48) / 90);
     lv_img_set_size_mode(s_mb_logo, LV_IMG_SIZE_MODE_REAL);
     lv_obj_set_pos(s_mb_logo, 0, 0);
     lv_obj_add_flag(s_mb_logo, LV_OBJ_FLAG_HIDDEN);
@@ -1159,7 +1160,7 @@ static void render_map_panel(void)
 
     if (ac->has_pos) {
         project_emb(ac->lat, ac->lon, &x, &y);
-        lv_obj_set_pos(s_emb_plane, x - UISX(14), y - UISY(14));
+        lv_obj_set_pos(s_emb_plane, x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         lv_img_set_src(s_emb_plane, class_sprite(flight_sprite(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
         lv_obj_set_style_img_recolor(s_emb_plane,
@@ -1424,7 +1425,7 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
     s_radar_blogo = lv_img_create(s_radar_bub);
     lv_img_set_pivot(s_radar_blogo, 0, 0);
-    lv_img_set_zoom(s_radar_blogo, 256 * 36 / 90);
+    lv_img_set_zoom(s_radar_blogo, 256 * UISY(36) / 90);
     lv_img_set_size_mode(s_radar_blogo, LV_IMG_SIZE_MODE_REAL);
     lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
     s_radar_info = make_label(s_radar_bub, UIFONT(&font_pl_14, &font_pl_8), COL_TEXT);
@@ -1467,7 +1468,7 @@ static lv_obj_t *s_x_ship_dot[MAX_SHIP_MARKERS], *s_x_ship_lbl[MAX_SHIP_MARKERS]
 /* overlapping ship labels collapse into count badges with a tap-list */
 #define MAX_SHIP_GROUPS 8
 #define GRP_MEMBERS     48
-#define CLUSTER_PX      46
+#define CLUSTER_PX      UISX(46)
 static lv_obj_t *s_x_grp[MAX_SHIP_GROUPS];
 static ship_t (*s_grp_ships)[GRP_MEMBERS];   /* PSRAM, MAX_SHIP_GROUPS rows */
 static int s_grp_count[MAX_SHIP_GROUPS];
@@ -2000,10 +2001,10 @@ static void render_radar_panel(void)
         }
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
-        lv_obj_set_pos(s_radar_dots[i], x - UISX(14), y - UISY(14));
+        lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         lv_img_set_src(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
-        lv_img_set_zoom(s_radar_dots[i], sel ? 384 : 232);
+        lv_img_set_zoom(s_radar_dots[i], sel ? UIZOOM(384) : UIZOOM(232));
         lv_obj_set_style_img_recolor(s_radar_dots[i],
                                      alt_color(t->alt_ft, t->ground), 0);
         lv_obj_clear_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
@@ -2268,7 +2269,7 @@ static void render_ambient(void)
             continue;
         }
         lv_img_set_src(s_amb_planes[i], class_sprite(s_all[i].fcls));
-        lv_obj_set_pos(s_amb_planes[i], x - UISX(14), y - UISY(14));
+        lv_obj_set_pos(s_amb_planes[i], x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         lv_img_set_angle(s_amb_planes[i], (int)(s_all[i].track * 10));
         lv_obj_set_style_img_recolor(s_amb_planes[i],
                                      alt_color(s_all[i].alt_ft, s_all[i].ground), 0);
@@ -2499,7 +2500,9 @@ static void amb_show(void)
     if (fallback != NULL && !s_amb_view_ok) {
         lv_img_set_src(s_amb_img, fallback);
         lv_img_set_zoom(s_amb_img, (uint16_t)(amb_world_scale() * 256.0f + 0.5f));
-        lv_obj_set_pos(s_amb_img, SCR_W / 2 - UISX(400), UISY(40) + (SCR_H - UISY(80)) / 2 - UISY(200));
+        /* zoom renders around the widget's nominal 800x400 center: offset by
+           half the bitmap, unscaled, so the scaled content lands centered */
+        lv_obj_set_pos(s_amb_img, SCR_W / 2 - 400, UISY(40) + (SCR_H - UISY(80)) / 2 - 200);
     }
 
     s_amb_ring = lv_obj_create(s_amb);
@@ -3039,7 +3042,7 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(s_logo_img, 0, 0);
     lv_obj_set_style_radius(s_logo_img, UISY(12), 0);
     lv_obj_set_style_clip_corner(s_logo_img, true, 0);
-    if (s_big) {   /* logos are ~90px sources; scale to the big tier */
+    if (logo_d != 90) {   /* logos are ~90px sources; scale to the tier */
         lv_img_set_zoom(s_logo_img, 256 * logo_d / 90);
         lv_img_set_pivot(s_logo_img, 0, 0);
         lv_img_set_size_mode(s_logo_img, LV_IMG_SIZE_MODE_REAL);

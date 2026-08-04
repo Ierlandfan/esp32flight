@@ -34,6 +34,12 @@
 #define UISY(v) ((lv_coord_t)(LV_VER_RES < UI_DESIGN_H \
         ? (int32_t)(v) * LV_VER_RES / UI_DESIGN_H : (int32_t)(v)))
 
+/* lv_img zoom values (256 = 1.0). Default-pivot zooms render around the
+ * widget center and keep the nominal box, so centering offsets that pair
+ * with a UIZOOM stay in raw bitmap pixels - never wrap those in UISX/Y. */
+#define UIZOOM(z) ((uint16_t)(LV_HOR_RES < UI_DESIGN_W \
+        ? (uint32_t)(z) * LV_HOR_RES / UI_DESIGN_W : (uint32_t)(z)))
+
 #if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
 #define UIFONT(big, small) (UI_DOWNSCALE ? (small) : (big))
 #else

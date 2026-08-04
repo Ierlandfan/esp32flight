@@ -386,6 +386,7 @@ static void build_content(void)
     if (ac->has_pos) {
         project(ac->lat, ac->lon, &x, &y);
         lv_obj_t *pl = lv_img_create(s_overlay);
+        lv_img_set_zoom(pl, UIZOOM(256));
         switch (flight_sprite(&s_ac)) {
         case FSPR_HELI:    lv_img_set_src(pl, &img_heli); break;
         case FSPR_SMALL:   lv_img_set_src(pl, &img_small); break;
@@ -398,7 +399,7 @@ static void build_content(void)
         lv_obj_set_style_img_recolor(pl, alt_color(ac->alt_baro_ft, ac->on_ground), 0);
         lv_obj_set_style_img_recolor_opa(pl, LV_OPA_COVER, 0);
         lv_img_set_angle(pl, (int)(ac->track_deg * 10));
-        lv_obj_set_pos(pl, x - UISX(14), y - UISY(14));
+        lv_obj_set_pos(pl, x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         if (!have_route) {
             code_label(s_overlay, x + 8, y - 24,
                        ac->callsign[0] ? ac->callsign : ac->hex, COL_PLANE);
