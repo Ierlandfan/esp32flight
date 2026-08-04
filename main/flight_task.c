@@ -722,6 +722,7 @@ static void flight_task(void *arg)
                     ui_update(list);
                     lvgl_port_unlock();
                 }
+                publish_web_state(list, &wx, lat, lon, city, radius_nm);
             }
 
             int lookups = 0;
