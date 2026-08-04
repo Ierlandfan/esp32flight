@@ -7,7 +7,7 @@ CONFIG_LV_FONT_MONTSERRAT_10=y
 # 8 rows (not 17): halves the DMA-internal bounce allocation to ~15 KB -
 # at 17 rows internal RAM fragments so far that the 8 KB flight_task stack
 # no longer fits (largest free block 7 KB, task silently never started).
-CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=4
+CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=17
 # Internal-RAM relief: esp-aes still needs small DMA-internal allocations
 # per TLS record; concurrent lookups (flights+routes+logos) were failing
 # with "esp-aes: Failed to allocate memory". Reclaim ~11 KB internal.
