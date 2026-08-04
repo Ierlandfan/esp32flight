@@ -131,6 +131,32 @@ static void miss_remember(const char *icao)
 static void cache_put(const char *icao, uint8_t *data, size_t size);
 static int cache_evictable_slot(void);
 
+/* ICAOs whose flash probe already missed this boot: a SPIFFS open() that
+ * misses scans the whole object table (~100s of ms on a big partition),
+ * and re-probing every render pass for a dozen pending airlines starves
+ * IDLE0 into the task watchdog. Probe flash once, then leave it to the
+ * online fetch (which fills the RAM cache directly). */
+#define LOGO_ABSENT_MAX 48
+static char s_absent[LOGO_ABSENT_MAX][4];
+static int  s_absent_n;
+
+static bool absent_known(const char *icao)
+{
+    for (int i = 0; i < s_absent_n; i++) {
+        if (strcmp(s_absent[i], icao) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void absent_remember(const char *icao)
+{
+    if (s_absent_n < LOGO_ABSENT_MAX && !absent_known(icao)) {
+        strlcpy(s_absent[s_absent_n++], icao, 4);
+    }
+}
+
 static void logo_fetch_task(void *arg)
 {
     char url[128];
@@ -151,6 +177,19 @@ static void logo_fetch_task(void *arg)
                 lvgl_port_unlock();
             }
             ESP_LOGI(TAG, "%s fetched (%u B)", s_fetching, (unsigned)len);
+            /* keep it for the next boot when the partition has room; the
+             * write happens in this worker, off the render path */
+            size_t fs_total = 0, fs_used = 0;
+            if (esp_spiffs_info("assets", &fs_total, &fs_used) == ESP_OK &&
+                fs_total - fs_used > 1024 * 1024) {
+                char path[48];
+                snprintf(path, sizeof(path), "/assets/logos/%s.png", s_fetching);
+                FILE *f = fopen(path, "wb");
+                if (f != NULL) {
+                    fwrite(buf, 1, len, f);
+                    fclose(f);
+                }
+            }
         }
     } else {
         miss_remember(s_fetching);   /* 404 or offline: don't retry this one */
@@ -193,10 +232,15 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
     if (cache_evictable_slot() < 0) {
         return NULL;   /* cache pinned by the current pass: no I/O storm */
     }
+    if (absent_known(airline_icao)) {
+        logo_fetch_want(airline_icao);   /* flash already probed: online only */
+        return NULL;
+    }
     char path[48];
     snprintf(path, sizeof(path), "/assets/logos/%s.png", airline_icao);
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
+        absent_remember(airline_icao);
         logo_fetch_want(airline_icao);   /* not bundled: try the online set */
         return NULL;
     }
