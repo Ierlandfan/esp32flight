@@ -600,6 +600,7 @@ static void flight_task(void *arg)
      * first kept the screen on "waiting for aircraft" for a minute. They
      * start on the next cycle, once planes are up (or after 3 dry runs). */
     bool primed = false;
+    bool first_shown = false;
     int fetch_attempts = 0;
     int64_t last_weather_ms = -1;
     int64_t last_update_check_ms = -1;
@@ -710,6 +711,17 @@ static void flight_task(void *arg)
                     list->ac[w++] = *ac;
                 }
                 list->count = w;
+            }
+
+            if (!first_shown && list->count > 0) {
+                /* Planes hit the screen before route enrichment: one slow
+                 * route DB (13 s timeouts observed) otherwise keeps the UI
+                 * on "waiting for aircraft" for a minute after boot. */
+                first_shown = true;
+                if (lvgl_port_lock(2000)) {
+                    ui_update(list);
+                    lvgl_port_unlock();
+                }
             }
 
             int lookups = 0;

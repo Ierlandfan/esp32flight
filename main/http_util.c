@@ -32,6 +32,12 @@ static esp_err_t http_event_cb(esp_http_client_event_t *evt)
 
 esp_err_t http_get_to_buffer(const char *url, char *buf, size_t buf_size, size_t *out_len)
 {
+    return http_get_to_buffer_t(url, buf, buf_size, out_len, 12000);
+}
+
+esp_err_t http_get_to_buffer_t(const char *url, char *buf, size_t buf_size, size_t *out_len,
+                               int timeout_ms)
+{
     return http_get_to_buffer_hdr(url, buf, buf_size, out_len, NULL, NULL);
 }
 
@@ -44,7 +50,7 @@ esp_err_t http_get_to_buffer_hdr(const char *url, char *buf, size_t buf_size, si
         .url = url,
         .event_handler = http_event_cb,
         .user_data = &sink,
-        .timeout_ms = 12000,
+        .timeout_ms = timeout_ms,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = false,
         .user_agent = "canflight-esp32/1.0",
