@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui_scale.h"
+
 #include "lvgl.h"
 
 #define THEME_COUNT 7   /* Dark, Light, Black, Nord, Solarized, Purple, Forest */

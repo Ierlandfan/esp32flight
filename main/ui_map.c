@@ -44,8 +44,8 @@ LV_IMG_DECLARE(img_drone);
 /* Map fills the canvas minus the 56px header and 24px footer strip; on the
  * 800x480 device this is the original 800x400. */
 #define MAP_W      LV_HOR_RES
-#define MAP_H      (LV_VER_RES - 80)
-#define MAP_Y      56
+#define MAP_H      (LV_VER_RES - UISY(80))
+#define MAP_Y      UISY(56)
 /* Bundled world.png fallback keeps its native size, centered */
 #define WORLD_W    800
 #define WORLD_H    400
@@ -205,11 +205,11 @@ static void code_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
                        const char *text, lv_color_t color)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(l, color, 0);
     lv_obj_set_style_bg_color(l, COL_BG, 0);
     lv_obj_set_style_bg_opa(l, LV_OPA_70, 0);
-    lv_obj_set_style_pad_hor(l, 4, 0);
+    lv_obj_set_style_pad_hor(l, UISX(4), 0);
     lv_label_set_text(l, text);
     /* keep on screen */
     if (x > MAP_W - 70) {
@@ -294,18 +294,18 @@ static void build_content(void)
                  ac->callsign[0] ? ac->callsign : ac->hex, L()->route_unknown);
     }
     lv_obj_t *tl = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(tl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(tl, UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_color(tl, COL_TEXT, 0);
     lv_label_set_text(tl, title);
-    lv_obj_set_pos(tl, 16, 12);
+    lv_obj_set_pos(tl, UISX(16), UISY(12));
 
     lv_obj_t *btn_close = lv_btn_create(s_overlay);
-    lv_obj_set_size(btn_close, 52, 40);
-    lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, -12, 8);
+    lv_obj_set_size(btn_close, UISX(52), UISY(40));
+    lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, -UISX(12), UISY(8));
     lv_obj_set_style_bg_color(btn_close, COL_PANEL, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
-    lv_obj_set_style_text_font(xl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(xl, UIFONT(&lv_font_montserrat_16, &lv_font_montserrat_10), 0);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);
     lv_obj_center(xl);
 
@@ -398,7 +398,7 @@ static void build_content(void)
         lv_obj_set_style_img_recolor(pl, alt_color(ac->alt_baro_ft, ac->on_ground), 0);
         lv_obj_set_style_img_recolor_opa(pl, LV_OPA_COVER, 0);
         lv_img_set_angle(pl, (int)(ac->track_deg * 10));
-        lv_obj_set_pos(pl, x - 14, y - 14);
+        lv_obj_set_pos(pl, x - UISX(14), y - UISY(14));
         if (!have_route) {
             code_label(s_overlay, x + 8, y - 24,
                        ac->callsign[0] ? ac->callsign : ac->hex, COL_PLANE);
@@ -426,17 +426,17 @@ static void build_content(void)
                  units_speed(ac->gs_kts, us, sizeof(us)), L()->route_unknown);
     }
     lv_obj_t *fl = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(fl, &font_pl_16, 0);
+    lv_obj_set_style_text_font(fl, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_obj_set_style_text_color(fl, COL_DIM, 0);
     lv_label_set_text(fl, foot);
-    lv_obj_align(fl, LV_ALIGN_BOTTOM_LEFT, 16, -6);
+    lv_obj_align(fl, LV_ALIGN_BOTTOM_LEFT, UISX(16), -UISY(6));
 
     /* on-map controls last, so nothing paints over them */
     static const char *zsym[2] = { LV_SYMBOL_PLUS, LV_SYMBOL_MINUS };
     for (int i = 0; i < 2; i++) {
         lv_obj_t *zb = lv_btn_create(s_overlay);
-        lv_obj_set_size(zb, 56, 48);
-        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -12, -92 + i * 56);
+        lv_obj_set_size(zb, UISX(56), UISY(48));
+        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -UISX(12), -UISY(92) + i * UISY(56));
         lv_obj_set_style_bg_color(zb, COL_ACCENT, 0);
         lv_obj_set_style_bg_opa(zb, LV_OPA_90, 0);
         lv_obj_set_style_shadow_width(zb, 12, 0);
@@ -450,12 +450,12 @@ static void build_content(void)
     }
 
     lv_obj_t *attr = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(attr, &font_pl_14, 0);
+    lv_obj_set_style_text_font(attr, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(attr, lv_color_hex(0x9a9a9a), 0);
     lv_label_set_text(attr, settings_get()->rain_overlay
         ? "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO \xC2\xB7 \xC2\xA9 RainViewer"
         : "\xC2\xA9 OSM \xC2\xB7 \xC2\xA9 CARTO");
-    lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -12, -4);
+    lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -UISX(12), -UISY(4));
 }
 
 static void map_tiles_task(void *arg)

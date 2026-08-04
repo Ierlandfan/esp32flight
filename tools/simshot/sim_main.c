@@ -21,6 +21,7 @@
 #include "tilemap.h"
 #include "ui.h"
 #include "ui_map.h"
+#include "ui_settings.h"
 
 int sim_shot_ppm(const char *path);
 void apk_paths_set_base(const char *dir);
@@ -127,6 +128,20 @@ int main(int argc, char **argv)
 
     char path[256];
     for (const char *v = views; *v != '\0'; v++) {
+        if (*v == 's') {   /* settings screen, tabs s0..s3 via next digit */
+            int tab = (v[1] >= '0' && v[1] <= '9') ? *++v - '0' : 0;
+            lvgl_port_lock(-1);
+            ui_settings_open();
+            ui_settings_show_tab(tab);
+            lvgl_port_unlock();
+            pump(2000);
+            snprintf(path, sizeof(path), "%s_settings%d.ppm", prefix, tab);
+            if (sim_shot_ppm(path) != 0) {
+                return 1;
+            }
+            printf("wrote %s\n", path);
+            continue;
+        }
         if (*v < '0' || *v > '9') {
             continue;
         }

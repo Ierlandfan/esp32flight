@@ -42,8 +42,8 @@
 #include "esp_log.h"
 #include "waveshare_rgb_lcd_port.h"
 
-#define LIST_W        310
-#define HEADER_H      48
+#define LIST_W        UISX(310)
+#define HEADER_H      UISY(48)
 #define MAX_SHOWN     40
 
 /* The panel is a fixed 800x480; the app build may register a larger LVGL
@@ -53,10 +53,10 @@
 #define SCR_H  LV_VER_RES
 /* Design height of the hand-composed right-panel blocks (detail/stats);
  * extra vertical space beyond it is distributed at runtime. */
-#define DSN_H  (480 - HEADER_H)
+#define DSN_H  UISY(432)
 /* Inner content width of the right panel (16px side padding). Stretchable
  * elements (bars, grids, charts) span it; on the device it is 458. */
-#define DTL_W  (SCR_W - LIST_W - 32)
+#define DTL_W  (SCR_W - LIST_W - UISX(32))
 /* Vertical surplus of the right panel over the 432px design; the detail
  * sections spread it out evenly (all zero on the device). */
 #define DTL_VEXT (SCR_H - HEADER_H - DSN_H)
@@ -137,7 +137,7 @@ static bool view_shows_ships(void);
 #define VIEW_RETRO  4
 #define VIEW_COUNT  5
 #define EMB_MAP_W   (SCR_W - LIST_W)
-#define EMB_MAP_H   (SCR_H - HEADER_H - 187)   /* info bubble keeps its 169px strip */
+#define EMB_MAP_H   (SCR_H - HEADER_H - UISY(187))   /* info bubble keeps its 169px strip */
 /* Bundled world-map fallback image size (tiles replace it once rendered) */
 #define EMB_BASE_W  490
 #define EMB_BASE_H  245
@@ -248,8 +248,8 @@ static int           s_retro_rain_gen = -1;
 #define RADAR_W  (SCR_W - LIST_W)
 #define RADAR_H  (SCR_H - HEADER_H)
 #define RADAR_CX (RADAR_W / 2)
-#define RADAR_CY (RADAR_H / 2 - 6)
-#define RADAR_R  (LV_MIN(RADAR_CX, RADAR_CY) - 25)
+#define RADAR_CY (RADAR_H / 2 - UISY(6))
+#define RADAR_R  (LV_MIN(RADAR_CX, RADAR_CY) - UISY(25))
 
 /* Radar map background (home-area tiles) */
 static uint16_t     *s_radar_tiles;
@@ -461,25 +461,25 @@ static void ship_popup_show(const ship_t *sh)
 {
     if (s_ship_pop == NULL) {
         s_ship_pop = lv_obj_create(lv_layer_top());
-        lv_obj_set_size(s_ship_pop, 430, 210);
+        lv_obj_set_size(s_ship_pop, UISX(430), UISY(210));
         lv_obj_center(s_ship_pop);
         lv_obj_set_style_bg_color(s_ship_pop, COL_ROW, 0);
         lv_obj_set_style_border_color(s_ship_pop, lv_color_hex(0x4fd1c5), 0);
         lv_obj_set_style_border_width(s_ship_pop, 2, 0);
-        lv_obj_set_style_radius(s_ship_pop, 14, 0);
-        lv_obj_set_style_pad_all(s_ship_pop, 18, 0);
+        lv_obj_set_style_radius(s_ship_pop, UISY(14), 0);
+        lv_obj_set_style_pad_all(s_ship_pop, UISY(18), 0);
         lv_obj_set_style_shadow_width(s_ship_pop, 24, 0);
         lv_obj_set_style_shadow_opa(s_ship_pop, LV_OPA_40, 0);
         lv_obj_clear_flag(s_ship_pop, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(s_ship_pop, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(s_ship_pop, ship_pop_close_cb, LV_EVENT_CLICKED, NULL);
 
-        s_ship_pop_name = make_label(s_ship_pop, &lv_font_montserrat_28, COL_TEXT);
-        lv_obj_align(s_ship_pop_name, LV_ALIGN_TOP_LEFT, 0, -4);
-        s_ship_pop_sub = make_label(s_ship_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
-        lv_obj_align(s_ship_pop_sub, LV_ALIGN_TOP_LEFT, 0, 34);
-        s_ship_pop_info = make_label(s_ship_pop, &font_pl_16, COL_DIM);
-        lv_obj_align(s_ship_pop_info, LV_ALIGN_TOP_LEFT, 0, 72);
+        s_ship_pop_name = make_label(s_ship_pop, UIFONT(&lv_font_montserrat_28, &lv_font_montserrat_16), COL_TEXT);
+        lv_obj_align(s_ship_pop_name, LV_ALIGN_TOP_LEFT, 0, -UISY(4));
+        s_ship_pop_sub = make_label(s_ship_pop, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0x4fd1c5));
+        lv_obj_align(s_ship_pop_sub, LV_ALIGN_TOP_LEFT, 0, UISY(34));
+        s_ship_pop_info = make_label(s_ship_pop, UIFONT(&font_pl_16, &font_pl_10), COL_DIM);
+        lv_obj_align(s_ship_pop_info, LV_ALIGN_TOP_LEFT, 0, UISY(72));
     }
     char nm[28];
     if (sh->name[0]) {
@@ -722,38 +722,38 @@ static void build_header(lv_obj_t *scr)
     lv_obj_set_size(hdr, SCR_W, HEADER_H);
     lv_obj_set_pos(hdr, 0, 0);
 
-    s_weather_label = make_label(hdr, &font_pl_20, COL_ACCENT);
-    lv_obj_set_width(s_weather_label, 340);
+    s_weather_label = make_label(hdr, UIFONT(&font_pl_20, &font_pl_12), COL_ACCENT);
+    lv_obj_set_width(s_weather_label, UISX(340));
     lv_label_set_long_mode(s_weather_label, LV_LABEL_LONG_DOT);
     lv_label_set_text(s_weather_label, LV_SYMBOL_GPS " esp32flight");
-    lv_obj_align(s_weather_label, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_align(s_weather_label, LV_ALIGN_LEFT_MID, UISX(14), 0);
 
-    s_clock_label = make_label(hdr, &font_pl_20, COL_TEXT);
-    lv_obj_align(s_clock_label, LV_ALIGN_CENTER, 60, 0);
+    s_clock_label = make_label(hdr, UIFONT(&font_pl_20, &font_pl_12), COL_TEXT);
+    lv_obj_align(s_clock_label, LV_ALIGN_CENTER, UISX(60), 0);
     lv_label_set_text(s_clock_label, "");
 
-    s_status_label = make_label(hdr, &font_pl_14, COL_DIM);
-    lv_obj_set_width(s_status_label, 205);
+    s_status_label = make_label(hdr, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
+    lv_obj_set_width(s_status_label, UISX(205));
     lv_label_set_long_mode(s_status_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_status_label, LV_ALIGN_RIGHT_MID, -122, 0);
+    lv_obj_align(s_status_label, LV_ALIGN_RIGHT_MID, -UISX(122), 0);
     lv_label_set_text(s_status_label, "...");
 
     lv_obj_t *gear = lv_btn_create(hdr);
-    lv_obj_set_size(gear, 46, 36);
-    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -10, 0);
+    lv_obj_set_size(gear, UISX(46), UISY(36));
+    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -UISX(10), 0);
     lv_obj_set_style_bg_color(gear, COL_ROW, 0);
     lv_obj_add_event_cb(gear, settings_click_cb, LV_EVENT_CLICKED, NULL);
-    s_gear_label = make_label(gear, &lv_font_montserrat_16, COL_TEXT);
+    s_gear_label = make_label(gear, UIFONT(&lv_font_montserrat_16, &lv_font_montserrat_10), COL_TEXT);
     lv_label_set_text(s_gear_label, LV_SYMBOL_SETTINGS);
     lv_obj_center(s_gear_label);
 
     lv_obj_t *mode = lv_btn_create(hdr);
-    lv_obj_set_size(mode, 46, 36);
-    lv_obj_align(mode, LV_ALIGN_RIGHT_MID, -62, 0);
+    lv_obj_set_size(mode, UISX(46), UISY(36));
+    lv_obj_align(mode, LV_ALIGN_RIGHT_MID, -UISX(62), 0);
     lv_obj_set_style_bg_color(mode, COL_ROW, 0);
     lv_obj_add_event_cb(mode, mode_click_cb, LV_EVENT_CLICKED, NULL);
-    s_mode_btn_label = make_label(mode, &lv_font_montserrat_16, COL_TEXT);
+    s_mode_btn_label = make_label(mode, UIFONT(&lv_font_montserrat_16, &lv_font_montserrat_10), COL_TEXT);
     lv_label_set_text(s_mode_btn_label, LV_SYMBOL_LOOP);
     lv_obj_center(s_mode_btn_label);
 }
@@ -764,8 +764,8 @@ static void build_list(lv_obj_t *scr)
     lv_obj_set_size(s_list_panel, LIST_W, SCR_H - HEADER_H);
     lv_obj_set_pos(s_list_panel, 0, HEADER_H);
     lv_obj_set_style_bg_color(s_list_panel, COL_BG, 0);
-    lv_obj_set_style_pad_all(s_list_panel, 8, 0);
-    lv_obj_set_style_pad_row(s_list_panel, 6, 0);
+    lv_obj_set_style_pad_all(s_list_panel, UISY(8), 0);
+    lv_obj_set_style_pad_row(s_list_panel, UISY(6), 0);
     lv_obj_set_flex_flow(s_list_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_list_panel, LV_DIR_VER);
@@ -780,39 +780,39 @@ static void build_list(lv_obj_t *scr)
     lv_btnmatrix_set_one_checked(s_list_mode_btnm, true);
     lv_btnmatrix_set_btn_ctrl_all(s_list_mode_btnm, LV_BTNMATRIX_CTRL_CHECKABLE);
     lv_btnmatrix_set_btn_ctrl(s_list_mode_btnm, 0, LV_BTNMATRIX_CTRL_CHECKED);
-    lv_obj_set_size(s_list_mode_btnm, LIST_W - 16 - 8, 40);
+    lv_obj_set_size(s_list_mode_btnm, LIST_W - UISX(16) - UISX(8), UISY(40));
     lv_obj_set_style_bg_opa(s_list_mode_btnm, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_list_mode_btnm, 0, 0);
     lv_obj_set_style_pad_all(s_list_mode_btnm, 0, 0);
-    lv_obj_set_style_pad_gap(s_list_mode_btnm, 4, 0);
+    lv_obj_set_style_pad_gap(s_list_mode_btnm, UISY(4), 0);
     lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ROW, LV_PART_ITEMS);
     lv_obj_set_style_text_color(s_list_mode_btnm, COL_DIM, LV_PART_ITEMS);
     lv_obj_set_style_bg_color(s_list_mode_btnm, COL_ACCENT,
                               LV_PART_ITEMS | LV_STATE_CHECKED);
     lv_obj_set_style_text_color(s_list_mode_btnm, COL_BG,
                                 LV_PART_ITEMS | LV_STATE_CHECKED);
-    lv_obj_set_style_radius(s_list_mode_btnm, 8, LV_PART_ITEMS);
-    lv_obj_set_style_text_font(s_list_mode_btnm, &font_pl_14, LV_PART_ITEMS);
+    lv_obj_set_style_radius(s_list_mode_btnm, UISY(8), LV_PART_ITEMS);
+    lv_obj_set_style_text_font(s_list_mode_btnm, UIFONT(&font_pl_14, &font_pl_8), LV_PART_ITEMS);
     lv_obj_add_event_cb(s_list_mode_btnm, list_mode_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_flag(s_list_mode_btnm, LV_OBJ_FLAG_HIDDEN);
 
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
-        lv_obj_set_size(row, LIST_W - 16 - 8, 64);
+        lv_obj_set_size(row, LIST_W - UISX(16) - UISX(8), UISY(64));
         lv_obj_set_style_bg_color(row, COL_ROW, 0);
         lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_set_style_radius(row, 8, 0);
-        lv_obj_set_style_pad_all(row, 8, 0);
+        lv_obj_set_style_radius(row, UISY(8), 0);
+        lv_obj_set_style_pad_all(row, UISY(8), 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        lv_obj_t *cs = make_label(row, &lv_font_montserrat_20, COL_TEXT);
-        lv_obj_align(cs, LV_ALIGN_TOP_LEFT, 48, -2);
-        lv_obj_t *type = make_label(row, &lv_font_montserrat_14, COL_ACCENT);
+        lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12), COL_TEXT);
+        lv_obj_align(cs, LV_ALIGN_TOP_LEFT, UISX(48), -2);
+        lv_obj_t *type = make_label(row, UIFONT(&lv_font_montserrat_14, &lv_font_montserrat_8), COL_ACCENT);
         lv_obj_align(type, LV_ALIGN_TOP_RIGHT, 0, 0);
-        lv_obj_t *info = make_label(row, &lv_font_montserrat_12, COL_DIM);
-        lv_obj_align(info, LV_ALIGN_BOTTOM_LEFT, 48, 2);
+        lv_obj_t *info = make_label(row, UIFONT(&lv_font_montserrat_12, &lv_font_montserrat_8), COL_DIM);
+        lv_obj_align(info, LV_ALIGN_BOTTOM_LEFT, UISX(48), 2);
 
         /* chip border and rounded corners are baked into the PNG assets */
         lv_obj_t *logo = lv_img_create(row);
@@ -831,17 +831,17 @@ static lv_obj_t *make_stat(lv_obj_t *parent, int col, int row, const char *name,
 {
     lv_obj_t *box = lv_obj_create(parent);
     int cw = (DTL_W + 10) / 3;         /* 156 on the device */
-    lv_obj_set_size(box, cw - 10, s_big ? 76 : 56);
-    lv_obj_set_pos(box, col * cw, row * (s_big ? 88 : 64));
+    lv_obj_set_size(box, cw - UISX(10), s_big ? UISY(76) : UISY(56));
+    lv_obj_set_pos(box, col * cw, row * (s_big ? UISY(88) : UISY(64)));
     lv_obj_set_style_bg_color(box, COL_ROW, 0);
     lv_obj_set_style_border_width(box, 0, 0);
-    lv_obj_set_style_radius(box, 8, 0);
-    lv_obj_set_style_pad_all(box, 8, 0);
+    lv_obj_set_style_radius(box, UISY(8), 0);
+    lv_obj_set_style_pad_all(box, UISY(8), 0);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *n = make_label(box, &font_pl_14, COL_DIM);
+    lv_obj_t *n = make_label(box, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
     lv_label_set_text(n, name);
-    lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, -4);
+    lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, -UISY(4));
 
     *val_out = make_label(box, s_f_val, COL_TEXT);
     lv_obj_align(*val_out, LV_ALIGN_BOTTOM_LEFT, 0, 2);
@@ -1048,12 +1048,12 @@ static void build_map_panel(lv_obj_t *scr)
 
     /* Info bubble under the map */
     lv_obj_t *bubble = lv_obj_create(s_map_panel);
-    lv_obj_set_size(bubble, SCR_W - LIST_W - 20, SCR_H - HEADER_H - EMB_MAP_H - 18);
-    lv_obj_set_pos(bubble, 10, EMB_MAP_H + 8);
+    lv_obj_set_size(bubble, SCR_W - LIST_W - UISX(20), SCR_H - HEADER_H - EMB_MAP_H - UISY(18));
+    lv_obj_set_pos(bubble, UISX(10), EMB_MAP_H + UISY(8));
     lv_obj_set_style_bg_color(bubble, COL_ROW, 0);
     lv_obj_set_style_border_width(bubble, 0, 0);
-    lv_obj_set_style_radius(bubble, 12, 0);
-    lv_obj_set_style_pad_all(bubble, 12, 0);
+    lv_obj_set_style_radius(bubble, UISY(12), 0);
+    lv_obj_set_style_pad_all(bubble, UISY(12), 0);
     lv_obj_clear_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
 
     s_mb_logo = lv_img_create(bubble);
@@ -1063,25 +1063,25 @@ static void build_map_panel(lv_obj_t *scr)
     lv_obj_set_pos(s_mb_logo, 0, 0);
     lv_obj_add_flag(s_mb_logo, LV_OBJ_FLAG_HIDDEN);
 
-    s_mb_callsign = make_label(bubble, &lv_font_montserrat_24, COL_TEXT);
-    lv_obj_set_pos(s_mb_callsign, 60, 0);
-    s_mb_type = make_label(bubble, &font_pl_14, COL_ACCENT);
-    lv_obj_set_pos(s_mb_type, 60, 30);
+    s_mb_callsign = make_label(bubble, UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14), COL_TEXT);
+    lv_obj_set_pos(s_mb_callsign, UISX(60), 0);
+    s_mb_type = make_label(bubble, UIFONT(&font_pl_14, &font_pl_8), COL_ACCENT);
+    lv_obj_set_pos(s_mb_type, UISX(60), UISY(30));
 
-    s_mb_route = make_label(bubble, &font_pl_16, COL_TEXT);
-    lv_obj_set_pos(s_mb_route, 0, 58);
-    lv_obj_set_width(s_mb_route, SCR_W - LIST_W - 20 - 24);
+    s_mb_route = make_label(bubble, UIFONT(&font_pl_16, &font_pl_10), COL_TEXT);
+    lv_obj_set_pos(s_mb_route, 0, UISY(58));
+    lv_obj_set_width(s_mb_route, SCR_W - LIST_W - UISX(20) - UISX(24));
     lv_label_set_long_mode(s_mb_route, LV_LABEL_LONG_DOT);
 
     s_mb_bar = lv_bar_create(bubble);
-    lv_obj_set_size(s_mb_bar, SCR_W - LIST_W - 20 - 24, 8);
-    lv_obj_set_pos(s_mb_bar, 0, 90);
+    lv_obj_set_size(s_mb_bar, SCR_W - LIST_W - UISX(20) - UISX(24), UISY(8));
+    lv_obj_set_pos(s_mb_bar, 0, UISY(90));
     lv_bar_set_range(s_mb_bar, 0, 100);
     lv_obj_set_style_bg_color(s_mb_bar, COL_PANEL, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_mb_bar, COL_ACCENT, LV_PART_INDICATOR);
 
-    s_mb_stats = make_label(bubble, &font_pl_14, COL_DIM);
-    lv_obj_set_pos(s_mb_stats, 0, 106);
+    s_mb_stats = make_label(bubble, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
+    lv_obj_set_pos(s_mb_stats, 0, UISY(106));
 }
 
 static void render_map_panel(void)
@@ -1146,10 +1146,10 @@ static void render_map_panel(void)
         }
 
         project_emb(rt->origin.lat, rt->origin.lon, &x, &y);
-        lv_obj_set_pos(s_emb_orig, x - 5, y - 5);
+        lv_obj_set_pos(s_emb_orig, x - UISX(5), y - UISY(5));
         lv_obj_clear_flag(s_emb_orig, LV_OBJ_FLAG_HIDDEN);
         project_emb(rt->destination.lat, rt->destination.lon, &x, &y);
-        lv_obj_set_pos(s_emb_dest, x - 5, y - 5);
+        lv_obj_set_pos(s_emb_dest, x - UISX(5), y - UISY(5));
         lv_obj_clear_flag(s_emb_dest, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_emb_line, LV_OBJ_FLAG_HIDDEN);
@@ -1159,7 +1159,7 @@ static void render_map_panel(void)
 
     if (ac->has_pos) {
         project_emb(ac->lat, ac->lon, &x, &y);
-        lv_obj_set_pos(s_emb_plane, x - 14, y - 14);
+        lv_obj_set_pos(s_emb_plane, x - UISX(14), y - UISY(14));
         lv_img_set_src(s_emb_plane, class_sprite(flight_sprite(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
         lv_obj_set_style_img_recolor(s_emb_plane,
@@ -1393,8 +1393,8 @@ static void build_radar_panel(lv_obj_t *scr)
     }
 
     lv_obj_t *home = lv_obj_create(s_radar_panel);
-    lv_obj_set_size(home, 10, 10);
-    lv_obj_set_pos(home, RADAR_CX - 5, RADAR_CY - 5);
+    lv_obj_set_size(home, UISX(10), UISY(10));
+    lv_obj_set_pos(home, RADAR_CX - UISX(5), RADAR_CY - UISY(5));
     lv_obj_set_style_radius(home, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(home, COL_ACCENT, 0);
     lv_obj_set_style_border_width(home, 0, 0);
@@ -1414,9 +1414,9 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_obj_set_style_bg_color(s_radar_bub, COL_PANEL, 0);
     lv_obj_set_style_bg_opa(s_radar_bub, LV_OPA_80, 0);
     lv_obj_set_style_border_width(s_radar_bub, 0, 0);
-    lv_obj_set_style_pad_all(s_radar_bub, 6, 0);
-    lv_obj_set_style_pad_column(s_radar_bub, 8, 0);
-    lv_obj_set_style_radius(s_radar_bub, 6, 0);
+    lv_obj_set_style_pad_all(s_radar_bub, UISY(6), 0);
+    lv_obj_set_style_pad_column(s_radar_bub, UISX(8), 0);
+    lv_obj_set_style_radius(s_radar_bub, UISY(6), 0);
     lv_obj_set_flex_flow(s_radar_bub, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_radar_bub, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -1427,18 +1427,18 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_img_set_zoom(s_radar_blogo, 256 * 36 / 90);
     lv_img_set_size_mode(s_radar_blogo, LV_IMG_SIZE_MODE_REAL);
     lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
-    s_radar_info = make_label(s_radar_bub, &font_pl_14, COL_TEXT);
+    s_radar_info = make_label(s_radar_bub, UIFONT(&font_pl_14, &font_pl_8), COL_TEXT);
     lv_label_set_text(s_radar_info, "");
 
-    lv_obj_t *rattr = make_label(s_radar_panel, &font_pl_14, COL_DIM);
+    lv_obj_t *rattr = make_label(s_radar_panel, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
     lv_label_set_text(rattr, map_attribution());
-    lv_obj_align(rattr, LV_ALIGN_BOTTOM_LEFT, 6, -2);
+    lv_obj_align(rattr, LV_ALIGN_BOTTOM_LEFT, UISX(6), -2);
 
     static const char *rzsym[2] = { LV_SYMBOL_PLUS, LV_SYMBOL_MINUS };
     for (int zi = 0; zi < 2; zi++) {
         lv_obj_t *zb = lv_btn_create(s_radar_panel);
-        lv_obj_set_size(zb, 52, 44);
-        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -10, -78 + zi * 52);
+        lv_obj_set_size(zb, UISX(52), UISY(44));
+        lv_obj_align(zb, LV_ALIGN_BOTTOM_RIGHT, -UISX(10), -UISY(78) + zi * UISY(52));
         lv_obj_set_style_bg_color(zb, COL_ACCENT, 0);
         lv_obj_set_style_bg_opa(zb, LV_OPA_90, 0);
         lv_obj_set_style_shadow_width(zb, 12, 0);
@@ -1451,8 +1451,8 @@ static void build_radar_panel(lv_obj_t *scr)
         lv_obj_center(zl);
     }
 
-    s_radar_range = make_label(s_radar_panel, &font_pl_14, COL_DIM);
-    lv_obj_align(s_radar_range, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
+    s_radar_range = make_label(s_radar_panel, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
+    lv_obj_align(s_radar_range, LV_ALIGN_BOTTOM_RIGHT, -UISX(10), -UISY(6));
     lv_label_set_text(s_radar_range, "");
 }
 
@@ -1513,7 +1513,7 @@ static lv_obj_t *extra_dot(lv_color_t color, int size, int radius)
 static lv_obj_t *extra_lbl(lv_color_t color)
 {
     lv_obj_t *l = lv_label_create(s_radar_panel);
-    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(l, color, 0);
     lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
     return l;
@@ -1618,7 +1618,7 @@ static void render_airspaces(bool map_mode)
         lv_obj_clear_flag(s_x_asp_line[i], LV_OBJ_FLAG_HIDDEN);
         if (lx >= 0 && lx <= RADAR_W - 40 && ly >= 8 && ly <= RADAR_H - 20) {
             lv_label_set_text(s_x_asp_lbl[i], airspace_type_str(a->type));
-            lv_obj_set_pos(s_x_asp_lbl[i], lx + 3, ly - 16);
+            lv_obj_set_pos(s_x_asp_lbl[i], lx + UISX(3), ly - UISY(16));
             lv_obj_clear_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(s_x_asp_lbl[i], LV_OBJ_FLAG_HIDDEN);
@@ -1663,32 +1663,32 @@ static void ship_group_cb(lv_event_t *e)
 
     if (s_grp_pop == NULL) {
         s_grp_pop = lv_obj_create(lv_layer_top());
-        lv_obj_set_size(s_grp_pop, 470, 330);
+        lv_obj_set_size(s_grp_pop, UISX(470), UISY(330));
         lv_obj_center(s_grp_pop);
         lv_obj_set_style_bg_color(s_grp_pop, COL_ROW, 0);
         lv_obj_set_style_border_color(s_grp_pop, lv_color_hex(0x4fd1c5), 0);
         lv_obj_set_style_border_width(s_grp_pop, 2, 0);
-        lv_obj_set_style_radius(s_grp_pop, 14, 0);
-        lv_obj_set_style_pad_all(s_grp_pop, 12, 0);
-        lv_obj_set_style_pad_row(s_grp_pop, 4, 0);
+        lv_obj_set_style_radius(s_grp_pop, UISY(14), 0);
+        lv_obj_set_style_pad_all(s_grp_pop, UISY(12), 0);
+        lv_obj_set_style_pad_row(s_grp_pop, UISY(4), 0);
         lv_obj_set_flex_flow(s_grp_pop, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_scroll_dir(s_grp_pop, LV_DIR_VER);
         lv_obj_add_event_cb(s_grp_pop, grp_pop_close_cb, LV_EVENT_CLICKED, NULL);
     }
     lv_obj_clean(s_grp_pop);
-    lv_obj_t *title = make_label(s_grp_pop, &font_pl_16, lv_color_hex(0x4fd1c5));
+    lv_obj_t *title = make_label(s_grp_pop, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0x4fd1c5));
     lv_label_set_text_fmt(title, "%s \xC2\xB7 %d", L()->lm_ships, s_pop_count);
     for (int k = 0; k < s_pop_count; k++) {
         lv_obj_t *row = lv_obj_create(s_grp_pop);
-        lv_obj_set_size(row, LV_PCT(100), 44);
+        lv_obj_set_size(row, LV_PCT(100), UISY(44));
         lv_obj_set_style_bg_color(row, COL_PANEL, 0);
         lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_set_style_radius(row, 8, 0);
-        lv_obj_set_style_pad_all(row, 8, 0);
+        lv_obj_set_style_radius(row, UISY(8), 0);
+        lv_obj_set_style_pad_all(row, UISY(8), 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, grp_row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
-        lv_obj_t *nm = make_label(row, &font_pl_16, COL_TEXT);
+        lv_obj_t *nm = make_label(row, UIFONT(&font_pl_16, &font_pl_10), COL_TEXT);
         char nb[26];
         if (s_pop_ships[k].name[0]) {
             strlcpy(nb, s_pop_ships[k].name, sizeof(nb));
@@ -1697,7 +1697,7 @@ static void ship_group_cb(lv_event_t *e)
         }
         lv_label_set_text(nm, nb);
         lv_obj_align(nm, LV_ALIGN_LEFT_MID, 0, 0);
-        lv_obj_t *inf = make_label(row, &font_pl_14, COL_DIM);
+        lv_obj_t *inf = make_label(row, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
         char ib[52], us[20];
         snprintf(ib, sizeof(ib), "%s  %s  %.1f km",
                  ship_type_word(s_pop_ships[k].stype),
@@ -1716,25 +1716,25 @@ static void render_radar_extras(bool map_mode, int radius_nm)
         s_x_iss_dot = extra_dot(lv_color_hex(0x9be8ff), 12, LV_RADIUS_CIRCLE);
         s_x_iss_lbl = extra_lbl(lv_color_hex(0x9be8ff));
         s_x_iss_status = extra_lbl(lv_color_hex(0x9be8ff));
-        lv_obj_align(s_x_iss_status, LV_ALIGN_TOP_RIGHT, -8, 6);
+        lv_obj_align(s_x_iss_status, LV_ALIGN_TOP_RIGHT, -UISX(8), UISY(6));
         for (int i = 0; i < MAX_SONDES; i++) {
             s_x_sonde_dot[i] = extra_dot(lv_color_hex(0xffb347), 10, LV_RADIUS_CIRCLE);
             s_x_sonde_lbl[i] = extra_lbl(lv_color_hex(0xffb347));
         }
         for (int g = 0; g < MAX_SHIP_GROUPS; g++) {
             lv_obj_t *b = lv_obj_create(s_radar_panel);
-            lv_obj_set_size(b, LV_SIZE_CONTENT, 30);
+            lv_obj_set_size(b, LV_SIZE_CONTENT, UISY(30));
             lv_obj_set_style_bg_color(b, lv_color_hex(0x123a36), 0);
             lv_obj_set_style_border_color(b, lv_color_hex(0x4fd1c5), 0);
             lv_obj_set_style_border_width(b, 1, 0);
-            lv_obj_set_style_radius(b, 15, 0);
-            lv_obj_set_style_pad_hor(b, 10, 0);
-            lv_obj_set_style_pad_ver(b, 4, 0);
+            lv_obj_set_style_radius(b, UISY(15), 0);
+            lv_obj_set_style_pad_hor(b, UISX(10), 0);
+            lv_obj_set_style_pad_ver(b, UISY(4), 0);
             lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(b, ship_group_cb, LV_EVENT_CLICKED,
                                 (void *)(intptr_t)g);
-            lv_obj_t *bl = make_label(b, &font_pl_14, lv_color_hex(0x4fd1c5));
+            lv_obj_t *bl = make_label(b, UIFONT(&font_pl_14, &font_pl_8), lv_color_hex(0x4fd1c5));
             lv_obj_center(bl);
             lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
             s_x_grp[g] = b;
@@ -1754,9 +1754,9 @@ static void render_radar_extras(bool map_mode, int radius_nm)
     bool iss_shown = false, iss_status = false;
     if (extras_get_iss(&iss)) {
         if (radar_place(iss.lat, iss.lon, iss.dist_km, map_mode, radius_nm, &x, &y)) {
-            lv_obj_set_pos(s_x_iss_dot, x - 6, y - 6);
+            lv_obj_set_pos(s_x_iss_dot, x - UISX(6), y - UISY(6));
             lv_label_set_text(s_x_iss_lbl, "ISS");
-            lv_obj_set_pos(s_x_iss_lbl, x + 9, y - 8);
+            lv_obj_set_pos(s_x_iss_lbl, x + UISX(9), y - UISY(8));
             iss_shown = true;
         } else if (iss.elev_deg > 0) {
             lv_label_set_text_fmt(s_x_iss_status, "ISS %d\xC2\xB0 %s",
@@ -1781,14 +1781,14 @@ static void render_radar_extras(bool map_mode, int radius_nm)
                     radar_place(sondes[i].lat, sondes[i].lon, sondes[i].dist_km,
                                 map_mode, radius_nm, &x, &y);
         if (show) {
-            lv_obj_set_pos(s_x_sonde_dot[i], x - 5, y - 5);
+            lv_obj_set_pos(s_x_sonde_dot[i], x - UISX(5), y - UISY(5));
             char slbl[48];
             snprintf(slbl, sizeof(slbl), "%s %s%.1f km",
                      sondes[i].type[0] ? sondes[i].type : "sonde",
                      sondes[i].vel_v >= 0 ? LV_SYMBOL_UP " " : LV_SYMBOL_DOWN " ",
                      (double)(sondes[i].alt_m / 1000.0f));
             lv_label_set_text(s_x_sonde_lbl[i], slbl);
-            lv_obj_set_pos(s_x_sonde_lbl[i], x + 8, y - 8);
+            lv_obj_set_pos(s_x_sonde_lbl[i], x + UISX(8), y - UISY(8));
             lv_obj_clear_flag(s_x_sonde_dot[i], LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_x_sonde_lbl[i], LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -1894,11 +1894,11 @@ static void render_radar_extras(bool map_mode, int radius_nm)
                 if (s_marker_ships == NULL) {
                     break;
                 }
-                lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - 4, py[i] - 4);
+                lv_obj_set_pos(s_x_ship_dot[drawn], px[i] - UISX(4), py[i] - UISY(4));
                 s_marker_ships[drawn] = *sh1;
                 lv_label_set_text(s_x_ship_lbl[drawn],
                                   sh1->name[0] ? sh1->name : "ship");
-                lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + 8, py[i] - 8);
+                lv_obj_set_pos(s_x_ship_lbl[drawn], px[i] + UISX(8), py[i] - UISY(8));
                 lv_obj_clear_flag(s_x_ship_dot[drawn], LV_OBJ_FLAG_HIDDEN);
                 lv_obj_clear_flag(s_x_ship_lbl[drawn], LV_OBJ_FLAG_HIDDEN);
                 drawn++;
@@ -1921,7 +1921,7 @@ static void render_radar_extras(bool map_mode, int radius_nm)
         lv_obj_update_layout(s_x_grp[groups]);
         lv_obj_set_pos(s_x_grp[groups],
                        (int)(gx[g] / gcnt[g]) - lv_obj_get_width(s_x_grp[groups]) / 2,
-                       (int)(gy[g] / gcnt[g]) - 15);
+                       (int)(gy[g] / gcnt[g]) - UISY(15));
         lv_obj_clear_flag(s_x_grp[groups], LV_OBJ_FLAG_HIDDEN);
         groups++;
     }
@@ -1959,7 +1959,7 @@ static void render_radar_panel(void)
         lv_obj_set_pos(s_radar_rings[2], hx - rpx, hy - rpx);
         lv_obj_add_flag(s_radar_rings[0], LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_radar_rings[1], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_pos(s_radar_home, hx - 5, hy - 5);
+        lv_obj_set_pos(s_radar_home, hx - UISX(5), hy - UISY(5));
         lv_label_set_text_fmt(s_radar_range, "%d km", (int)(radius_nm * 1.852));
     } else {
         lv_obj_add_flag(s_radar_img, LV_OBJ_FLAG_HIDDEN);
@@ -1969,7 +1969,7 @@ static void render_radar_panel(void)
             lv_obj_set_size(s_radar_rings[i], r * 2, r * 2);
             lv_obj_set_pos(s_radar_rings[i], RADAR_CX - r, RADAR_CY - r);
         }
-        lv_obj_set_pos(s_radar_home, RADAR_CX - 5, RADAR_CY - 5);
+        lv_obj_set_pos(s_radar_home, RADAR_CX - UISX(5), RADAR_CY - UISY(5));
         lv_label_set_text_fmt(s_radar_range, L()->ring_fmt, (int)(radius_nm * 1.852 / 3));
     }
 
@@ -2000,7 +2000,7 @@ static void render_radar_panel(void)
         }
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
-        lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);
+        lv_obj_set_pos(s_radar_dots[i], x - UISX(14), y - UISY(14));
         lv_img_set_src(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
         lv_img_set_zoom(s_radar_dots[i], sel ? 384 : 232);
@@ -2036,15 +2036,15 @@ static void render_radar_panel(void)
             } else {
                 lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
             }
-            int lx = x + 12, ly = y - 10;
-            if (lx > RADAR_W - 190) {
-                lx = x - 190;
+            int lx = x + UISX(12), ly = y - UISY(10);
+            if (lx > RADAR_W - UISX(190)) {
+                lx = x - UISX(190);
             }
             if (ly < 0) {
                 ly = 0;
             }
-            if (ly > RADAR_H - 60) {
-                ly = RADAR_H - 60;
+            if (ly > RADAR_H - UISY(60)) {
+                ly = RADAR_H - UISY(60);
             }
             lv_obj_set_pos(s_radar_bub, lx, ly);
         }
@@ -2251,7 +2251,7 @@ static void render_ambient(void)
             lv_obj_set_size(s_amb_ring, r * 2, r * 2);
             lv_obj_set_pos(s_amb_ring, hx - r, hy - r);
             lv_obj_clear_flag(s_amb_ring, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(s_amb_home, hx - 4, hy - 4);
+            lv_obj_set_pos(s_amb_home, hx - UISX(4), hy - UISY(4));
             lv_obj_clear_flag(s_amb_home, LV_OBJ_FLAG_HIDDEN);
         }
     }
@@ -2268,7 +2268,7 @@ static void render_ambient(void)
             continue;
         }
         lv_img_set_src(s_amb_planes[i], class_sprite(s_all[i].fcls));
-        lv_obj_set_pos(s_amb_planes[i], x - 14, y - 14);
+        lv_obj_set_pos(s_amb_planes[i], x - UISX(14), y - UISY(14));
         lv_img_set_angle(s_amb_planes[i], (int)(s_all[i].track * 10));
         lv_obj_set_style_img_recolor(s_amb_planes[i],
                                      alt_color(s_all[i].alt_ft, s_all[i].ground), 0);
@@ -2499,7 +2499,7 @@ static void amb_show(void)
     if (fallback != NULL && !s_amb_view_ok) {
         lv_img_set_src(s_amb_img, fallback);
         lv_img_set_zoom(s_amb_img, (uint16_t)(amb_world_scale() * 256.0f + 0.5f));
-        lv_obj_set_pos(s_amb_img, SCR_W / 2 - 400, 40 + (SCR_H - 80) / 2 - 200);
+        lv_obj_set_pos(s_amb_img, SCR_W / 2 - UISX(400), UISY(40) + (SCR_H - UISY(80)) / 2 - UISY(200));
     }
 
     s_amb_ring = lv_obj_create(s_amb);
@@ -2512,7 +2512,7 @@ static void amb_show(void)
     lv_obj_add_flag(s_amb_ring, LV_OBJ_FLAG_HIDDEN);
 
     s_amb_home = lv_obj_create(s_amb);
-    lv_obj_set_size(s_amb_home, 8, 8);
+    lv_obj_set_size(s_amb_home, UISX(8), UISY(8));
     lv_obj_set_style_bg_color(s_amb_home, COL_ACCENT, 0);
     lv_obj_set_style_border_width(s_amb_home, 0, 0);
     lv_obj_set_style_radius(s_amb_home, LV_RADIUS_CIRCLE, 0);
@@ -2524,37 +2524,37 @@ static void amb_show(void)
         lv_obj_add_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
     }
     for (int i = 0; i < MAX_SHOWN; i++) {
-        s_amb_lbls[i] = make_label(s_amb, &font_pl_14, COL_TEXT);
+        s_amb_lbls[i] = make_label(s_amb, UIFONT(&font_pl_14, &font_pl_8), COL_TEXT);
         lv_obj_set_style_bg_color(s_amb_lbls[i], lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_amb_lbls[i], LV_OPA_50, 0);
-        lv_obj_set_style_pad_hor(s_amb_lbls[i], 4, 0);
+        lv_obj_set_style_pad_hor(s_amb_lbls[i], UISX(4), 0);
         lv_obj_add_flag(s_amb_lbls[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    s_amb_selbub = make_label(s_amb, &font_pl_16, lv_color_hex(0xffffff));
+    s_amb_selbub = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xffffff));
     lv_obj_set_style_bg_color(s_amb_selbub, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_amb_selbub, LV_OPA_70, 0);
-    lv_obj_set_style_pad_all(s_amb_selbub, 6, 0);
+    lv_obj_set_style_pad_all(s_amb_selbub, UISY(6), 0);
     lv_obj_set_style_border_width(s_amb_selbub, 1, 0);
     lv_obj_set_style_border_color(s_amb_selbub, COL_ACCENT, 0);
     lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
 
-    s_amb_clock = make_label(s_amb, &lv_font_montserrat_32, lv_color_hex(0xffffff));
+    s_amb_clock = make_label(s_amb, UIFONT(&lv_font_montserrat_32, &lv_font_montserrat_20), lv_color_hex(0xffffff));
     lv_obj_set_style_bg_color(s_amb_clock, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_amb_clock, LV_OPA_40, 0);
-    lv_obj_set_style_pad_all(s_amb_clock, 8, 0);
-    lv_obj_align(s_amb_clock, LV_ALIGN_TOP_LEFT, 10, 8);
+    lv_obj_set_style_pad_all(s_amb_clock, UISY(8), 0);
+    lv_obj_align(s_amb_clock, LV_ALIGN_TOP_LEFT, UISX(10), UISY(8));
     lv_label_set_text(s_amb_clock, "");
 
-    lv_obj_t *attr = make_label(s_amb, &font_pl_14, lv_color_hex(0x777777));
+    lv_obj_t *attr = make_label(s_amb, UIFONT(&font_pl_14, &font_pl_8), lv_color_hex(0x777777));
     lv_label_set_text(attr, map_attribution());
-    lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
+    lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -UISX(8), -UISY(4));
 
-    s_amb_wx = make_label(s_amb, &font_pl_16, lv_color_hex(0xdddddd));
+    s_amb_wx = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xdddddd));
     lv_obj_set_style_bg_color(s_amb_wx, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_amb_wx, LV_OPA_40, 0);
-    lv_obj_set_style_pad_all(s_amb_wx, 6, 0);
-    lv_obj_align(s_amb_wx, LV_ALIGN_TOP_RIGHT, -10, 12);
+    lv_obj_set_style_pad_all(s_amb_wx, UISY(6), 0);
+    lv_obj_align(s_amb_wx, LV_ALIGN_TOP_RIGHT, -UISX(10), UISY(12));
     lv_label_set_text(s_amb_wx, s_weather_txt);
 
     /* home-area tiles for the whole screen */
@@ -2718,8 +2718,8 @@ static void render_retro_panel(void)
         float rad = s_all[i].dir_deg * (float)M_PI / 180.0f;
         int x = cx + (int)(sinf(rad) * frac * r);
         int y = cy - (int)(cosf(rad) * frac * r);
-        lv_obj_set_pos(s_retro_blips[i], x - 3, y - 3);
-        lv_obj_set_pos(s_retro_lbls[i], x + 8, y - 7);
+        lv_obj_set_pos(s_retro_blips[i], x - UISX(3), y - UISY(3));
+        lv_obj_set_pos(s_retro_lbls[i], x + UISX(8), y - UISY(7));
         lv_label_set_text(s_retro_lbls[i], s_all[i].callsign);
         lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
         s_retro_bearing[i] = s_all[i].dir_deg;
@@ -2806,7 +2806,7 @@ static void build_retro_panel(lv_obj_t *scr)
     /* compass letters */
     static const char *dirs[4] = { "N", "E", "S", "W" };
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *l = make_label(s_retro_panel, &lv_font_montserrat_16, RET_COL_DIM);
+        lv_obj_t *l = make_label(s_retro_panel, UIFONT(&lv_font_montserrat_16, &lv_font_montserrat_10), RET_COL_DIM);
         lv_label_set_text(l, dirs[i]);
         int dx = (i == 1) ? r + 8 : (i == 3) ? -r - 18 : -5;
         int dy = (i == 0) ? -r - 20 : (i == 2) ? r + 4 : -10;
@@ -2824,8 +2824,8 @@ static void build_retro_panel(lv_obj_t *scr)
 
     /* home dot */
     lv_obj_t *home = lv_obj_create(s_retro_panel);
-    lv_obj_set_size(home, 6, 6);
-    lv_obj_set_pos(home, cx - 3, cy - 3);
+    lv_obj_set_size(home, UISX(6), UISY(6));
+    lv_obj_set_pos(home, cx - UISX(3), cy - UISY(3));
     lv_obj_set_style_radius(home, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(home, RET_COL_BEAM, 0);
     lv_obj_set_style_border_width(home, 0, 0);
@@ -2834,18 +2834,18 @@ static void build_retro_panel(lv_obj_t *scr)
     /* blips + callsign ghosts */
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         s_retro_blips[i] = lv_obj_create(s_retro_panel);
-        lv_obj_set_size(s_retro_blips[i], 7, 7);
+        lv_obj_set_size(s_retro_blips[i], UISX(7), UISY(7));
         lv_obj_set_style_radius(s_retro_blips[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(s_retro_blips[i], RET_COL_BEAM, 0);
         lv_obj_set_style_border_width(s_retro_blips[i], 0, 0);
         lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
-        s_retro_lbls[i] = make_label(s_retro_panel, &font_pl_14, RET_COL_BEAM);
+        s_retro_lbls[i] = make_label(s_retro_panel, UIFONT(&font_pl_14, &font_pl_8), RET_COL_BEAM);
         lv_obj_add_flag(s_retro_lbls[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    s_retro_info = make_label(s_retro_panel, &font_pl_14, RET_COL_DIM);
-    lv_obj_align(s_retro_info, LV_ALIGN_TOP_RIGHT, -10, 6);
+    s_retro_info = make_label(s_retro_panel, UIFONT(&font_pl_14, &font_pl_8), RET_COL_DIM);
+    lv_obj_align(s_retro_info, LV_ALIGN_TOP_RIGHT, -UISX(10), UISY(6));
 
     lv_timer_create(retro_timer_cb, RETRO_TICK_MS, NULL);
 }
@@ -2862,12 +2862,12 @@ static void build_stats_panel(lv_obj_t *scr)
     lv_obj_set_pos(c, 0, 0);
     lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(c, 0, 0);
-    lv_obj_set_style_pad_all(c, 16, 0);
+    lv_obj_set_style_pad_all(c, UISY(16), 0);
     lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
     /* extra height beyond the 432px design goes into the hourly chart */
     int vext = SCR_H - HEADER_H - DSN_H;
 
-    lv_obj_t *title = make_label(c, &font_pl_20, COL_ACCENT);
+    lv_obj_t *title = make_label(c, UIFONT(&font_pl_20, &font_pl_12), COL_ACCENT);
     lv_label_set_text(title, L()->stats_title);
     lv_obj_set_pos(title, 0, 0);
 
@@ -2876,29 +2876,29 @@ static void build_stats_panel(lv_obj_t *scr)
     const char *names[4] = { L()->st_unique, L()->st_highest, L()->st_fastest, L()->st_farthest };
     for (int i = 0; i < 4; i++) {
         lv_obj_t *box = lv_obj_create(c);
-        lv_obj_set_size(box, tile_w, 62);
-        lv_obj_set_pos(box, i * tile_sp, 36);
+        lv_obj_set_size(box, tile_w, UISY(62));
+        lv_obj_set_pos(box, i * tile_sp, UISY(36));
         lv_obj_set_style_bg_color(box, COL_ROW, 0);
         lv_obj_set_style_border_width(box, 0, 0);
-        lv_obj_set_style_radius(box, 8, 0);
-        lv_obj_set_style_pad_all(box, 8, 0);
+        lv_obj_set_style_radius(box, UISY(8), 0);
+        lv_obj_set_style_pad_all(box, UISY(8), 0);
         lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_t *n = make_label(box, &font_pl_14, COL_DIM);
+        lv_obj_t *n = make_label(box, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
         lv_label_set_text(n, names[i]);
         lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
-        lv_obj_set_size(n, tile_w - 16, 18);
-        lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, -4);
-        s_sv_vals[i] = make_label(box, &font_pl_16, COL_TEXT);
-        lv_obj_align(s_sv_vals[i], LV_ALIGN_BOTTOM_LEFT, 0, 4);
+        lv_obj_set_size(n, tile_w - UISX(16), UISY(18));
+        lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, -UISY(4));
+        s_sv_vals[i] = make_label(box, UIFONT(&font_pl_16, &font_pl_10), COL_TEXT);
+        lv_obj_align(s_sv_vals[i], LV_ALIGN_BOTTOM_LEFT, 0, UISY(4));
     }
 
-    lv_obj_t *ch = make_label(c, &font_pl_14, COL_DIM);
+    lv_obj_t *ch = make_label(c, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
     lv_label_set_text(ch, L()->st_hourly);
-    lv_obj_set_pos(ch, 0, 112);
+    lv_obj_set_pos(ch, 0, UISY(112));
 
     s_sv_chart = lv_chart_create(c);
-    lv_obj_set_size(s_sv_chart, DTL_W, 120 + vext);
-    lv_obj_set_pos(s_sv_chart, 0, 134);
+    lv_obj_set_size(s_sv_chart, DTL_W, UISY(120) + vext);
+    lv_obj_set_pos(s_sv_chart, 0, UISY(134));
     lv_chart_set_type(s_sv_chart, LV_CHART_TYPE_BAR);
     lv_chart_set_point_count(s_sv_chart, 24);
     lv_chart_set_div_line_count(s_sv_chart, 3, 0);
@@ -2907,26 +2907,26 @@ static void build_stats_panel(lv_obj_t *scr)
     lv_obj_set_style_pad_column(s_sv_chart, 2, LV_PART_ITEMS);
     s_sv_series = lv_chart_add_series(s_sv_chart, COL_ACCENT, LV_CHART_AXIS_PRIMARY_Y);
 
-    lv_obj_t *th = make_label(c, &font_pl_14, COL_DIM);
+    lv_obj_t *th = make_label(c, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
     lv_label_set_text(th, L()->st_top_airlines);
-    lv_obj_set_pos(th, 0, 272 + vext);
+    lv_obj_set_pos(th, 0, UISY(272) + vext);
 
     for (int i = 0; i < 8; i++) {
-        s_sv_top[i] = make_label(c, &font_pl_16, COL_TEXT);
-        lv_obj_set_pos(s_sv_top[i], (i % 2) * (DTL_W / 2 + 7), 298 + vext + (i / 2) * 26);
+        s_sv_top[i] = make_label(c, UIFONT(&font_pl_16, &font_pl_10), COL_TEXT);
+        lv_obj_set_pos(s_sv_top[i], (i % 2) * (DTL_W / 2 + UISX(7)), UISY(298) + vext + (i / 2) * UISY(26));
         lv_label_set_text(s_sv_top[i], "");
         if (i >= 6) {
             lv_obj_add_flag(s_sv_top[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
 
-    s_sv_days = make_label(c, &font_pl_14, COL_DIM);
-    lv_obj_align(s_sv_days, LV_ALIGN_TOP_RIGHT, 0, 6);
+    s_sv_days = make_label(c, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
+    lv_obj_align(s_sv_days, LV_ALIGN_TOP_RIGHT, 0, UISY(6));
     lv_label_set_text(s_sv_days, "");
 
-    s_sv_metar = make_label(c, &font_pl_14, COL_DIM);
-    lv_obj_set_pos(s_sv_metar, 0, 378 + vext);
-    lv_obj_set_size(s_sv_metar, DTL_W, 18);
+    s_sv_metar = make_label(c, UIFONT(&font_pl_14, &font_pl_8), COL_DIM);
+    lv_obj_set_pos(s_sv_metar, 0, UISY(378) + vext);
+    lv_obj_set_size(s_sv_metar, DTL_W, UISY(18));
     lv_label_set_long_mode(s_sv_metar, LV_LABEL_LONG_DOT);
     lv_label_set_text(s_sv_metar, "");
 }
@@ -2992,7 +2992,7 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(panel, LIST_W, HEADER_H);
     s_detail_panel = panel;
 
-    s_detail_empty = make_label(panel, &font_pl_20, COL_DIM);
+    s_detail_empty = make_label(panel, UIFONT(&font_pl_20, &font_pl_12), COL_DIM);
     lv_label_set_text(s_detail_empty, L()->waiting_aircraft);
     lv_obj_center(s_detail_empty);
 
@@ -3001,7 +3001,7 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(s_detail_content, 0, 0);
     lv_obj_set_style_bg_opa(s_detail_content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_detail_content, 0, 0);
-    lv_obj_set_style_pad_all(s_detail_content, 16, 0);
+    lv_obj_set_style_pad_all(s_detail_content, UISY(16), 0);
     lv_obj_clear_flag(s_detail_content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
 
@@ -3009,20 +3009,20 @@ static void build_detail(lv_obj_t *scr)
  * fonts are only compiled for those targets. */
 #if defined(APKFLIGHT) || defined(CONFIG_IDF_TARGET_ESP32P4)
     s_big = DTL_VEXT >= 160;
-    s_f_code = s_big ? &lv_font_montserrat_44 : &lv_font_montserrat_32;
-    s_f_val = s_big ? &lv_font_montserrat_28 : &lv_font_montserrat_20;
-    s_f_name = s_big ? &font_pl_20 : &font_pl_16;
-    s_f_small = s_big ? &font_pl_16 : &font_pl_14;
+    s_f_code = s_big ? UIFONT(&lv_font_montserrat_44, &lv_font_montserrat_28) : UIFONT(&lv_font_montserrat_32, &lv_font_montserrat_20);
+    s_f_val = s_big ? UIFONT(&lv_font_montserrat_28, &lv_font_montserrat_16) : UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12);
+    s_f_name = s_big ? UIFONT(&font_pl_20, &font_pl_12) : UIFONT(&font_pl_16, &font_pl_10);
+    s_f_small = s_big ? UIFONT(&font_pl_16, &font_pl_10) : UIFONT(&font_pl_14, &font_pl_8);
 #else
     s_big = false;
-    s_f_code = &lv_font_montserrat_32;
-    s_f_val = &lv_font_montserrat_20;
-    s_f_name = &font_pl_16;
-    s_f_small = &font_pl_14;
+    s_f_code = UIFONT(&lv_font_montserrat_32, &lv_font_montserrat_20);
+    s_f_val = UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12);
+    s_f_name = UIFONT(&font_pl_16, &font_pl_10);
+    s_f_small = UIFONT(&font_pl_14, &font_pl_8);
 #endif
-    s_city_y = (s_big ? 176 : 152) + DTL_Y1;
-    s_dcity_w = s_big ? 260 : 200;
-    int logo_d = s_big ? 128 : 90;
+    s_city_y = (s_big ? UISY(176) : UISY(152)) + DTL_Y1;
+    s_dcity_w = s_big ? UISX(260) : UISX(200);
+    int logo_d = s_big ? UISY(128) : UISY(90);
 
     /* Top: logo + names */
     s_logo_fallback = lv_obj_create(s_detail_content);
@@ -3032,12 +3032,12 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_style_radius(s_logo_fallback, logo_d / 2, 0);
     lv_obj_set_style_border_width(s_logo_fallback, 0, 0);
     lv_obj_clear_flag(s_logo_fallback, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *fb_label = make_label(s_logo_fallback, &lv_font_montserrat_24, COL_TEXT);
+    lv_obj_t *fb_label = make_label(s_logo_fallback, UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14), COL_TEXT);
     lv_obj_center(fb_label);
 
     s_logo_img = lv_img_create(s_detail_content);
     lv_obj_set_pos(s_logo_img, 0, 0);
-    lv_obj_set_style_radius(s_logo_img, 12, 0);
+    lv_obj_set_style_radius(s_logo_img, UISY(12), 0);
     lv_obj_set_style_clip_corner(s_logo_img, true, 0);
     if (s_big) {   /* logos are ~90px sources; scale to the big tier */
         lv_img_set_zoom(s_logo_img, 256 * logo_d / 90);
@@ -3050,12 +3050,12 @@ static void build_detail(lv_obj_t *scr)
     s_callsign_label = make_label(s_detail_content, s_f_code, COL_TEXT);
     lv_obj_set_pos(s_callsign_label, name_x, 0);
     s_airline_label = make_label(s_detail_content, s_f_name, COL_DIM);
-    lv_obj_set_pos(s_airline_label, name_x, s_big ? 56 : 38);
+    lv_obj_set_pos(s_airline_label, name_x, s_big ? UISY(56) : UISY(38));
     s_type_label = make_label(s_detail_content, s_f_name, COL_ACCENT);
-    lv_obj_set_pos(s_type_label, name_x, s_big ? 88 : 62);
+    lv_obj_set_pos(s_type_label, name_x, s_big ? UISY(88) : UISY(62));
 
     lv_obj_t *btn_map = lv_btn_create(s_detail_content);
-    lv_obj_set_size(btn_map, s_big ? 118 : 96, s_big ? 48 : 40);
+    lv_obj_set_size(btn_map, s_big ? UISX(118) : UISX(96), s_big ? UISY(48) : UISY(40));
     lv_obj_align(btn_map, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(btn_map, COL_ROW, 0);
     lv_obj_add_event_cb(btn_map, map_click_cb, LV_EVENT_CLICKED, NULL);
@@ -3064,8 +3064,8 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_center(ml);
 
     lv_obj_t *btn_photo = lv_btn_create(s_detail_content);
-    lv_obj_set_size(btn_photo, s_big ? 72 : 60, s_big ? 48 : 40);
-    lv_obj_align(btn_photo, LV_ALIGN_TOP_RIGHT, s_big ? -128 : -104, 0);
+    lv_obj_set_size(btn_photo, s_big ? UISX(72) : UISX(60), s_big ? UISY(48) : UISY(40));
+    lv_obj_align(btn_photo, LV_ALIGN_TOP_RIGHT, s_big ? -UISX(128) : -UISX(104), 0);
     lv_obj_set_style_bg_color(btn_photo, COL_ROW, 0);
     lv_obj_add_event_cb(btn_photo, photo_click_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *pl = make_label(btn_photo, s_f_name, COL_TEXT);
@@ -3074,7 +3074,7 @@ static void build_detail(lv_obj_t *scr)
 
     /* Route: ORIG -> DEST */
     s_orig_code = make_label(s_detail_content, s_f_code, COL_TEXT);
-    lv_obj_set_pos(s_orig_code, 0, 116 + DTL_Y1);
+    lv_obj_set_pos(s_orig_code, 0, UISY(116) + DTL_Y1);
     s_orig_city = make_label(s_detail_content, s_f_small, COL_DIM);
     lv_obj_set_pos(s_orig_city, 0, s_city_y);
     s_orig_flag = lv_img_create(s_detail_content);
@@ -3082,16 +3082,16 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_add_flag(s_orig_flag, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *arrow = make_label(s_detail_content,
-                                 s_big ? &lv_font_montserrat_32 : &lv_font_montserrat_24,
+                                 s_big ? UIFONT(&lv_font_montserrat_32, &lv_font_montserrat_20) : UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14),
                                  COL_ACCENT);
     lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
-    lv_obj_set_pos(arrow, DTL_W / 2 - (s_big ? 10 : 7), (s_big ? 128 : 122) + DTL_Y1);
+    lv_obj_set_pos(arrow, DTL_W / 2 - (s_big ? UISX(10) : UISX(7)), (s_big ? UISY(128) : UISY(122)) + DTL_Y1);
 
     s_orig_time = make_label(s_detail_content, s_f_name, COL_DIM);
     lv_obj_add_flag(s_orig_time, LV_OBJ_FLAG_HIDDEN);
 
     s_dest_code = make_label(s_detail_content, s_f_code, COL_TEXT);
-    lv_obj_set_pos(s_dest_code, DTL_W - 138, 116 + DTL_Y1);   /* render right-aligns it */
+    lv_obj_set_pos(s_dest_code, DTL_W - UISX(138), UISY(116) + DTL_Y1);   /* render right-aligns it */
 
     s_dest_time = make_label(s_detail_content, s_f_name, COL_DIM);
     lv_obj_add_flag(s_dest_time, LV_OBJ_FLAG_HIDDEN);
@@ -3100,35 +3100,35 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(s_dest_city, DTL_W - s_dcity_w, s_city_y);
     lv_obj_set_width(s_dest_city, s_dcity_w);
     s_dest_flag = lv_img_create(s_detail_content);
-    lv_obj_set_pos(s_dest_flag, DTL_W - 30, s_city_y - 2);
+    lv_obj_set_pos(s_dest_flag, DTL_W - UISX(30), s_city_y - 2);
     lv_obj_add_flag(s_dest_flag, LV_OBJ_FLAG_HIDDEN);
 
     s_progress_bar = lv_bar_create(s_detail_content);
-    lv_obj_set_size(s_progress_bar, DTL_W, s_big ? 16 : 12);
-    lv_obj_set_pos(s_progress_bar, 0, 180 + DTL_Y2);
+    lv_obj_set_size(s_progress_bar, DTL_W, s_big ? UISY(16) : UISY(12));
+    lv_obj_set_pos(s_progress_bar, 0, UISY(180) + DTL_Y2);
     lv_bar_set_range(s_progress_bar, 0, 100);
     lv_obj_set_style_bg_color(s_progress_bar, COL_ROW, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_progress_bar, COL_ACCENT, LV_PART_INDICATOR);
 
     s_progress_label = make_label(s_detail_content, s_f_small, COL_DIM);
-    lv_obj_set_pos(s_progress_label, 0, (s_big ? 206 : 200) + DTL_Y2);
+    lv_obj_set_pos(s_progress_label, 0, (s_big ? UISY(206) : UISY(200)) + DTL_Y2);
 
     s_look_label = make_label(s_detail_content, s_f_small, COL_ACCENT);
-    lv_obj_set_pos(s_look_label, 0, (s_big ? 231 : 219) + DTL_Y2);
+    lv_obj_set_pos(s_look_label, 0, (s_big ? UISY(231) : UISY(219)) + DTL_Y2);
     lv_obj_set_width(s_look_label, DTL_W);
     lv_label_set_long_mode(s_look_label, LV_LABEL_LONG_DOT);
 
     /* Stats grid */
     lv_obj_t *grid = lv_obj_create(s_detail_content);
-    lv_obj_set_size(grid, DTL_W + 10, s_big ? 172 : 130);
-    lv_obj_set_pos(grid, 0, (s_big ? 252 : 238) + DTL_Y3);
+    lv_obj_set_size(grid, DTL_W + UISX(10), s_big ? UISY(172) : UISY(130));
+    lv_obj_set_pos(grid, 0, (s_big ? UISY(252) : UISY(238)) + DTL_Y3);
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(grid, 0, 0);
     lv_obj_set_style_pad_all(grid, 0, 0);
     lv_obj_clear_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
     s_extra_label = make_label(s_detail_content, s_f_small, COL_DIM);
-    lv_obj_set_pos(s_extra_label, 0, 378 + DTL_VEXT);
+    lv_obj_set_pos(s_extra_label, 0, UISY(378) + DTL_VEXT);
     lv_obj_set_width(s_extra_label, DTL_W);
     lv_label_set_long_mode(s_extra_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_anim_speed(s_extra_label, 12, 0);
@@ -3149,7 +3149,7 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(s_ship_content, 0, 0);
     lv_obj_set_style_bg_opa(s_ship_content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ship_content, 0, 0);
-    lv_obj_set_style_pad_all(s_ship_content, 16, 0);
+    lv_obj_set_style_pad_all(s_ship_content, UISY(16), 0);
     lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
 
@@ -3158,11 +3158,11 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_width(s_ship_name, DTL_W);
     lv_label_set_long_mode(s_ship_name, LV_LABEL_LONG_DOT);
     s_ship_sub = make_label(s_ship_content, s_f_name, lv_color_hex(0x4fd1c5));
-    lv_obj_set_pos(s_ship_sub, 0, s_big ? 62 : 48);
+    lv_obj_set_pos(s_ship_sub, 0, s_big ? UISY(62) : UISY(48));
 
     lv_obj_t *sgrid = lv_obj_create(s_ship_content);
-    lv_obj_set_size(sgrid, DTL_W + 10, s_big ? 172 : 130);
-    lv_obj_set_pos(sgrid, 0, s_big ? 130 : 104);
+    lv_obj_set_size(sgrid, DTL_W + UISX(10), s_big ? UISY(172) : UISY(130));
+    lv_obj_set_pos(sgrid, 0, s_big ? UISY(130) : UISY(104));
     lv_obj_set_style_bg_opa(sgrid, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(sgrid, 0, 0);
     lv_obj_set_style_pad_all(sgrid, 0, 0);
@@ -3271,18 +3271,18 @@ void ui_flyover_banner(const char *callsign, int eta_min, double cpa_km)
         s_flyover_banner = NULL;
     }
     s_flyover_banner = lv_obj_create(lv_layer_top());
-    lv_obj_set_size(s_flyover_banner, 460, 56);
-    lv_obj_align(s_flyover_banner, LV_ALIGN_TOP_MID, 0, 54);
+    lv_obj_set_size(s_flyover_banner, UISX(460), UISY(56));
+    lv_obj_align(s_flyover_banner, LV_ALIGN_TOP_MID, 0, UISY(54));
     lv_obj_set_style_bg_color(s_flyover_banner, lv_color_hex(0xb8860b), 0);
     lv_obj_set_style_border_width(s_flyover_banner, 0, 0);
-    lv_obj_set_style_radius(s_flyover_banner, 10, 0);
+    lv_obj_set_style_radius(s_flyover_banner, UISY(10), 0);
     lv_obj_set_style_shadow_width(s_flyover_banner, 16, 0);
     lv_obj_set_style_shadow_opa(s_flyover_banner, LV_OPA_50, 0);
     lv_obj_clear_flag(s_flyover_banner, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_flyover_banner, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_flyover_banner, flyover_banner_click, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *l = make_label(s_flyover_banner, &font_pl_16, lv_color_hex(0xffffff));
+    lv_obj_t *l = make_label(s_flyover_banner, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xffffff));
     char cpa[64], txt[96];
     snprintf(cpa, sizeof(cpa), L()->cpa_fmt, eta_min, cpa_km);
     snprintf(txt, sizeof(txt), LV_SYMBOL_EYE_OPEN "  %s  \xC2\xB7  %s", callsign, cpa);
@@ -3300,7 +3300,7 @@ void ui_set_status_alert(bool alert)
         lv_obj_set_style_text_color(s_status_label,
                                     alert ? lv_color_hex(0xff5252) : COL_DIM, 0);
         lv_obj_set_style_text_font(s_status_label,
-                                   alert ? &font_pl_20 : &font_pl_14, 0);
+                                   alert ? UIFONT(&font_pl_20, &font_pl_12) : UIFONT(&font_pl_14, &font_pl_8), 0);
     }
 }
 
@@ -3457,7 +3457,7 @@ static void render_detail(void)
         if (ofl != NULL) {
             lv_img_set_src(s_orig_flag, ofl);
             lv_obj_clear_flag(s_orig_flag, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_pos(s_orig_city, flags_width(ofl) + 8, s_city_y);
+            lv_obj_set_pos(s_orig_city, flags_width(ofl) + UISX(8), s_city_y);
         } else {
             lv_obj_add_flag(s_orig_flag, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(s_orig_city, 0, s_city_y);
@@ -3482,7 +3482,7 @@ static void render_detail(void)
             lv_obj_clear_flag(s_dest_flag, LV_OBJ_FLAG_HIDDEN);
             int dfw = flags_width(dfl);
             lv_obj_set_pos(s_dest_flag, DTL_W - dfw, s_city_y - 2);
-            lv_obj_set_width(s_dest_city, s_dcity_w - dfw - 8);
+            lv_obj_set_width(s_dest_city, s_dcity_w - dfw - UISX(8));
         } else {
             lv_obj_add_flag(s_dest_flag, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_width(s_dest_city, s_dcity_w);
@@ -3528,8 +3528,8 @@ static void render_detail(void)
      * airport codes (the code labels are content-sized). */
     lv_obj_update_layout(s_detail_content);
     lv_obj_set_x(s_dest_code, DTL_W - lv_obj_get_width(s_dest_code));
-    lv_obj_align_to(s_orig_time, s_orig_code, LV_ALIGN_OUT_RIGHT_BOTTOM, 10, -6);
-    lv_obj_align_to(s_dest_time, s_dest_code, LV_ALIGN_OUT_LEFT_BOTTOM, -10, -6);
+    lv_obj_align_to(s_orig_time, s_orig_code, LV_ALIGN_OUT_RIGHT_BOTTOM, UISX(10), -UISY(6));
+    lv_obj_align_to(s_dest_time, s_dest_code, LV_ALIGN_OUT_LEFT_BOTTOM, -UISX(10), -UISY(6));
 
     if (ac->on_ground) {
         lv_label_set_text(s_stat_vals[0], L()->ground);
