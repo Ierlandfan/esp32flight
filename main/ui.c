@@ -2422,6 +2422,11 @@ static void amb_close(void)
         }
         s_amb_scale = 1.0f;
         s_amb_sel_cs[0] = '\0';
+        /* ui_update skipped list/right renders while the overlay covered
+         * them; bring the underlying panels back up to date now */
+        render_list_rows();
+        render_list_selection();
+        render_right();
     }
 }
 
@@ -3710,10 +3715,14 @@ void ui_update(const aircraft_list_t *list)
         strlcpy(s_selected_hex, s_shown[0].ac.hex, sizeof(s_selected_hex));
     }
 
-    render_list_rows();
-
-    render_list_selection();
-    render_right();
+    /* The ambient overlay is opaque and full-screen: rendering the list
+     * and right panel under it would invalidate large areas and repaint
+     * the covering map image for nothing. amb_close() re-renders once. */
+    if (s_amb == NULL) {
+        render_list_rows();
+        render_list_selection();
+        render_right();
+    }
     render_ambient();
 }
 

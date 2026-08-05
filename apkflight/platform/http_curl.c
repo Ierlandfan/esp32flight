@@ -132,6 +132,13 @@ esp_err_t http_get_to_buffer_hdr(const char *url, char *buf, size_t buf_size,
     return err;
 }
 
+esp_err_t http_post_to_buffer_t(const char *url, const char *body,
+                                char *buf, size_t buf_size, int timeout_ms)
+{
+    (void)timeout_ms;   /* curl side is fast; the cap matters on-device */
+    return http_post_to_buffer(url, body, buf, buf_size);
+}
+
 esp_err_t http_post_to_buffer(const char *url, const char *body,
                               char *buf, size_t buf_size)
 {

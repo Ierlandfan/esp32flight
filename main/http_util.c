@@ -99,6 +99,12 @@ static esp_err_t get_with_hdr_t(const char *url, char *buf, size_t buf_size, siz
 esp_err_t http_post_to_buffer(const char *url, const char *body,
                               char *buf, size_t buf_size)
 {
+    return http_post_to_buffer_t(url, body, buf, buf_size, 12000);
+}
+
+esp_err_t http_post_to_buffer_t(const char *url, const char *body,
+                                char *buf, size_t buf_size, int timeout_ms)
+{
     sink_t sink = { .buf = buf, .cap = buf_size, .len = 0, .overflow = false };
 
     esp_http_client_config_t config = {
@@ -106,7 +112,7 @@ esp_err_t http_post_to_buffer(const char *url, const char *body,
         .method = HTTP_METHOD_POST,
         .event_handler = http_event_cb,
         .user_data = &sink,
-        .timeout_ms = 12000,
+        .timeout_ms = timeout_ms,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .user_agent = "esp32flight/1.0",
     };

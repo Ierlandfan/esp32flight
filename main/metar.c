@@ -23,7 +23,7 @@ bool metar_fetch(const char *icao)
         return false;
     }
     bool ok = false;
-    if (http_get_to_buffer(url, buf, 4096, NULL) == ESP_OK) {
+    if (http_get_to_buffer_t(url, buf, 4096, NULL, 5000) == ESP_OK) {
         cJSON *root = cJSON_Parse(buf);
         const cJSON *first = cJSON_IsArray(root) ? cJSON_GetArrayItem(root, 0) : NULL;
         const cJSON *raw = first ? cJSON_GetObjectItem(first, "rawOb") : NULL;
@@ -57,7 +57,7 @@ bool taf_fetch(const char *icao)
         return false;
     }
     bool ok = false;
-    if (http_get_to_buffer(url, buf, 2048, NULL) == ESP_OK && buf[0] != '\0') {
+    if (http_get_to_buffer_t(url, buf, 2048, NULL, 5000) == ESP_OK && buf[0] != '\0') {
         /* collapse the pretty-printed continuation lines into one string */
         int o = 0;
         bool sp = false;

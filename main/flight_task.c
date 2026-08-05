@@ -644,50 +644,8 @@ static void flight_task(void *arg)
             last_weather_ms = -1;
         }
 #endif
-        if (primed && (last_update_check_ms < 0 || tick_ms - last_update_check_ms > 24LL * 3600 * 1000)) {
-            check_updates();
-            last_update_check_ms = tick_ms;
-        }
-        /* Weather for the header, refreshed every 15 min */
-        int64_t now_ms = esp_timer_get_time() / 1000;
-        if (primed && (last_weather_ms < 0 || now_ms - last_weather_ms > 15 * 60 * 1000)) {
-            if (weather_fetch(lat, lon, &wx) == ESP_OK) {
-                char wbuf[96];
-                /* wind before the description so truncation trims words, not data */
-                snprintf(wbuf, sizeof(wbuf), "%s %.0f\xC2\xB0""C  \xEF\x9C\xAE %s %.0f  %s",
-                         weather_icon_str(wx.code), (double)wx.temp_c,
-                         wx.wind_dir_deg >= 0 ? lang_compass(wx.wind_dir_deg) : "",
-                         (double)wx.wind_kmh, lang_weather_desc(wx.code));
-                if (lvgl_port_lock(1000)) {
-                    ui_set_weather(wbuf);
-                    lvgl_port_unlock();
-                }
-            }
-            if (metar_station[0] != '\0') {
-                metar_fetch(metar_station);
-                if (settings_get()->taf_enabled) {
-                    taf_fetch(metar_station);
-                }
-            }
-            time_t dnow = time(NULL);
-            if (dnow > 1600000000) {
-                time_t l = dnow + (tz_home_known() ? tz_home_offset() : 0);
-                struct tm tm;
-                gmtime_r(&l, &tm);
-                char date[24];
-                snprintf(date, sizeof(date), "%04d-%02d-%02d",
-                         (tm.tm_year + 1900) % 10000, (tm.tm_mon + 1) % 100,
-                         tm.tm_mday % 100);
-                dailystats_update(date, s_stats.unique, s_stats.max_alt_ft,
-                                  (int)s_stats.max_gs_kt, (int)s_stats.max_dist_km);
-            }
-            last_weather_ms = now_ms;
-        }
-        if (primed) {
-            extras_poll(lat, lon);
-            ships_poll(lat, lon);
-            airspace_poll(lat, lon);
-        }
+        /* Aircraft first: everything else (weather, layers, update check)
+         * runs after the fetch + render, so it can never delay positions. */
         esp_err_t err = flight_fetch_nearby(lat, lon, radius_nm, list);
         fetch_attempts++;
         if (!primed && (err == ESP_OK || fetch_attempts >= 3)) {
@@ -713,10 +671,44 @@ static void flight_task(void *arg)
                 list->count = w;
             }
 
-            if (!first_shown && list->count > 0) {
-                /* Planes hit the screen before route enrichment: one slow
-                 * route DB (13 s timeouts observed) otherwise keeps the UI
-                 * on "waiting for aircraft" for a minute after boot. */
+            /* The airport filter must run before the early render below or
+             * to-be-hidden flights would flash on screen every cycle. It
+             * judges from cached routes only, so it costs nothing; routes
+             * fetched later this cycle take effect next cycle. */
+            const char *fapt0 = settings_get()->filter_airport;
+            if (fapt0[0] != '\0') {
+                int w = 0;
+                bool excl = settings_get()->filter_apt_exclude;
+                for (int i = 0; i < list->count; i++) {
+                    const route_info_t *rt = routes_get_cached(list->ac[i].callsign);
+                    bool match = rt != NULL && rt->valid &&
+                        (strcasecmp(rt->origin.icao, fapt0) == 0 ||
+                         strcasecmp(rt->origin.iata, fapt0) == 0 ||
+                         strcasecmp(rt->destination.icao, fapt0) == 0 ||
+                         strcasecmp(rt->destination.iata, fapt0) == 0);
+                    /* "show only": unknown routes hidden; "hide": kept */
+                    if (excl ? !match : match) {
+                        list->ac[w++] = list->ac[i];
+                    }
+                }
+                list->count = w;
+            }
+
+            /* How many enrichment lookups this cycle will actually hit the
+             * network decides whether an early render pays off: with a warm
+             * cache the cycle finishes in milliseconds anyway. */
+            int top = list->count < ROUTE_LOOKUP_TOP_N ? list->count : ROUTE_LOOKUP_TOP_N;
+            int pending = 0;
+            for (int i = 0; i < top; i++) {
+                const char *cs = list->ac[i].callsign;
+                if (cs[0] != '\0' && routes_get_cached(cs) == NULL) {
+                    pending++;
+                }
+            }
+            bool early_render = (pending > 0 || !first_shown) && list->count > 0;
+            if (early_render) {
+                /* Fresh positions hit the screen before route enrichment:
+                 * one slow route DB otherwise holds the whole frame back. */
                 first_shown = true;
                 if (lvgl_port_lock(2000)) {
                     ui_update(list);
@@ -726,7 +718,6 @@ static void flight_task(void *arg)
             }
 
             int lookups = 0;
-            int top = list->count < ROUTE_LOOKUP_TOP_N ? list->count : ROUTE_LOOKUP_TOP_N;
             for (int i = 0; i < top && lookups < MAX_ROUTE_LOOKUPS_PER_CYCLE; i++) {
                 const char *cs = list->ac[i].callsign;
                 if (cs[0] != '\0' && routes_get_cached(cs) == NULL) {
@@ -734,7 +725,9 @@ static void flight_task(void *arg)
                                  list->ac[i].track_deg, list->ac[i].gs_kts,
                                  list->ac[i].baro_rate_fpm);
                     lookups++;
-                    vTaskDelay(pdMS_TO_TICKS(250));
+                    if (lookups < MAX_ROUTE_LOOKUPS_PER_CYCLE && lookups < pending) {
+                        vTaskDelay(pdMS_TO_TICKS(250));   /* pace the APIs, skip after the last */
+                    }
                 }
             }
 
@@ -816,7 +809,11 @@ static void flight_task(void *arg)
                 ui_update(list);
                 lvgl_port_unlock();
             }
-            publish_web_state(list, &wx, lat, lon, city, radius_nm);
+            /* the early publish already carried this cycle's positions;
+             * repeat only when enrichment could have changed anything */
+            if (!early_render || lookups > 0) {
+                publish_web_state(list, &wx, lat, lon, city, radius_nm);
+            }
 
             /* Home Assistant state */
             char mq[192];
@@ -840,6 +837,53 @@ static void flight_task(void *arg)
             if (consecutive_failures >= 3) {
                 set_status(L()->no_data);
             }
+        }
+
+        /* Housekeeping after the aircraft are on screen (still gated by
+         * primed so a dead link does not starve the first fetch retries). */
+        if (primed && (last_update_check_ms < 0 || tick_ms - last_update_check_ms > 24LL * 3600 * 1000)) {
+            check_updates();
+            last_update_check_ms = tick_ms;
+        }
+        /* Weather for the header, refreshed every 15 min */
+        int64_t now_ms = esp_timer_get_time() / 1000;
+        if (primed && (last_weather_ms < 0 || now_ms - last_weather_ms > 15 * 60 * 1000)) {
+            if (weather_fetch(lat, lon, &wx) == ESP_OK) {
+                char wbuf[96];
+                /* wind before the description so truncation trims words, not data */
+                snprintf(wbuf, sizeof(wbuf), "%s %.0f\xC2\xB0""C  \xEF\x9C\xAE %s %.0f  %s",
+                         weather_icon_str(wx.code), (double)wx.temp_c,
+                         wx.wind_dir_deg >= 0 ? lang_compass(wx.wind_dir_deg) : "",
+                         (double)wx.wind_kmh, lang_weather_desc(wx.code));
+                if (lvgl_port_lock(1000)) {
+                    ui_set_weather(wbuf);
+                    lvgl_port_unlock();
+                }
+            }
+            if (metar_station[0] != '\0') {
+                metar_fetch(metar_station);
+                if (settings_get()->taf_enabled) {
+                    taf_fetch(metar_station);
+                }
+            }
+            time_t dnow = time(NULL);
+            if (dnow > 1600000000) {
+                time_t l = dnow + (tz_home_known() ? tz_home_offset() : 0);
+                struct tm tm;
+                gmtime_r(&l, &tm);
+                char date[24];
+                snprintf(date, sizeof(date), "%04d-%02d-%02d",
+                         (tm.tm_year + 1900) % 10000, (tm.tm_mon + 1) % 100,
+                         tm.tm_mday % 100);
+                dailystats_update(date, s_stats.unique, s_stats.max_alt_ft,
+                                  (int)s_stats.max_gs_kt, (int)s_stats.max_dist_km);
+            }
+            last_weather_ms = now_ms;
+        }
+        if (primed) {
+            extras_poll(lat, lon);
+            ships_poll(lat, lon);
+            airspace_poll(lat, lon);
         }
 
         vTaskDelay(pdMS_TO_TICKS(CONFIG_CANFLIGHT_POLL_SECONDS * 1000));

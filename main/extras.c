@@ -56,8 +56,8 @@ static void fetch_iss(double home_lat, double home_lon)
         return;
     }
     iss_state_t st = { 0 };
-    if (http_get_to_buffer("https://api.wheretheiss.at/v1/satellites/25544",
-                           buf, 1024, NULL) == ESP_OK) {
+    if (http_get_to_buffer_t("https://api.wheretheiss.at/v1/satellites/25544",
+                           buf, 1024, NULL, 5000) == ESP_OK) {
         cJSON *root = cJSON_Parse(buf);
         const cJSON *la = cJSON_GetObjectItem(root, "latitude");
         const cJSON *lo = cJSON_GetObjectItem(root, "longitude");
@@ -97,7 +97,7 @@ static void fetch_sondes(double home_lat, double home_lon)
     }
     sonde_t found[MAX_SONDES];
     int n = 0;
-    if (http_get_to_buffer(url, buf, 24 * 1024, NULL) == ESP_OK) {
+    if (http_get_to_buffer_t(url, buf, 24 * 1024, NULL, 5000) == ESP_OK) {
         cJSON *root = cJSON_Parse(buf);
         for (cJSON *e = root != NULL ? root->child : NULL;
              e != NULL && n < MAX_SONDES; e = e->next) {

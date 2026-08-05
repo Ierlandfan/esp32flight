@@ -247,8 +247,8 @@ static void lol_routeset(char *buf, route_info_t *slot,
                  "{\"planes\":[{\"callsign\":\"%s\",\"lat\":0,\"lng\":0}]}",
                  slot->callsign);
     }
-    if (http_post_to_buffer("https://api.adsb.lol/api/0/routeset", body,
-                            buf, 8192) != ESP_OK) {
+    if (http_post_to_buffer_t("https://api.adsb.lol/api/0/routeset", body,
+                            buf, 8192, 5000) != ESP_OK) {
         return;
     }
     cJSON *root = cJSON_Parse(buf);

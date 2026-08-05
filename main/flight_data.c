@@ -295,11 +295,17 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
         "https://api.adsb.lol/v2/point/%.4f/%.4f/%d",
         "https://opendata.adsb.fi/api/v2/lat/%.4f/lon/%.4f/dist/%d",
     };
+    /* The very first fetch skips the union request: it costs a full TLS
+     * handshake and the boot screen is waiting. MLAT-only targets join
+     * one cycle later and stay (the union runs every cycle after). */
+    static bool s_first_fetch = true;
     esp_err_t err = ESP_FAIL;
     for (int i = 0; i < 3; i++) {
         char url[128];
         snprintf(url, sizeof(url), src_fmt[i], lat, lon, radius_nm);
-        err = http_get_to_buffer(url, buf, FETCH_BUF_SIZE, NULL);
+        /* keep-alive slot per aggregator: steady state re-uses one TLS
+         * connection per host instead of a fresh handshake every cycle */
+        err = http_get_keepalive(i, url, buf, FETCH_BUF_SIZE, NULL);
         if (err == ESP_OK) {
             err = parse_point_response(buf, lat, lon, out);
         }
@@ -308,12 +314,12 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
              * MLAT feeders, so a target the primary cannot multilaterate
              * is often present on the secondary. One extra request per
              * cycle, silently skipped when it fails. */
-            if (i + 1 < 3) {
+            if (i + 1 < 3 && !s_first_fetch) {
                 aircraft_list_t *extra = heap_caps_malloc(sizeof(*extra), MALLOC_CAP_SPIRAM);
                 if (extra != NULL) {
                     char url2[128];
                     snprintf(url2, sizeof(url2), src_fmt[i + 1], lat, lon, radius_nm);
-                    if (http_get_to_buffer(url2, buf, FETCH_BUF_SIZE, NULL) == ESP_OK &&
+                    if (http_get_keepalive(i + 1, url2, buf, FETCH_BUF_SIZE, NULL) == ESP_OK &&
                         parse_point_response(buf, lat, lon, extra) == ESP_OK) {
                         int added = 0;
                         for (int k = 0; k < extra->count && out->count < MAX_AIRCRAFT; k++) {
@@ -341,6 +347,7 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
             if (i > 0) {
                 ESP_LOGI(TAG, "using fallback source %d", i);
             }
+            s_first_fetch = false;
             break;
         }
         ESP_LOGW(TAG, "source %d failed (%s)", i, esp_err_to_name(err));

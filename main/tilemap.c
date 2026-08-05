@@ -202,26 +202,26 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
         return false;
     }
 
+    const bool light = settings_get()->map_light;
+    /* clip the x-range once per tile instead of testing every pixel */
+    int x0 = ox < 0 ? -ox : 0;
+    int x1 = ox + (int)w > dst_w ? dst_w - ox : (int)w;
     for (int y = 0; y < (int)h; y++) {
         int dy = oy + y;
         if (dy < 0 || dy >= dst_h) {
             continue;
         }
         const unsigned char *src = rgba + (size_t)y * w * 4;
-        for (int x = 0; x < (int)w; x++) {
-            int dx = ox + x;
-            if (dx < 0 || dx >= dst_w) {
-                continue;
-            }
+        for (int x = x0; x < x1; x++) {
             const unsigned char *p = src + x * 4;
             int r = p[0], g = p[1], b = p[2];
-            if (settings_get()->map_light) {
+            if (light) {
                 /* one-time lift at decode: v += 30% of headroom (#10) */
                 r += ((255 - r) * 77) >> 8;
                 g += ((255 - g) * 77) >> 8;
                 b += ((255 - b) * 77) >> 8;
             }
-            dst[(size_t)dy * dst_w + dx] =
+            dst[(size_t)dy * dst_w + (ox + x)] =
                 ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         }
     }

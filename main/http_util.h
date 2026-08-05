@@ -20,6 +20,10 @@ esp_err_t http_get_to_buffer_hdr(const char *url, char *buf, size_t buf_size, si
 esp_err_t http_post_to_buffer(const char *url, const char *body,
                               char *buf, size_t buf_size);
 
+/* Same, with a caller-chosen timeout (enrichment gives up fast). */
+esp_err_t http_post_to_buffer_t(const char *url, const char *body,
+                                char *buf, size_t buf_size, int timeout_ms);
+
 /* POST a small text body (used for ntfy notifications). */
 esp_err_t http_post_text(const char *url, const char *body,
                          const char *hdr_key, const char *hdr_val);

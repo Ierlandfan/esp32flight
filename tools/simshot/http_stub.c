@@ -35,6 +35,13 @@ esp_err_t http_post_to_buffer(const char *url, const char *body,
     return ESP_FAIL;
 }
 
+esp_err_t http_post_to_buffer_t(const char *url, const char *body,
+                                char *buf, size_t buf_size, int timeout_ms)
+{
+    (void)url; (void)body; (void)buf; (void)buf_size; (void)timeout_ms;
+    return ESP_FAIL;
+}
+
 esp_err_t http_post_text(const char *url, const char *body,
                          const char *hdr_key, const char *hdr_val)
 {
