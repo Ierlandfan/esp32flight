@@ -29,3 +29,8 @@ build-*/
 .DS_Store
 assets-8mb/
 apkflight/shim/apk_version.h
+
+# rendered test frames
+tools/simshot/*.ppm
+tools/simshot/*.png
+tools/simshot/simshot
