@@ -14,8 +14,18 @@ typedef struct {
                            callers keep the partial view but should retry */
 } tile_view_t;
 
-/* Call once at startup (creates the render serialization mutex). */
+/* Call once at startup (creates the render serialization mutex and the
+ * shared tile worker task). */
 void tilemap_init(void);
+
+/* One persistent worker replaces the per-view spawn-and-die render tasks:
+ * five task types used to allocate 10 KB internal stacks at arbitrary
+ * times and fragment the internal heap (observed: spawn failures under
+ * pressure). Jobs run serialized, which they effectively already were
+ * through the render mutex. Returns false when the queue is full - the
+ * caller resets its busy flag exactly like a failed task spawn. */
+typedef void (*tile_job_fn)(void);
+bool tilemap_worker_submit(tile_job_fn job);
 
 /* Compose a view around the bbox into dst (RGB565, dst_w x dst_h).
  * Returns false when tiles could not be fetched (offline etc.). */

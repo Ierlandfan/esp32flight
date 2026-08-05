@@ -939,7 +939,7 @@ static void tile_scratch_give(void)
     xSemaphoreGive(s_scratch_mux);
 }
 
-static void emb_tiles_task(void *arg)
+static void emb_tiles_job(void)
 {
     char key[24];
     double b[4];
@@ -988,7 +988,6 @@ static void emb_tiles_task(void *arg)
         tile_scratch_give();
     }
     s_emb_busy = false;
-    vTaskDelete(NULL);
 }
 
 /* Kick off (or keep) the tile view for the currently selected flight. */
@@ -1047,9 +1046,8 @@ static void emb_tiles_want(const aircraft_t *ac, const route_info_t *rt)
 
     strlcpy(s_emb_want_key, key, sizeof(s_emb_want_key));
     s_emb_busy = true;
-    if (xTaskCreatePinnedToCore(emb_tiles_task, "emb_tiles", 10240,
-                                NULL, 3, NULL, 0) != pdPASS) {
-        ESP_LOGE(TAG, "emb tiles: task spawn failed (low memory)");
+    if (!tilemap_worker_submit(emb_tiles_job)) {
+        ESP_LOGE(TAG, "emb tiles: worker queue full");
         s_emb_busy = false;
     }
 }
@@ -1304,7 +1302,7 @@ static void render_map_panel(void)
     }
 }
 
-static void radar_tiles_task(void *arg)
+static void radar_tiles_job(void)
 {
     char key[48];
     double b[4];
@@ -1376,7 +1374,6 @@ static void radar_tiles_task(void *arg)
         tile_scratch_give();
     }
     s_radar_busy = false;
-    vTaskDelete(NULL);
 }
 
 static void radar_tiles_want(void)
@@ -1409,9 +1406,8 @@ static void radar_tiles_want(void)
     strlcpy(s_radar_want, key, sizeof(s_radar_want));
     s_radar_busy = true;
     ESP_LOGI(TAG, "radar tiles: spawn for %s", key);
-    if (xTaskCreatePinnedToCore(radar_tiles_task, "radar_tiles", 10240,
-                                NULL, 3, NULL, 0) != pdPASS) {
-        ESP_LOGE(TAG, "radar tiles: task spawn failed (low memory)");
+    if (!tilemap_worker_submit(radar_tiles_job)) {
+        ESP_LOGE(TAG, "radar tiles: worker queue full");
         s_radar_busy = false;
     }
 }
@@ -2203,7 +2199,7 @@ static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
     free(tmp);
 }
 
-static void amb_tiles_task(void *arg)
+static void amb_tiles_job(void)
 {
     char key[48];
     double b[4];
@@ -2278,7 +2274,6 @@ static void amb_tiles_task(void *arg)
         tile_scratch_give();
     }
     s_amb_busy = false;
-    vTaskDelete(NULL);
 }
 
 /* Bundled 800x400 world.png zoomed to fill the ambient screen (1.0 on the
@@ -2326,10 +2321,8 @@ static void amb_spawn_tiles(void)
     s_amb_last_try = esp_timer_get_time() / 1000;
     ESP_LOGI("ui", "ambient tiles: spawning worker");
     s_amb_busy = true;
-    if (xTaskCreatePinnedToCore(amb_tiles_task, "amb_tiles", 10240,
-                                NULL, 3, NULL, 0) != pdPASS) {
-        ESP_LOGE("ui", "ambient tiles: task create FAILED, internal heap %u",
-                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    if (!tilemap_worker_submit(amb_tiles_job)) {
+        ESP_LOGE("ui", "ambient tiles: worker queue full");
         s_amb_busy = false;
     }
 }
@@ -2730,7 +2723,7 @@ static void idle_timer_cb(lv_timer_t *t)
 
 /* ---- Retro radar: phosphor CRT sweep over the same targets ---- */
 
-static void retro_rain_task(void *arg)
+static void retro_rain_job(void)
 {
     int w = RADAR_W, h = RADAR_H;
     if (s_retro_rain_buf == NULL) {
@@ -2760,7 +2753,6 @@ static void retro_rain_task(void *arg)
     s_retro_rain_ms = esp_timer_get_time() / 1000;
     s_retro_rain_gen = rainviewer_generation();
     s_retro_rain_busy = false;
-    vTaskDelete(NULL);
 }
 
 static void retro_rain_want(void)
@@ -2779,8 +2771,7 @@ static void retro_rain_want(void)
         return;
     }
     s_retro_rain_busy = true;
-    if (xTaskCreatePinnedToCore(retro_rain_task, "retro_rain", 10240,
-                                NULL, 3, NULL, 0) != pdPASS) {
+    if (!tilemap_worker_submit(retro_rain_job)) {
         s_retro_rain_busy = false;
     }
 }

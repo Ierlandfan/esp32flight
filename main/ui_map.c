@@ -224,14 +224,13 @@ static void code_label(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
     lv_obj_set_pos(l, x, y);
 }
 
-static void map_tiles_task(void *arg);
+static void map_tiles_job(void);
 
 static void spawn_tiles(void)
 {
     if (!s_tiles_busy) {
         s_tiles_busy = true;
-        if (xTaskCreatePinnedToCore(map_tiles_task, "map_tiles", 10240,
-                                    (void *)(intptr_t)s_generation, 3, NULL, 0) != pdPASS) {
+        if (!tilemap_worker_submit(map_tiles_job)) {
             s_tiles_busy = false;
         }
     }
@@ -459,9 +458,9 @@ static void build_content(void)
     lv_obj_align(attr, LV_ALIGN_BOTTOM_RIGHT, -UISX(12), -UISY(4));
 }
 
-static void map_tiles_task(void *arg)
+static void map_tiles_job(void)
 {
-    int gen = (int)(intptr_t)arg;
+    int gen = s_generation;   /* snapshot; a reopen bumps it and re-queues */
 
     double latmin, latmax, lonmin, lonmax;
     if (s_have_route) {
@@ -483,7 +482,6 @@ static void map_tiles_task(void *arg)
         lonmax = s_ac.lon + 2.0;
     } else {
         s_tiles_busy = false;
-        vTaskDelete(NULL);
         return;
     }
     double mlat = (latmax - latmin) * 0.15 + 0.4;
@@ -536,14 +534,12 @@ static void map_tiles_task(void *arg)
     /* if the overlay was reopened for another flight while we rendered,
      * render again for the current one */
     if (s_overlay != NULL && gen != s_generation) {
-        if (xTaskCreatePinnedToCore(map_tiles_task, "map_tiles", 10240,
-                                    (void *)(intptr_t)s_generation, 3, NULL, 0) != pdPASS) {
+        if (!tilemap_worker_submit(map_tiles_job)) {
             s_tiles_busy = false;
         }
     } else {
         s_tiles_busy = false;
     }
-    vTaskDelete(NULL);
 }
 
 void ui_map_open(const aircraft_t *ac, const route_info_t *rt)

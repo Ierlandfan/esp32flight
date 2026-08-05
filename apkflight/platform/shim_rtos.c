@@ -82,3 +82,68 @@ BaseType_t xSemaphoreGive(SemaphoreHandle_t s)
 {
     return pthread_mutex_unlock((pthread_mutex_t *)s) == 0 ? pdTRUE : pdFALSE;
 }
+
+/* --- minimal queue: mutex + condvar ring buffer (tile worker jobs) --- */
+#include "freertos/queue.h"
+#include <string.h>
+
+struct shim_queue {
+    pthread_mutex_t mux;
+    pthread_cond_t  cv;
+    unsigned len, item, head, count;
+    unsigned char *buf;
+};
+
+QueueHandle_t xQueueCreate(unsigned len, unsigned item_size)
+{
+    struct shim_queue *q = calloc(1, sizeof(*q));
+    if (q == NULL) {
+        return NULL;
+    }
+    q->buf = malloc((size_t)len * item_size);
+    if (q->buf == NULL) {
+        free(q);
+        return NULL;
+    }
+    q->len = len;
+    q->item = item_size;
+    pthread_mutex_init(&q->mux, NULL);
+    pthread_cond_init(&q->cv, NULL);
+    return q;
+}
+
+BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t ticks)
+{
+    (void)ticks;
+    pthread_mutex_lock(&q->mux);
+    if (q->count == q->len) {
+        pthread_mutex_unlock(&q->mux);
+        return 0;   /* full: non-blocking send fails like ticks=0 on-device */
+    }
+    unsigned tail = (q->head + q->count) % q->len;
+    memcpy(q->buf + (size_t)tail * q->item, item, q->item);
+    q->count++;
+    pthread_cond_signal(&q->cv);
+    pthread_mutex_unlock(&q->mux);
+    return 1;
+}
+
+BaseType_t xQueueReceive(QueueHandle_t q, void *item, TickType_t ticks)
+{
+    (void)ticks;   /* only portMAX_DELAY callers exist */
+    pthread_mutex_lock(&q->mux);
+    while (q->count == 0) {
+        pthread_cond_wait(&q->cv, &q->mux);
+    }
+    memcpy(item, q->buf + (size_t)q->head * q->item, q->item);
+    q->head = (q->head + 1) % q->len;
+    q->count--;
+    pthread_mutex_unlock(&q->mux);
+    return 1;
+}
+
+void vQueueDelete(QueueHandle_t q)
+{
+    free(q->buf);
+    free(q);
+}

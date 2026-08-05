@@ -16,6 +16,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 
 static const char *TAG = "tilemap";
 
@@ -24,9 +26,37 @@ static const char *TAG = "tilemap";
  * mbedTLS into alloc failures. */
 static SemaphoreHandle_t s_render_mux;
 
+static QueueHandle_t s_job_q;
+
+static void tile_worker(void *arg)
+{
+    tile_job_fn job;
+    for (;;) {
+        if (xQueueReceive(s_job_q, &job, portMAX_DELAY) == pdTRUE && job != NULL) {
+            job();
+        }
+    }
+}
+
+bool tilemap_worker_submit(tile_job_fn job)
+{
+    if (s_job_q == NULL) {
+        return false;
+    }
+    return xQueueSend(s_job_q, &job, 0) == pdTRUE;
+}
+
 void tilemap_init(void)
 {
     s_render_mux = xSemaphoreCreateMutex();
+    s_job_q = xQueueCreate(8, sizeof(tile_job_fn));
+    if (s_job_q != NULL &&
+        xTaskCreatePinnedToCore(tile_worker, "tile_worker", 10240,
+                                NULL, 3, NULL, 0) != pdPASS) {
+        vQueueDelete(s_job_q);
+        s_job_q = NULL;
+        ESP_LOGE(TAG, "tile worker create FAILED");
+    }
 }
 
 #define TILE_PX     256
