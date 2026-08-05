@@ -10,6 +10,8 @@ typedef struct {
     int    z;           /* tile zoom */
     double px0, py0;    /* view origin in global pixels at zoom z */
     int    w, h;
+    int    missing;     /* base tiles that failed to fetch (0 = complete);
+                           callers keep the partial view but should retry */
 } tile_view_t;
 
 /* Call once at startup (creates the render serialization mutex). */

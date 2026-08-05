@@ -508,6 +508,7 @@ rain_pass:
     out_view->py0 = py0;
     out_view->w = dst_w;
     out_view->h = dst_h;
+    out_view->missing = (layers & TM_LAYER_BASE) ? total - ok : 0;
     return true;
 }
 

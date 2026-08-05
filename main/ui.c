@@ -37,6 +37,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_heap_caps.h"
 #include "lvgl_port.h"
 #include "esp_log.h"
@@ -158,6 +159,7 @@ static lv_img_dsc_t  s_emb_tiles_dsc;
 static tile_view_t   s_emb_view;
 static bool          s_emb_view_ok;
 static char          s_emb_key[24];       /* key of the rendered view */
+static int64_t       s_emb_partial_ms;     /* nonzero: rendered with missing tiles */
 static char          s_emb_want_key[24];  /* key currently being rendered */
 static volatile bool s_emb_busy;
 static double        s_emb_bbox[4];       /* latmin, latmax, lonmin, lonmax */
@@ -189,6 +191,7 @@ static uint16_t *s_amb_tiles;
 static lv_img_dsc_t s_amb_tiles_dsc;
 static tile_view_t s_amb_view;
 static bool s_amb_view_ok;
+static int  s_amb_missing;   /* tiles absent from the current ambient render */
 static volatile bool s_amb_busy;
 static char s_amb_key[48];
 static double s_amb_bbox[4];
@@ -261,6 +264,7 @@ static int    s_radar_spx, s_radar_spy;
 static bool          s_radar_view_ok;
 static volatile bool s_radar_busy;
 static char          s_radar_key[48];
+static int64_t       s_radar_partial_ms;   /* nonzero: rendered with missing tiles */
 static char          s_radar_want[48];
 static double        s_radar_bbox[4];
 static double        s_home_lat, s_home_lon;
@@ -309,6 +313,7 @@ static void render_map_panel(void);
 static void render_radar_panel(void);
 static void render_stats_panel(void);
 static void render_retro_panel(void);
+static void label_set_if_changed(lv_obj_t *l, const char *txt);
 
 static void render_right(void)
 {
@@ -431,9 +436,11 @@ static void clock_timer_cb(lv_timer_t *t)
     }
     struct tm tm;
     home_localtime(now, &tm);
-    lv_label_set_text_fmt(s_clock_label, "%02d:%02d", tm.tm_hour, tm.tm_min);
+    char hm[8];
+    snprintf(hm, sizeof(hm), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    label_set_if_changed(s_clock_label, hm);
     if (s_amb != NULL && s_amb_clock != NULL) {
-        lv_label_set_text_fmt(s_amb_clock, "%02d:%02d", tm.tm_hour, tm.tm_min);
+        label_set_if_changed(s_amb_clock, hm);
     }
 }
 
@@ -676,6 +683,30 @@ static void label_set_if_changed(lv_obj_t *l, const char *txt)
     }
 }
 
+/* LVGL 8 style writes and lv_img_set_src have no old-value compare, so an
+ * unconditional call invalidates (and repaints) even when nothing changed.
+ * Reading the current value back is far cheaper than a needless redraw. */
+static void text_color_if_changed(lv_obj_t *o, lv_color_t c)
+{
+    if (lv_obj_get_style_text_color(o, 0).full != c.full) {
+        lv_obj_set_style_text_color(o, c, 0);
+    }
+}
+
+static void img_recolor_if_changed(lv_obj_t *o, lv_color_t c)
+{
+    if (lv_obj_get_style_img_recolor(o, 0).full != c.full) {
+        lv_obj_set_style_img_recolor(o, c, 0);
+    }
+}
+
+static void img_src_if_changed(lv_obj_t *o, const void *src)
+{
+    if (lv_img_get_src(o) != src) {
+        lv_img_set_src(o, src);
+    }
+}
+
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color)
 {
     lv_obj_t *l = lv_label_create(parent);
@@ -871,6 +902,32 @@ static void project_emb(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
     *y = (lv_coord_t)(EMB_MAP_H / 2 + ((90.0 - lat) / 180.0 - 0.5) * EMB_BASE_H * k);
 }
 
+/* Shared compose scratch: tile workers render a frame here and copy the
+ * finished result to the live buffer under the LVGL lock, so the panel
+ * never shows a half-built frame (background flood + partial tiles used
+ * to flicker on every re-render). One buffer serves all tile views - they
+ * already serialize on the tilemap render mutex - and its own mutex spans
+ * the render-plus-copy window. Lazily allocated, kept for the session. */
+static SemaphoreHandle_t s_scratch_mux;
+static uint16_t *s_tile_scratch;
+
+static uint16_t *tile_scratch_take(void)
+{
+    xSemaphoreTake(s_scratch_mux, portMAX_DELAY);
+    if (s_tile_scratch == NULL) {
+        s_tile_scratch = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
+    }
+    if (s_tile_scratch == NULL) {
+        xSemaphoreGive(s_scratch_mux);
+    }
+    return s_tile_scratch;
+}
+
+static void tile_scratch_give(void)
+{
+    xSemaphoreGive(s_scratch_mux);
+}
+
 static void emb_tiles_task(void *arg)
 {
     char key[24];
@@ -878,19 +935,28 @@ static void emb_tiles_task(void *arg)
     strlcpy(key, s_emb_want_key, sizeof(key));
     memcpy(b, s_emb_bbox, sizeof(b));
 
-    if (s_emb_tiles == NULL) {
-        s_emb_tiles = heap_caps_malloc(EMB_MAP_W * EMB_MAP_H * 2, MALLOC_CAP_SPIRAM);
-    }
+    uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
-    bool ok = s_emb_tiles != NULL &&
-              tilemap_render(s_emb_tiles, EMB_MAP_W, EMB_MAP_H,
+    bool ok = scratch != NULL &&
+              tilemap_render(scratch, EMB_MAP_W, EMB_MAP_H,
                              b[0], b[1], b[2], b[3], &view);
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_emb_want_key) == 0) {
+            if (s_emb_tiles == NULL) {
+                s_emb_tiles = heap_caps_malloc(EMB_MAP_W * EMB_MAP_H * 2, MALLOC_CAP_SPIRAM);
+            }
+            ok = s_emb_tiles != NULL;
+        } else {
+            ok = false;
+        }
+        if (ok) {
+            memcpy(s_emb_tiles, scratch, (size_t)EMB_MAP_W * EMB_MAP_H * 2);
             s_emb_view = view;
             s_emb_view_ok = true;
             strlcpy(s_emb_key, key, sizeof(s_emb_key));
+            /* partial render (offline blip): keep it, retry in 20 s */
+            s_emb_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_emb_tiles_dsc.header.always_zero = 0;
             s_emb_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
             s_emb_tiles_dsc.header.w = EMB_MAP_W;
@@ -907,6 +973,9 @@ static void emb_tiles_task(void *arg)
         }
         lvgl_port_unlock();
     }
+    if (scratch != NULL) {
+        tile_scratch_give();
+    }
     s_emb_busy = false;
     vTaskDelete(NULL);
 }
@@ -920,7 +989,9 @@ static void emb_tiles_want(const aircraft_t *ac, const route_info_t *rt)
     } else {
         snprintf(key, sizeof(key), "@%s", ac->hex);
     }
-    if (strcmp(key, s_emb_key) == 0 || s_emb_busy) {
+    bool emb_stale = s_emb_partial_ms != 0 &&
+                     esp_timer_get_time() / 1000 - s_emb_partial_ms > 20000;
+    if ((strcmp(key, s_emb_key) == 0 && !emb_stale) || s_emb_busy) {
         return;
     }
 
@@ -1163,8 +1234,8 @@ static void render_map_panel(void)
         lv_obj_set_pos(s_emb_plane, x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         lv_img_set_src(s_emb_plane, class_sprite(flight_sprite(ac)));
         lv_img_set_angle(s_emb_plane, (int)(ac->track_deg * 10));
-        lv_obj_set_style_img_recolor(s_emb_plane,
-                                     alt_color(ac->alt_baro_ft, ac->on_ground), 0);
+        img_recolor_if_changed(s_emb_plane,
+                               alt_color(ac->alt_baro_ft, ac->on_ground));
         lv_obj_clear_flag(s_emb_plane, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_emb_plane, LV_OBJ_FLAG_HIDDEN);
@@ -1229,15 +1300,13 @@ static void radar_tiles_task(void *arg)
     strlcpy(key, s_radar_want, sizeof(key));
     memcpy(b, s_radar_bbox, sizeof(b));
 
-    if (s_radar_tiles == NULL) {
-        s_radar_tiles = heap_caps_malloc(RADAR_W * RADAR_H * 2, MALLOC_CAP_SPIRAM);
-    }
+    uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
-    bool ok = s_radar_tiles != NULL &&
-              tilemap_render(s_radar_tiles, RADAR_W, RADAR_H,
+    bool ok = scratch != NULL &&
+              tilemap_render(scratch, RADAR_W, RADAR_H,
                              b[0], b[1], b[2], b[3], &view);
     if (ok) {
-        runways_draw(s_radar_tiles, RADAR_W, RADAR_H, &view);
+        runways_draw(scratch, RADAR_W, RADAR_H, &view);
     }
     /* integer tile zooms leave dead margin around the range ring; upscale
        so the ring (divided by the user zoom) fills most of the height */
@@ -1254,18 +1323,29 @@ static void radar_tiles_task(void *arg)
             if (scale > 2.6f) {
                 scale = 2.6f;
             }
-            fb_upscale(s_radar_tiles, RADAR_W, RADAR_H, shx, shy, scale);
+            fb_upscale(scratch, RADAR_W, RADAR_H, shx, shy, scale);
         }
     }
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_radar_want) == 0) {
+            if (s_radar_tiles == NULL) {
+                s_radar_tiles = heap_caps_malloc(RADAR_W * RADAR_H * 2, MALLOC_CAP_SPIRAM);
+            }
+            ok = s_radar_tiles != NULL;
+        } else {
+            ok = false;
+        }
+        if (ok) {
+            memcpy(s_radar_tiles, scratch, (size_t)RADAR_W * RADAR_H * 2);
             s_radar_view = view;
             s_radar_view_ok = true;
             s_radar_scale = scale;
             s_radar_spx = shx;
             s_radar_spy = shy;
             strlcpy(s_radar_key, key, sizeof(s_radar_key));
+            /* partial render (offline blip): keep it, retry in 20 s */
+            s_radar_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_radar_tiles_dsc.header.always_zero = 0;
             s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
             s_radar_tiles_dsc.header.w = RADAR_W;
@@ -1281,6 +1361,9 @@ static void radar_tiles_task(void *arg)
         }
         lvgl_port_unlock();
     }
+    if (scratch != NULL) {
+        tile_scratch_give();
+    }
     s_radar_busy = false;
     vTaskDelete(NULL);
 }
@@ -1294,7 +1377,9 @@ static void radar_tiles_want(void)
     char key[48];
     snprintf(key, sizeof(key), "%.3f,%.3f,%d,%.2f", s_home_lat, s_home_lon,
              radius_nm, s_radar_zoom);
-    if (strcmp(key, s_radar_key) == 0) {
+    bool radar_stale = s_radar_partial_ms != 0 &&
+                       esp_timer_get_time() / 1000 - s_radar_partial_ms > 20000;
+    if (strcmp(key, s_radar_key) == 0 && !radar_stale) {
         return;
     }
     double rkm = radius_nm * 1.852 * s_radar_zoom;
@@ -2002,11 +2087,11 @@ static void render_radar_panel(void)
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
         lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);   /* UIZOOM keeps the 28px box */
-        lv_img_set_src(s_radar_dots[i], class_sprite(t->fcls));
+        img_src_if_changed(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
         lv_img_set_zoom(s_radar_dots[i], sel ? UIZOOM(384) : UIZOOM(232));
-        lv_obj_set_style_img_recolor(s_radar_dots[i],
-                                     alt_color(t->alt_ft, t->ground), 0);
+        img_recolor_if_changed(s_radar_dots[i],
+                               alt_color(t->alt_ft, t->ground));
         lv_obj_clear_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
 
         if (sel) {
@@ -2027,7 +2112,7 @@ static void render_radar_panel(void)
             const char *lcode = airline_code(selac, &s_shown[s_selected].route);
             const lv_img_dsc_t *ldsc = lcode ? logos_get(lcode) : NULL;
             if (ldsc != NULL) {
-                lv_img_set_src(s_radar_blogo, ldsc);
+                img_src_if_changed(s_radar_blogo, ldsc);
                 lv_obj_clear_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(s_radar_blogo, LV_OBJ_FLAG_HIDDEN);
@@ -2114,14 +2199,12 @@ static void amb_tiles_task(void *arg)
     strlcpy(key, s_amb_key, sizeof(key));
     memcpy(b, s_amb_bbox, sizeof(b));
 
-    if (s_amb_tiles == NULL) {
-        s_amb_tiles = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
-    }
+    uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
-    bool ok = s_amb_tiles != NULL &&
-              tilemap_render(s_amb_tiles, SCR_W, SCR_H, b[0], b[1], b[2], b[3], &view);
+    bool ok = scratch != NULL &&
+              tilemap_render(scratch, SCR_W, SCR_H, b[0], b[1], b[2], b[3], &view);
     if (ok) {
-        runways_draw(s_amb_tiles, SCR_W, SCR_H, &view);
+        runways_draw(scratch, SCR_W, SCR_H, &view);
     }
 
         float scale = 1.0f;
@@ -2142,7 +2225,7 @@ static void amb_tiles_task(void *arg)
                 }
             }
             if (scale > 1.05f) {
-                fb_upscale(s_amb_tiles, SCR_W, SCR_H, hx, hy, scale);
+                fb_upscale(scratch, SCR_W, SCR_H, hx, hy, scale);
             } else {
                 scale = 1.0f;
             }
@@ -2150,8 +2233,18 @@ static void amb_tiles_task(void *arg)
 
         if (lvgl_port_lock(-1)) {
         if (ok && s_amb != NULL) {
+            if (s_amb_tiles == NULL) {
+                s_amb_tiles = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
+            }
+            ok = s_amb_tiles != NULL;
+        } else {
+            ok = false;
+        }
+        if (ok) {
+            memcpy(s_amb_tiles, scratch, (size_t)SCR_W * SCR_H * 2);
             s_amb_view = view;
             s_amb_view_ok = true;
+            s_amb_missing = view.missing;
             s_amb_scale = scale;
             s_amb_px = hx;
             s_amb_py = hy;
@@ -2170,6 +2263,9 @@ static void amb_tiles_task(void *arg)
     }
     ESP_LOGI("ui", "ambient tiles: %s (scale %.2f)", ok ? "ok" : "FAILED",
              (double)scale);
+    if (scratch != NULL) {
+        tile_scratch_give();
+    }
     s_amb_busy = false;
     vTaskDelete(NULL);
 }
@@ -2236,8 +2332,9 @@ static void render_ambient(void)
         render_retro_panel();
         return;
     }
-    /* tile fetch failed earlier (offline blip): retry every 20 s */
-    if (!s_amb_view_ok && !s_amb_busy && s_home_ok &&
+    /* tile fetch failed or was partial (offline blip): retry every 20 s
+     * until the view is complete */
+    if ((!s_amb_view_ok || s_amb_missing > 0) && !s_amb_busy && s_home_ok &&
         esp_timer_get_time() / 1000 - s_amb_last_try > 20000) {
         amb_spawn_tiles();
     }
@@ -2273,11 +2370,11 @@ static void render_ambient(void)
             lv_obj_add_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
-        lv_img_set_src(s_amb_planes[i], class_sprite(s_all[i].fcls));
+        img_src_if_changed(s_amb_planes[i], class_sprite(s_all[i].fcls));
         lv_obj_set_pos(s_amb_planes[i], x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         lv_img_set_angle(s_amb_planes[i], (int)(s_all[i].track * 10));
-        lv_obj_set_style_img_recolor(s_amb_planes[i],
-                                     alt_color(s_all[i].alt_ft, s_all[i].ground), 0);
+        img_recolor_if_changed(s_amb_planes[i],
+                               alt_color(s_all[i].alt_ft, s_all[i].ground));
         lv_obj_clear_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -2508,14 +2605,9 @@ static void amb_show(void)
 
     s_amb_img = lv_img_create(s_amb);
     lv_obj_set_pos(s_amb_img, 0, 0);
-    const lv_img_dsc_t *fallback = ui_map_get_image();
-    if (fallback != NULL && !s_amb_view_ok) {
-        lv_img_set_src(s_amb_img, fallback);
-        lv_img_set_zoom(s_amb_img, (uint16_t)(amb_world_scale() * 256.0f + 0.5f));
-        /* zoom renders around the widget's nominal 800x400 center: offset by
-           half the bitmap, unscaled, so the scaled content lands centered */
-        lv_obj_set_pos(s_amb_img, SCR_W / 2 - 400, UISY(40) + (SCR_H - UISY(80)) / 2 - 200);
-    }
+    /* No world-map placeholder here: in a local screensaver it reads as a
+     * bug, not as content. Until the tile render lands (or when it fails)
+     * the ambient is a clean dark clock-and-weather screen instead. */
 
     s_amb_ring = lv_obj_create(s_amb);
     lv_obj_set_style_bg_opa(s_amb_ring, LV_OPA_TRANSP, 0);
@@ -2948,6 +3040,26 @@ static void build_stats_panel(lv_obj_t *scr)
 
 static void render_stats_panel(void)
 {
+    /* Hourly counters move once per new aircraft at most: skip the whole
+     * chart + label rewrite (a full-panel invalidation) when the stats
+     * snapshot, METAR and language are unchanged since the last pass. */
+    static app_stats_t s_sv_last;
+    static uint32_t s_sv_last_sig;
+    static bool s_sv_valid;   /* zeroed stats equal the zeroed snapshot */
+    uint32_t sig = (uint32_t)settings_get()->metar_decoded |
+                   ((uint32_t)settings_get()->metric_units << 1) |
+                   ((uint32_t)settings_get()->lang << 2) |
+                   ((uint32_t)(metar_get()[0]) << 8) |
+                   ((uint32_t)strlen(metar_get()) << 16);
+    if (s_sv_valid &&
+        memcmp(&s_stats_snap, &s_sv_last, sizeof(s_sv_last)) == 0 &&
+        sig == s_sv_last_sig) {
+        return;
+    }
+    s_sv_valid = true;
+    s_sv_last = s_stats_snap;
+    s_sv_last_sig = sig;
+
     char buf[48];
     snprintf(buf, sizeof(buf), "%d", s_stats_snap.unique);
     lv_label_set_text(s_sv_vals[0], buf);
@@ -3211,6 +3323,7 @@ void ui_init(void)
     build_stats_panel(scr);
     build_retro_panel(scr);
 
+    s_scratch_mux = xSemaphoreCreateMutex();
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);
     lv_timer_create(clock_timer_cb, 5000, NULL);
@@ -3339,6 +3452,16 @@ void ui_set_weather(const char *text)
 
 static void render_list_selection(void)
 {
+    /* LVGL style writes have no old-value compare: an unconditional write
+     * invalidates the row even when nothing changed, which used to repaint
+     * the whole list column every refresh. Shadow the last state per row
+     * (3 = never written; theme changes bump s_theme_gen to force a pass). */
+    static uint8_t s_row_sel_shadow[MAX_SHOWN];
+    static uint8_t s_row_sel_theme = 0xFF;
+    if (s_row_sel_theme != (uint8_t)settings_get()->theme) {
+        s_row_sel_theme = (uint8_t)settings_get()->theme;
+        memset(s_row_sel_shadow, 3, sizeof(s_row_sel_shadow));
+    }
     for (int i = 0; i < MAX_SHOWN; i++) {
         bool sel;
         if (i < s_list_plane_rows) {
@@ -3348,6 +3471,10 @@ static void render_list_selection(void)
             sel = si < s_row_ship_count && s_sel_ship_mmsi != 0 &&
                   s_row_ships[si].mmsi == s_sel_ship_mmsi;
         }
+        if (s_row_sel_shadow[i] == (uint8_t)sel) {
+            continue;
+        }
+        s_row_sel_shadow[i] = (uint8_t)sel;
         lv_obj_set_style_bg_color(s_list_rows[i], sel ? COL_ROW_SEL : COL_ROW, 0);
         /* the dim sub-line drowns in the selection color on some themes
            (#11): brighten it towards the text color while selected */
@@ -3378,10 +3505,17 @@ static bool sel_ship_get(ship_t *out)
 static void render_detail(void)
 {
     ship_t sh;
+    static ship_t s_ship_snap;
+    static bool s_ship_snap_ok;
     if (sel_ship_get(&sh)) {
         lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
+        if (s_ship_snap_ok && memcmp(&sh, &s_ship_snap, sizeof(sh)) == 0) {
+            return;   /* AIS updates arrive every few seconds at most */
+        }
+        s_ship_snap = sh;
+        s_ship_snap_ok = true;
         char nm[28];
         if (sh.name[0]) {
             strlcpy(nm, sh.name, sizeof(nm));
@@ -3412,6 +3546,7 @@ static void render_detail(void)
     if (s_ship_content != NULL) {
         lv_obj_add_flag(s_ship_content, LV_OBJ_FLAG_HIDDEN);
     }
+    s_ship_snap_ok = false;   /* re-render the ship card on the next select */
     if (s_selected < 0 || s_selected >= s_shown_count) {
         lv_obj_add_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
@@ -3419,6 +3554,26 @@ static void render_detail(void)
     }
     lv_obj_clear_flag(s_detail_content, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_detail_empty, LV_OBJ_FLAG_HIDDEN);
+
+    /* The card rewrites ~25 labels; skip all of it (and the invalidations)
+     * when the selected flight's data is bit-identical to the last render.
+     * The clock minute joins the signature for the airport local times,
+     * and a missing logo keeps re-rendering so it can pop in when fetched. */
+    static shown_flight_t s_det_snap;
+    static int s_det_minute = -1;
+    static uint8_t s_det_cfg = 0xFF;
+    static bool s_det_had_logo;
+    const settings_t *dcfg = settings_get();
+    uint8_t cfgsig = (uint8_t)((dcfg->theme << 2) |
+                               (dcfg->metric_units << 1) | dcfg->lang);
+    int minute = (int)(time(NULL) / 60);
+    if (minute == s_det_minute && cfgsig == s_det_cfg && s_det_had_logo &&
+        memcmp(&s_shown[s_selected], &s_det_snap, sizeof(s_det_snap)) == 0) {
+        return;
+    }
+    s_det_snap = s_shown[s_selected];
+    s_det_minute = minute;
+    s_det_cfg = cfgsig;
 
     const aircraft_t *ac = &s_shown[s_selected].ac;
     const route_info_t *rt = s_shown[s_selected].route.callsign[0] ? &s_shown[s_selected].route : NULL;
@@ -3443,6 +3598,7 @@ static void render_detail(void)
     /* Logo or fallback badge with airline ICAO */
     const char *code = airline_code(ac, rt);
     const lv_img_dsc_t *logo = code ? logos_get(code) : NULL;
+    s_det_had_logo = logo != NULL;
     if (logo != NULL) {
         lv_img_set_src(s_logo_img, logo);
         lv_obj_clear_flag(s_logo_img, LV_OBJ_FLAG_HIDDEN);
@@ -3807,10 +3963,10 @@ static void render_list_rows(void)
                 snprintf(nm, sizeof(nm), "%lu", (unsigned long)sh->mmsi);
             }
             label_set_if_changed(cs_label, nm);
-            lv_obj_set_style_text_color(cs_label, lv_color_hex(0x4fd1c5), 0);
+            text_color_if_changed(cs_label, lv_color_hex(0x4fd1c5));
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
             label_set_if_changed(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
-            lv_obj_set_style_text_color(typechip, lv_color_hex(0x4fd1c5), 0);
+            text_color_if_changed(typechip, lv_color_hex(0x4fd1c5));
             char info[64];
             char us[20];
             snprintf(info, sizeof(info), "%s  %s  %.1f km",
@@ -3829,11 +3985,11 @@ static void render_list_rows(void)
             label_set_if_changed(cs_label, ac->callsign[0] ? ac->callsign : ac->hex);
             /* gold for military / heavies / watchlist hits */
             bool interesting = flight_is_interesting(ac, settings_get()->watch_regs);
-            lv_obj_set_style_text_color(cs_label,
-                                        interesting ? lv_color_hex(0xffd166) : COL_TEXT, 0);
+            text_color_if_changed(cs_label,
+                                  interesting ? lv_color_hex(0xffd166) : COL_TEXT);
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
             label_set_if_changed(typechip, ac->type_icao[0] ? ac->type_icao : "?");
-            lv_obj_set_style_text_color(typechip, class_color(flight_class(ac)), 0);
+            text_color_if_changed(typechip, class_color(flight_class(ac)));
 
             char info[64];
             if (ac->on_ground) {
