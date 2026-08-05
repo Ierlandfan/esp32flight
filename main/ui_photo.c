@@ -140,25 +140,25 @@ void ui_photo_open(const char *hex, const char *callsign)
     lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(title, UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_color(title, COL_TEXT, 0);
     lv_label_set_text_fmt(title, "%s  -  %s", callsign, hex);
-    lv_obj_set_pos(title, 16, 12);
+    lv_obj_set_pos(title, UISX(16), UISY(12));
 
     lv_obj_t *btn_close = lv_btn_create(s_overlay);
-    lv_obj_set_size(btn_close, 52, 40);
-    lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, -12, 8);
+    lv_obj_set_size(btn_close, UISX(52), UISY(40));
+    lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, -UISX(12), UISY(8));
     lv_obj_set_style_bg_color(btn_close, COL_PANEL, 0);
     lv_obj_set_style_border_color(btn_close, COL_DIM, 0);
     lv_obj_set_style_border_width(btn_close, 1, 0);
     lv_obj_add_event_cb(btn_close, close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *xl = lv_label_create(btn_close);
-    lv_obj_set_style_text_font(xl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(xl, UIFONT(&lv_font_montserrat_16, &lv_font_montserrat_10), 0);
     lv_label_set_text(xl, LV_SYMBOL_CLOSE);
     lv_obj_center(xl);
 
     s_msg = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(s_msg, &font_pl_20, 0);
+    lv_obj_set_style_text_font(s_msg, UIFONT(&font_pl_20, &font_pl_12), 0);
     lv_obj_set_style_text_color(s_msg, COL_DIM, 0);
     lv_label_set_text(s_msg, L()->loading_photo);
     lv_obj_center(s_msg);
@@ -168,10 +168,10 @@ void ui_photo_open(const char *hex, const char *callsign)
     lv_obj_add_flag(s_img, LV_OBJ_FLAG_HIDDEN);
 
     s_credit = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(s_credit, &font_pl_14, 0);
+    lv_obj_set_style_text_font(s_credit, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(s_credit, COL_DIM, 0);
     lv_label_set_text(s_credit, "");
-    lv_obj_align(s_credit, LV_ALIGN_BOTTOM_LEFT, 16, -8);
+    lv_obj_align(s_credit, LV_ALIGN_BOTTOM_LEFT, UISX(16), -UISY(8));
 
     photo_req_t *req = malloc(sizeof(photo_req_t));
     if (req != NULL) {

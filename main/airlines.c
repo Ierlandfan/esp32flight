@@ -54,7 +54,7 @@ const char *airlines_fetch(const char *icao)
     }
     char url[80];
     snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/airline/%s", icao);
-    esp_err_t err = http_get_to_buffer(url, buf, 4096, NULL);
+    esp_err_t err = http_get_to_buffer_t(url, buf, 4096, NULL, 5000);
     if (err != ESP_OK && err != ESP_ERR_HTTP_BASE + 404) {
         /* transport failure: forget the slot so the next cycle retries */
         slot->used = false;

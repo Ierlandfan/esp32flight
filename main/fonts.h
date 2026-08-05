@@ -7,3 +7,9 @@
 extern const lv_font_t font_pl_14;
 extern const lv_font_t font_pl_16;
 extern const lv_font_t font_pl_20;
+
+/* Downscaled tiers for the 480x272 build (Sunton 4827S043); host builds
+ * carry them too so --size tests work. Guarded out of other firmware. */
+extern const lv_font_t font_pl_8;
+extern const lv_font_t font_pl_10;
+extern const lv_font_t font_pl_12;

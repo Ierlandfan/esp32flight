@@ -12,6 +12,10 @@
  * Adapted from Waveshare's 08_lvgl_Porting demo (CC0-1.0).
  */
 #include "waveshare_rgb_lcd_port.h"
+#if CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
+#include "driver/spi_master.h"
+#include "esp_lcd_touch_xpt2046.h"
+#endif
 
 static const char *TAG = "lcd_port";
 
@@ -26,7 +30,10 @@ typedef struct {
     int tp_rst_gpio;            /* when neither expander is present */
     /* RGB timing set (the 1024x600 panel needs its own) */
     int hs_pulse, hs_bp, hs_fp, vs_pulse, vs_bp, vs_fp;
+    int pclk_hz;                /* 0 -> EXAMPLE_LCD_PIXEL_CLOCK_HZ default */
     bool tp_mirror;             /* GT911 reports mirrored coordinates */
+    bool has_xpt2046;           /* resistive touch over SPI instead of GT911 */
+    int tp_sclk, tp_mosi, tp_miso, tp_cs, tp_irq;
 } board_cfg_t;
 
 __attribute__((unused)) static const board_cfg_t k_waveshare = {
@@ -81,6 +88,48 @@ __attribute__((unused)) static const board_cfg_t k_guition = {
     .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
     .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
     .tp_mirror = false,
+};
+
+__attribute__((unused)) static const board_cfg_t k_sunton_4827 = {
+    /* Sunton ESP32-4827S043 (4.3" 480x272): electrically the Guition
+     * JC8048W550's smaller sibling - same RGB wiring, I2C bus, backlight
+     * GPIO and GT911 reset, only the panel and its timings differ.
+     * Pin map and timings from rzeldent/esp32-smartdisplay (working
+     * device). The resolution differs from the 800x480 family, so this
+     * is a dedicated build, never part of the auto-detected binary. */
+    .name = "Sunton ESP32-4827S043 (480x272)",
+    .de = 40, .vsync = 41, .hsync = 39, .pclk = 42,
+    .data = { 8, 3, 46, 9, 1,           /* B0..B4 */
+              5, 6, 7, 15, 16, 4,       /* G0..G5 */
+              45, 48, 47, 21, 14 },     /* R0..R4 */
+    .i2c_sda = 19, .i2c_scl = 20,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = 38,
+    .hs_pulse = 4, .hs_bp = 43, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 12, .vs_fp = 8,
+    .pclk_hz = 8 * 1000 * 1000,
+    .tp_mirror = false,
+};
+
+__attribute__((unused)) static const board_cfg_t k_sunton_4827r = {
+    /* Resistive-touch variant of the 4827S043: identical panel and RGB
+     * wiring, XPT2046 on the SD-card SPI bus instead of the GT911. */
+    .name = "Sunton ESP32-4827S043R (480x272, resistive)",
+    .de = 40, .vsync = 41, .hsync = 39, .pclk = 42,
+    .data = { 8, 3, 46, 9, 1,           /* B0..B4 */
+              5, 6, 7, 15, 16, 4,       /* G0..G5 */
+              45, 48, 47, 21, 14 },     /* R0..R4 */
+    .i2c_sda = -1, .i2c_scl = -1,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = -1,
+    .hs_pulse = 4, .hs_bp = 43, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 12, .vs_fp = 8,
+    .pclk_hz = 8 * 1000 * 1000,
+    .tp_mirror = false,
+    .has_xpt2046 = true,
+    .tp_sclk = 12, .tp_mosi = 11, .tp_miso = 13, .tp_cs = 38, .tp_irq = 18,
 };
 
 static const board_cfg_t *s_board = &k_waveshare;
@@ -187,6 +236,11 @@ static void board_detect(void)
     /* all helper-MCU pins to output, everything released (high) */
     ch32v003_reg_write(0x02, 0xFF);
     ch32v003_reg_write(0x03, s_ch32_out);
+#elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
+    s_board = &k_sunton_4827;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+#elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
+    s_board = &k_sunton_4827r;   /* no I2C: touch is SPI, no expander */
 #else
     i2c_master_init(k_waveshare.i2c_sda, k_waveshare.i2c_scl);
     if (ch422g_write(0x24, 0x01) == ESP_OK) {
@@ -261,7 +315,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
     esp_lcd_rgb_panel_config_t panel_config = {
         .clk_src = LCD_CLK_SRC_DEFAULT,
         .timings = {
-            .pclk_hz = EXAMPLE_LCD_PIXEL_CLOCK_HZ,
+            .pclk_hz = s_board->pclk_hz ? s_board->pclk_hz
+                                        : EXAMPLE_LCD_PIXEL_CLOCK_HZ,
             .h_res = EXAMPLE_LCD_H_RES,
             .v_res = EXAMPLE_LCD_V_RES,
             .hsync_pulse_width = s_board->hs_pulse,
@@ -296,10 +351,36 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     s_panel = panel_handle;
 
+    esp_lcd_touch_handle_t tp_handle = NULL;
+#if CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
+    ESP_LOGI(TAG, "Initialize XPT2046 touch");
+    spi_bus_config_t buscfg = {
+        .sclk_io_num = s_board->tp_sclk,
+        .mosi_io_num = s_board->tp_mosi,
+        .miso_io_num = s_board->tp_miso,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    esp_lcd_panel_io_handle_t tp_io = NULL;
+    esp_lcd_panel_io_spi_config_t tp_io_cfg =
+        ESP_LCD_TOUCH_IO_SPI_XPT2046_CONFIG(s_board->tp_cs);
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST,
+                                             &tp_io_cfg, &tp_io));
+    esp_lcd_touch_config_t xpt_cfg = {
+        .x_max = EXAMPLE_LCD_H_RES,
+        .y_max = EXAMPLE_LCD_V_RES,
+        .rst_gpio_num = -1,
+        .int_gpio_num = s_board->tp_irq,
+    };
+    if (esp_lcd_touch_new_spi_xpt2046(tp_io, &xpt_cfg, &tp_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "XPT2046 init failed - running without touch");
+        tp_handle = NULL;
+    }
+#else
     ESP_LOGI(TAG, "Initialize GT911 touch");
     touch_reset();
 
-    esp_lcd_touch_handle_t tp_handle = NULL;
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
     /* Legacy i2c driver sets the bus speed itself; v1 io rejects a non-zero value here. */
@@ -344,6 +425,7 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
         ESP_LOGE(TAG, "GT911 init failed - running without touch");
         tp_handle = NULL;
     }
+#endif /* touch variant */
 
     ESP_ERROR_CHECK(lvgl_port_init(panel_handle, tp_handle));
 

@@ -360,10 +360,10 @@ static void save_cb(lv_event_t *e)
 #else
     lv_obj_t *msg = lv_label_create(s_overlay);
     lv_obj_set_style_text_color(msg, COL_ACCENT, 0);
-    lv_obj_set_style_text_font(msg, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(msg, UIFONT(&lv_font_montserrat_24, &lv_font_montserrat_14), 0);
     lv_obj_set_style_bg_color(msg, COL_BG, 0);
     lv_obj_set_style_bg_opa(msg, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(msg, 20, 0);
+    lv_obj_set_style_pad_all(msg, UISY(20), 0);
     lv_label_set_text(msg, L()->saved_restarting);
     lv_obj_center(msg);
     lv_refr_now(NULL);
@@ -376,23 +376,23 @@ static void save_cb(lv_event_t *e)
 static lv_obj_t *add_label(lv_obj_t *parent, const char *text, int x, int y)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &font_pl_16, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_obj_set_style_text_color(l, COL_DIM, 0);
     lv_label_set_text(l, text);
-    lv_obj_set_pos(l, x, y);
+    lv_obj_set_pos(l, UISX(x), UISY(y));
     return l;
 }
 
 static void add_section(lv_obj_t *parent, const char *text, int y)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(l, COL_ACCENT, 0);
     lv_label_set_text(l, text);
-    lv_obj_set_pos(l, 0, y);
+    lv_obj_set_pos(l, 0, UISY(y));
     lv_obj_t *ln = lv_obj_create(parent);
-    lv_obj_set_size(ln, 740, 1);
-    lv_obj_set_pos(ln, 0, y + 22);
+    lv_obj_set_size(ln, UISX(740), 1);
+    lv_obj_set_pos(ln, 0, UISY(y) + UISY(22));
     lv_obj_set_style_bg_color(ln, COL_DIM, 0);
     lv_obj_set_style_bg_opa(ln, LV_OPA_40, 0);
     lv_obj_set_style_border_width(ln, 0, 0);
@@ -403,11 +403,11 @@ static lv_obj_t *add_hint(lv_obj_t *parent, const char *text, int x, int y, int 
 {
     lv_obj_t *l = lv_label_create(parent);
     lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, &font_pl_14, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_14, &font_pl_8), 0);
     lv_obj_set_style_text_color(l, COL_DIM, 0);
-    lv_obj_set_width(l, w);
+    lv_obj_set_width(l, UISX(w));
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
-    lv_obj_set_pos(l, x, y);
+    lv_obj_set_pos(l, UISX(x), UISY(y));
     return l;
 }
 
@@ -426,14 +426,14 @@ static void ta_paste_cb(lv_event_t *e)
 static lv_obj_t *add_textarea(lv_obj_t *parent, int x, int y, int w, const char *value, bool password)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_pos(ta, x, y);
-    lv_obj_set_size(ta, w, 44);
+    lv_obj_set_pos(ta, UISX(x), UISY(y));
+    lv_obj_set_size(ta, UISX(w), UISY(44));
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_password_mode(ta, password);
     lv_textarea_set_text(ta, value);
     lv_obj_set_style_bg_color(ta, COL_PANEL, 0);
     lv_obj_set_style_text_color(ta, COL_TEXT, 0);
-    lv_obj_set_style_text_font(ta, &font_pl_16, 0);
+    lv_obj_set_style_text_font(ta, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_obj_set_style_border_color(ta, COL_DIM, 0);
     lv_obj_add_event_cb(ta, ta_focus_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
@@ -448,12 +448,12 @@ static lv_obj_t *add_button(lv_obj_t *parent, int x, int y, int w, int h,
                             const char *text, lv_event_cb_t cb, lv_color_t bg)
 {
     lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_set_pos(btn, x, y);
-    lv_obj_set_size(btn, w, h);
+    lv_obj_set_pos(btn, UISX(x), UISY(y));
+    lv_obj_set_size(btn, UISX(w), UISY(h));
     lv_obj_set_style_bg_color(btn, bg, 0);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l = lv_label_create(btn);
-    lv_obj_set_style_text_font(l, &font_pl_16, 0);
+    lv_obj_set_style_text_font(l, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_label_set_text(l, text);
     lv_obj_center(l);
     return btn;
@@ -462,14 +462,14 @@ static lv_obj_t *add_button(lv_obj_t *parent, int x, int y, int w, int h,
 static lv_obj_t *add_dropdown(lv_obj_t *parent, int x, int y, int w, lv_event_cb_t cb)
 {
     lv_obj_t *dd = lv_dropdown_create(parent);
-    lv_obj_set_pos(dd, x, y);
-    lv_obj_set_size(dd, w, 44);
+    lv_obj_set_pos(dd, UISX(x), UISY(y));
+    lv_obj_set_size(dd, UISX(w), UISY(44));
     lv_dropdown_set_options(dd, "");
     lv_obj_set_style_bg_color(dd, COL_PANEL, 0);
     lv_obj_set_style_text_color(dd, COL_TEXT, 0);
-    lv_obj_set_style_text_font(dd, &font_pl_16, 0);
+    lv_obj_set_style_text_font(dd, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_obj_t *list = lv_dropdown_get_list(dd);
-    lv_obj_set_style_text_font(list, &font_pl_16, 0);
+    lv_obj_set_style_text_font(list, UIFONT(&font_pl_16, &font_pl_10), 0);
     lv_obj_set_style_bg_color(list, COL_PANEL, 0);
     lv_obj_set_style_text_color(list, COL_TEXT, 0);
     if (cb != NULL) {
@@ -482,7 +482,7 @@ static lv_obj_t *add_switch(lv_obj_t *parent, const char *label, int x, int y, b
 {
     add_label(parent, label, x, y + 6);
     lv_obj_t *sw = lv_switch_create(parent);
-    lv_obj_set_pos(sw, x + 290, y);
+    lv_obj_set_pos(sw, UISX(x) + UISX(290), UISY(y));
     if (on) {
         lv_obj_add_state(sw, LV_STATE_CHECKED);
     }
@@ -492,7 +492,7 @@ static lv_obj_t *add_switch(lv_obj_t *parent, const char *label, int x, int y, b
 static lv_obj_t *tab_page(lv_obj_t *tv, const char *name)
 {
     lv_obj_t *page = lv_tabview_add_tab(tv, name);
-    lv_obj_set_style_pad_all(page, 14, 0);
+    lv_obj_set_style_pad_all(page, UISY(14), 0);
     lv_obj_set_scroll_dir(page, LV_DIR_VER);
     return page;
 }
@@ -526,34 +526,38 @@ void ui_settings_open(void)
 
     /* header row: title + save + close */
     lv_obj_t *title = lv_label_create(s_overlay);
-    lv_obj_set_style_text_font(title, &font_pl_20, 0);
+    lv_obj_set_style_text_font(title, UIFONT(&font_pl_20, &font_pl_12), 0);
     lv_obj_set_style_text_color(title, COL_ACCENT, 0);
     lv_label_set_text_fmt(title, LV_SYMBOL_SETTINGS " %s", L()->settings_title);
-    lv_obj_set_pos(title, 14, 12);
+    lv_obj_set_pos(title, UISX(14), UISY(12));
 
     if (ui_update_available()) {
         lv_obj_t *up = lv_label_create(s_overlay);
-        lv_obj_set_style_text_font(up, &font_pl_14, 0);
+        lv_obj_set_style_text_font(up, UIFONT(&font_pl_14, &font_pl_8), 0);
         lv_obj_set_style_text_color(up, lv_color_hex(0xffd166), 0);
         char upt[96];
         snprintf(upt, sizeof(upt), L()->update_banner, ui_update_tag());
         lv_label_set_text_fmt(up, LV_SYMBOL_DOWNLOAD " %s", upt);
-        lv_obj_align(up, LV_ALIGN_TOP_MID, -20, 16);
+        lv_obj_align(up, LV_ALIGN_TOP_MID, -UISX(20), UISY(16));
     }
 
     snprintf(buf, sizeof(buf), LV_SYMBOL_SAVE "  %s", L()->save);
-    add_button(s_overlay, LV_HOR_RES - 230, 6, 150, 38, buf, save_cb, COL_ACCENT);
-    add_button(s_overlay, LV_HOR_RES - 66, 6, 54, 38, LV_SYMBOL_CLOSE, close_cb, COL_PANEL);
+    /* right-anchored: physical screen edge minus scaled design offset (the
+     * helper would UISX() the whole mixed expression) */
+    lv_obj_t *hbtn = add_button(s_overlay, 0, 6, 150, 38, buf, save_cb, COL_ACCENT);
+    lv_obj_set_x(hbtn, LV_HOR_RES - UISX(230));
+    hbtn = add_button(s_overlay, 0, 6, 54, 38, LV_SYMBOL_CLOSE, close_cb, COL_PANEL);
+    lv_obj_set_x(hbtn, LV_HOR_RES - UISX(66));
 
-    lv_obj_t *tv = lv_tabview_create(s_overlay, LV_DIR_TOP, 44);
+    lv_obj_t *tv = lv_tabview_create(s_overlay, LV_DIR_TOP, UISY(44));
     s_tabview = tv;
-    lv_obj_set_size(tv, LV_HOR_RES, LV_VER_RES - 50);
-    lv_obj_set_pos(tv, 0, 50);
+    lv_obj_set_size(tv, LV_HOR_RES, LV_VER_RES - UISY(50));
+    lv_obj_set_pos(tv, 0, UISY(50));
     lv_obj_set_style_bg_color(tv, COL_BG, 0);
     lv_obj_t *bar = lv_tabview_get_tab_btns(tv);
     lv_obj_set_style_bg_color(bar, COL_PANEL, 0);
     lv_obj_set_style_text_color(bar, COL_TEXT, 0);
-    lv_obj_set_style_text_font(bar, &font_pl_16, 0);
+    lv_obj_set_style_text_font(bar, UIFONT(&font_pl_16, &font_pl_10), 0);
 
 #ifdef APKFLIGHT_NO_WIFI
     /* App build: Wi-Fi is the host OS's job, so the Network tab is dropped. */
@@ -591,8 +595,8 @@ void ui_settings_open(void)
     }
     add_label(p, L()->search_radius, 0, 226);
     s_slider_radius = lv_slider_create(p);
-    lv_obj_set_size(s_slider_radius, 420, 16);
-    lv_obj_set_pos(s_slider_radius, 0, 258);
+    lv_obj_set_size(s_slider_radius, UISX(420), UISY(16));
+    lv_obj_set_pos(s_slider_radius, 0, UISY(258));
     lv_slider_set_range(s_slider_radius, 1, 250);
     lv_slider_set_value(s_slider_radius, cfg->radius_nm, LV_ANIM_OFF);
     lv_obj_add_event_cb(s_slider_radius, radius_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -724,7 +728,7 @@ void ui_settings_open(void)
     lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 728, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 774);
-    lv_obj_set_style_text_font(hint, &font_pl_14, 0);
+    lv_obj_set_style_text_font(hint, UIFONT(&font_pl_14, &font_pl_8), 0);
     int nety = 822;
 #endif
 
@@ -748,7 +752,7 @@ void ui_settings_open(void)
 
     /* keyboard on the top layer */
     s_kb = lv_keyboard_create(lv_layer_top());
-    lv_obj_set_size(s_kb, LV_HOR_RES, 210);
+    lv_obj_set_size(s_kb, LV_HOR_RES, UISY(210));
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_kb, kb_event_cb, LV_EVENT_ALL, NULL);

@@ -8,6 +8,9 @@ dependencies:
 
   esp_lcd_touch_gt911: "^1"
 
+  # Sunton 4827S043R: resistive touch over SPI
+  atanisoft/esp_lcd_touch_xpt2046: "^1"
+
   espressif/mdns: "^1"
 
   espressif/esp_websocket_client: "^1"

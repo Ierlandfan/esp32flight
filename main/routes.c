@@ -195,7 +195,7 @@ static bool hexdb_airport(char *buf, const char *icao, airport_t *ap)
 
     char url[80];
     snprintf(url, sizeof(url), "https://hexdb.io/api/v1/airport/icao/%s", icao);
-    if (http_get_to_buffer(url, buf, 4096, NULL) != ESP_OK) {
+    if (http_get_to_buffer_t(url, buf, 4096, NULL, 5000) != ESP_OK) {
         return false;
     }
     cJSON *root = cJSON_Parse(buf);
@@ -291,7 +291,7 @@ static void hexdb_fallback(char *buf, route_info_t *slot)
 {
     char url[80];
     snprintf(url, sizeof(url), "https://hexdb.io/api/v1/route/icao/%s", slot->callsign);
-    if (http_get_to_buffer(url, buf, 4096, NULL) != ESP_OK) {
+    if (http_get_to_buffer_t(url, buf, 4096, NULL, 5000) != ESP_OK) {
         return;
     }
     cJSON *root = cJSON_Parse(buf);
@@ -369,7 +369,7 @@ const route_info_t *routes_fetch(const char *callsign,
     esp_err_t err = ESP_FAIL;
     if (!slot->valid) {
         snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
-        err = http_get_to_buffer(url, buf, 8192, NULL);
+        err = http_get_to_buffer_t(url, buf, 8192, NULL, 5000);
         /* 200 (parsed below) and 404 are authoritative answers; timeouts,
          * rate limits and server errors are not - those must retry soon
          * instead of poisoning the negative cache for half an hour. */

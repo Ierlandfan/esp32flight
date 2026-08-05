@@ -29,6 +29,10 @@ extern "C" {
 /* Waveshare 7B: 1024x600 */
 #define LVGL_PORT_H_RES             (1024)
 #define LVGL_PORT_V_RES             (600)
+#elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043 || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
+/* Sunton 4827S043: 4.3" 480x272 (UI renders the 800x480 design downscaled) */
+#define LVGL_PORT_H_RES             (480)
+#define LVGL_PORT_V_RES             (272)
 #else
 #define LVGL_PORT_H_RES             (800)
 #define LVGL_PORT_V_RES             (480)

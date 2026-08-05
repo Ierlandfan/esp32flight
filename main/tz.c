@@ -67,7 +67,7 @@ bool tz_offset_for(const char *key, double lat, double lon, int *offset_s)
     if (buf == NULL) {
         return false;
     }
-    if (http_get_to_buffer(url, buf, 2048, NULL) == ESP_OK) {
+    if (http_get_to_buffer_t(url, buf, 2048, NULL, 5000) == ESP_OK) {
         cJSON *root = cJSON_Parse(buf);
         if (root != NULL) {
             const cJSON *jo = cJSON_GetObjectItem(root, "utc_offset_seconds");

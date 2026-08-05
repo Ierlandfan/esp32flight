@@ -1,0 +1,19 @@
+CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043=y
+# Downscaled font tiers for the 480x272 panel
+CONFIG_LV_FONT_MONTSERRAT_8=y
+CONFIG_LV_FONT_MONTSERRAT_10=y
+# 272 rows: the RGB driver needs fb_size %% (2 * bounce size) == 0, i.e.
+# 2*height must divide 272 (= 2*8*17); the 10-row default panics at boot.
+# 17 rows (~32 KB DMA-internal): 8 rows halves that but underruns into
+# garbled lines during tile/rain PSRAM traffic. 17 only fits internal RAM
+# together with the ALWAYSINTERNAL=512 + Wi-Fi buffer trims below; without
+# them the 8 KB flight_task stack no longer found a contiguous block.
+CONFIG_EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT=17
+# Internal-RAM relief: esp-aes still needs small DMA-internal allocations
+# per TLS record; concurrent lookups (flights+routes+logos) were failing
+# with "esp-aes: Failed to allocate memory". Reclaim ~11 KB internal.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+# Small allocations (LVGL object churn) go to PSRAM instead of shredding
+# internal RAM: keeps internal in large contiguous blocks so 10 KB tile-task
+# stacks and esp-aes DMA allocations always fit.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
