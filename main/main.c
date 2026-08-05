@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include "esp_log.h"
+#include "cJSON.h"
+#include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "waveshare_rgb_lcd_port.h"
@@ -18,6 +20,13 @@
 
 static const char *TAG = "canflight";
 
+static void *psram_prefer_malloc(size_t n)
+{
+    return heap_caps_malloc_prefer(n, 2,
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                                   MALLOC_CAP_8BIT);
+}
+
 void app_main(void)
 {
     /* first thing in the log after any spontaneous restart: why it happened */
@@ -26,6 +35,11 @@ void app_main(void)
     /* Local time for the clock and ETAs (Europe/Warsaw with DST) */
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
     tzset();
+
+    /* cJSON trees (state JSON, API parses) are large and transient:
+     * keep them out of the scarce internal heap. */
+    cJSON_Hooks jh = { .malloc_fn = psram_prefer_malloc, .free_fn = free };
+    cJSON_InitHooks(&jh);
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {

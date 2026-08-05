@@ -42,7 +42,7 @@ void settings_load(void)
     s_settings.map_light = false;
     s_settings.amb_style = 0;
     s_settings.theme = 0;
-    s_settings.lang = 1;
+    s_settings.lang = 0;   /* English out of the box; 1 = Polish */
     s_settings.ota_enabled = false;   /* never persisted, armed per session */
     s_settings.cpa_alerts = true;
     s_settings.cpa_all = false;

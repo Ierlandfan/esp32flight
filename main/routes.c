@@ -58,10 +58,18 @@ static route_info_t *cache_slot(const char *callsign)
     if (!cache_ready()) {
         return NULL;
     }
-    route_info_t *slot;
-    if (s_used < ROUTE_CACHE_SIZE) {
+    route_info_t *slot = NULL;
+    /* holes left by expired negative entries first: they used to linger
+     * until round-robin wrapped, evicting valid routes early */
+    for (int i = 0; i < s_used; i++) {
+        if (s_cache[i].callsign[0] == '\0') {
+            slot = &s_cache[i];
+            break;
+        }
+    }
+    if (slot == NULL && s_used < ROUTE_CACHE_SIZE) {
         slot = &s_cache[s_used++];
-    } else {
+    } else if (slot == NULL) {
         slot = &s_cache[s_next_evict];
         s_next_evict = (s_next_evict + 1) % ROUTE_CACHE_SIZE;
     }

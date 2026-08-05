@@ -79,6 +79,12 @@ bool tz_offset_for(const char *key, double lat, double lon, int *offset_s)
         }
     }
     free(buf);
+    if (!slot->valid) {
+        /* transport failure: forget the slot so the next lookup retries
+         * instead of answering "unknown tz" for the rest of the session */
+        slot->used = false;
+        slot->key[0] = '\0';
+    }
     ESP_LOGI(TAG, "%s -> %+d s%s", key, slot->offset_s, slot->valid ? "" : " (failed)");
     *offset_s = slot->offset_s;
     return slot->valid;

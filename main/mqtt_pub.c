@@ -63,6 +63,7 @@ void mqtt_pub_start(void)
     }
     esp_mqtt_client_config_t cfg = {
         .broker.address.uri = uri,
+        .task.priority = 4,
     };
     s_client = esp_mqtt_client_init(&cfg);
     if (s_client == NULL) {

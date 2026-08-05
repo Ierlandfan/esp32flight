@@ -557,8 +557,9 @@ bool web_state_wanted(void)
 
 static esp_err_t api_get(httpd_req_t *req)
 {
-    s_state_access_us = esp_timer_get_time();
     AUTH_GUARD(req);
+    /* only authenticated pollers keep the JSON build alive */
+    s_state_access_us = esp_timer_get_time();
     char *copy = NULL;
     size_t len = 0;
     xSemaphoreTake(s_mux, portMAX_DELAY);
@@ -1059,36 +1060,26 @@ static esp_err_t ota_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+static struct {
+    int count, unique, alt;
+    double nearest_km;
+} s_metric;
+
+void web_metrics_publish(int count, int unique, int max_alt_ft, double nearest_km)
+{
+    s_metric.count = count;
+    s_metric.unique = unique;
+    s_metric.alt = max_alt_ft;
+    s_metric.nearest_km = nearest_km;
+}
+
 static esp_err_t metrics_get(httpd_req_t *req)
 {
     AUTH_GUARD(req);
-    char *copy = NULL;
-    xSemaphoreTake(s_mux, portMAX_DELAY);
-    if (s_json != NULL) {
-        copy = strdup(s_json);
-    }
-    xSemaphoreGive(s_mux);
-
+    /* scalars pushed by flight_task: no JSON round-trip per scrape */
     char out[512];
-    int count = 0, unique = 0, alt = 0;
-    double nearest = 0;
-    if (copy != NULL) {
-        cJSON *root = cJSON_Parse(copy);
-        if (root != NULL) {
-            const cJSON *fl = cJSON_GetObjectItem(root, "flights");
-            count = cJSON_IsArray(fl) ? cJSON_GetArraySize(fl) : 0;
-            const cJSON *st = cJSON_GetObjectItem(root, "stats");
-            const cJSON *v;
-            if (st) {
-                if (cJSON_IsNumber((v = cJSON_GetObjectItem(st, "unique_aircraft")))) unique = (int)v->valuedouble;
-                if (cJSON_IsNumber((v = cJSON_GetObjectItem(st, "max_alt_ft")))) alt = (int)v->valuedouble;
-            }
-            const cJSON *first = cJSON_IsArray(fl) ? cJSON_GetArrayItem(fl, 0) : NULL;
-            if (first && cJSON_IsNumber((v = cJSON_GetObjectItem(first, "dist_km")))) nearest = v->valuedouble;
-            cJSON_Delete(root);
-        }
-        free(copy);
-    }
+    int count = s_metric.count, unique = s_metric.unique, alt = s_metric.alt;
+    double nearest = s_metric.nearest_km;
     snprintf(out, sizeof(out),
              "esp32flight_aircraft_count %d\n"
              "esp32flight_unique_aircraft %d\n"
@@ -1147,6 +1138,9 @@ void web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
+#ifndef APKFLIGHT
+    config.core_id = 0;   /* keep TLS/JSON chatter off the LVGL core */
+#endif
     config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
 

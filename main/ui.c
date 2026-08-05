@@ -38,6 +38,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include <assert.h>
 #include "esp_heap_caps.h"
 #include "lvgl_port.h"
 #include "esp_log.h"
@@ -106,7 +107,10 @@ typedef struct {
     char         iata[10];   /* commercial flight number, when known */
 } shown_flight_t;
 
-static shown_flight_t s_shown[MAX_SHOWN];
+/* ~26 KB with routes and airline strings: no DMA/ISR involvement, so it
+ * lives in PSRAM instead of the scarce internal .bss (allocated in
+ * ui_init before anything renders). */
+static shown_flight_t *s_shown;
 static int  s_shown_count;
 static int  s_selected = -1;
 static char s_selected_hex[ICAO_HEX_LEN];
@@ -145,6 +149,7 @@ static bool view_shows_ships(void);
 #define CYCLE_MS    6000
 static int        s_view_mode;
 static lv_timer_t *s_cycle_timer;
+static lv_timer_t *s_retro_timer;   /* 25 Hz sweep, paused when invisible */
 static lv_obj_t *s_detail_panel;
 static lv_obj_t *s_map_panel;
 static lv_obj_t *s_emb_img;
@@ -594,6 +599,9 @@ static void apply_view(int mode)
     lv_obj_add_flag(s_radar_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_stats_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+    if (s_retro_timer != NULL && (s_amb == NULL || !s_amb_retro)) {
+        lv_timer_pause(s_retro_timer);   /* resumed below when retro shows */
+    }
 
     switch (s_view_mode) {
     case VIEW_MAP:
@@ -615,6 +623,9 @@ static void apply_view(int mode)
         break;
     case VIEW_RETRO:
         lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        if (s_retro_timer != NULL) {
+            lv_timer_resume(s_retro_timer);
+        }
         lv_label_set_text(s_mode_btn_label, LV_SYMBOL_LIST);  /* next: detail */
         lv_timer_pause(s_cycle_timer);
         break;
@@ -2492,6 +2503,9 @@ static void amb_restore_retro(void)
     lv_obj_set_pos(s_retro_panel, LIST_W, HEADER_H);
     if (s_retro_was_hidden) {
         lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        if (s_retro_timer != NULL) {
+            lv_timer_pause(s_retro_timer);   /* sweep idles with the scope */
+        }
     }
     s_amb_retro = false;
 }
@@ -2586,6 +2600,9 @@ static void amb_show(void)
         lv_obj_add_flag(s_amb, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(s_amb, amb_click_cb, LV_EVENT_CLICKED, NULL);
         s_retro_was_hidden = lv_obj_has_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
+        if (s_retro_timer != NULL) {
+            lv_timer_resume(s_retro_timer);
+        }
         lv_obj_set_parent(s_retro_panel, s_amb);
         lv_obj_set_pos(s_retro_panel, (SCR_W - RADAR_W) / 2, (SCR_H - RADAR_H) / 2);
         lv_obj_clear_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
@@ -2954,7 +2971,8 @@ static void build_retro_panel(lv_obj_t *scr)
     s_retro_info = make_label(s_retro_panel, UIFONT(&font_pl_14, &font_pl_8), RET_COL_DIM);
     lv_obj_align(s_retro_info, LV_ALIGN_TOP_RIGHT, -UISX(10), UISY(6));
 
-    lv_timer_create(retro_timer_cb, RETRO_TICK_MS, NULL);
+    s_retro_timer = lv_timer_create(retro_timer_cb, RETRO_TICK_MS, NULL);
+    lv_timer_pause(s_retro_timer);   /* runs only while a retro scope is visible */
 }
 
 static void build_stats_panel(lv_obj_t *scr)
@@ -3304,6 +3322,8 @@ static void build_detail(lv_obj_t *scr)
 
 void ui_init(void)
 {
+    s_shown = heap_caps_calloc(MAX_SHOWN, sizeof(*s_shown), MALLOC_CAP_SPIRAM);
+    assert(s_shown != NULL);
     /* ship bookkeeping is bulky; keep it out of internal RAM */
     s_row_ships = heap_caps_calloc(MAX_SHOWN, sizeof(ship_t),
                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

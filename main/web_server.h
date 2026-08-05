@@ -9,6 +9,10 @@ void web_server_start(void);
 /* Publish a fresh JSON state snapshot (copied; caller keeps ownership). */
 void web_state_publish(const char *json);
 
+/* Prometheus scalars, pushed by flight_task each cycle (metrics never
+ * parse the state JSON). */
+void web_metrics_publish(int count, int unique, int max_alt_ft, double nearest_km);
+
 /* True while somebody polled /api/state within the last 5 minutes; the
  * flight task skips building the big state JSON otherwise. */
 bool web_state_wanted(void);

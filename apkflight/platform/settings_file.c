@@ -30,7 +30,7 @@ static void set_defaults(void)
     s_settings.radius_nm = 150;
     s_settings.hide_ground = true;
     s_settings.theme = 0;
-    s_settings.lang = 1;
+    s_settings.lang = 0;   /* English out of the box; 1 = Polish */
     s_settings.cpa_alerts = true;
     s_settings.night_enabled = false;
     s_settings.night_start_min = 23 * 60;

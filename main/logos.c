@@ -129,8 +129,11 @@ static void miss_remember(const char *icao)
     }
 }
 
-static void cache_put(const char *icao, uint8_t *data, size_t size);
+static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h);
 static int cache_evictable_slot(void);
+static uint8_t *png_to_bitmap(const uint8_t *png, size_t len,
+                              unsigned *w, unsigned *h);
+static bool index_has(const char *icao);
 
 /* ICAOs whose flash probe already missed this boot: a SPIFFS open() that
  * misses scans the whole object table (~100s of ms on a big partition),
@@ -158,42 +161,86 @@ static void absent_remember(const char *icao)
     }
 }
 
+/* Decode + insert: lodepng runs OUT of the LVGL lock (it used to stall
+ * touch and render for the whole decode); only the slot swap is locked. */
+static void bitmap_insert_locked(const char *icao, uint8_t *png, size_t len)
+{
+    unsigned w = 0, h = 0;
+    uint8_t *bmp = png_to_bitmap(png, len, &w, &h);
+    if (bmp == NULL) {
+        return;
+    }
+    if (lvgl_port_lock(-1)) {
+        cache_insert(icao, bmp, w, h);
+        lvgl_port_unlock();
+    } else {
+        free(bmp);
+    }
+}
+
+/* One worker at a time: SPIFFS probe + read + PNG decode + online fetch
+ * all happen here, never on the render path. A probe that misses walks
+ * the whole SPIFFS object table (100s of ms) - that cost lives here now. */
 static void logo_fetch_task(void *arg)
 {
-    char url[128];
-    snprintf(url, sizeof(url), LOGO_FETCH_URL, s_fetching);
+    char icao[4];
+    strlcpy(icao, s_fetching, sizeof(icao));
 
+    /* bundled or previously persisted logo first */
+    if (!absent_known(icao)) {
+        char path[48];
+        snprintf(path, sizeof(path), "/assets/logos/%s.png", icao);
+        FILE *f = fopen(path, "rb");
+        if (f != NULL) {
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (size > 0 && size <= LOGO_MAX_BYTES) {
+                uint8_t *png = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+                if (png != NULL) {
+                    if (fread(png, 1, size, f) == (size_t)size) {
+                        bitmap_insert_locked(icao, png, (size_t)size);
+                    }
+                    free(png);
+                }
+            }
+            fclose(f);
+            s_fetch_busy = false;
+            vTaskDelete(NULL);
+        }
+        absent_remember(icao);   /* not in flash: online only from now on */
+    }
+
+    if (!index_has(icao)) {
+        miss_remember(icao);     /* not in the online set either */
+        s_fetch_busy = false;
+        vTaskDelete(NULL);
+    }
+
+    char url[128];
+    snprintf(url, sizeof(url), LOGO_FETCH_URL, icao);
     char *buf = heap_caps_malloc(LOGO_MAX_BYTES, MALLOC_CAP_SPIRAM);
     size_t len = 0;
     esp_err_t err = buf == NULL ? ESP_ERR_NO_MEM
                                 : http_get_to_buffer(url, buf, LOGO_MAX_BYTES, &len);
     if (err == ESP_OK && len > 8 && buf[0] == (char)0x89) {   /* PNG magic */
-        uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
-        if (data != NULL) {
-            memcpy(data, buf, len);
-            /* the UI reads the cache under the LVGL lock; insert under it
-             * too, or an eviction could free a descriptor mid-render */
-            if (lvgl_port_lock(-1)) {
-                cache_put(s_fetching, data, len);
-                lvgl_port_unlock();
-            }
-            ESP_LOGI(TAG, "%s fetched (%u B)", s_fetching, (unsigned)len);
-            /* keep it for the next boot when the partition has room; the
-             * write happens in this worker, off the render path */
-            size_t fs_total = 0, fs_used = 0;
-            if (esp_spiffs_info("assets", &fs_total, &fs_used) == ESP_OK &&
-                fs_total - fs_used > 1024 * 1024) {
-                char path[48];
-                snprintf(path, sizeof(path), "/assets/logos/%s.png", s_fetching);
-                FILE *f = fopen(path, "wb");
-                if (f != NULL) {
-                    fwrite(buf, 1, len, f);
-                    fclose(f);
-                }
+        bitmap_insert_locked(icao, (uint8_t *)buf, len);
+        ESP_LOGI(TAG, "%s fetched (%u B)", icao, (unsigned)len);
+        /* keep it for the next boot when the partition has room; the
+         * write happens in this worker, off the render path */
+        size_t fs_total = 0, fs_used = 0;
+        if (esp_spiffs_info("assets", &fs_total, &fs_used) == ESP_OK &&
+            fs_total - fs_used > 1024 * 1024) {
+            char path[48];
+            snprintf(path, sizeof(path), "/assets/logos/%s.png", icao);
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fwrite(buf, 1, len, f);
+                fclose(f);
             }
         }
-    } else {
-        miss_remember(s_fetching);   /* 404 or offline: don't retry this one */
+    } else if (buf != NULL) {
+        miss_remember(icao);   /* 404 or offline: don't retry this one */
     }
     free(buf);
     s_fetch_busy = false;
@@ -203,10 +250,6 @@ static void logo_fetch_task(void *arg)
 static void logo_fetch_want(const char *icao)
 {
     if (s_fetch_busy || miss_known(icao)) {
-        return;
-    }
-    if (!index_has(icao)) {
-        miss_remember(icao);   /* not in the online set either */
         return;
     }
     s_fetch_busy = true;
@@ -233,54 +276,10 @@ const lv_img_dsc_t *logos_get(const char *airline_icao)
     if (cache_evictable_slot() < 0) {
         return NULL;   /* cache pinned by the current pass: no I/O storm */
     }
-    if (absent_known(airline_icao)) {
-        logo_fetch_want(airline_icao);   /* flash already probed: online only */
-        return NULL;
-    }
-    /* A probe that misses walks the whole SPIFFS object table (~100s of
-     * ms); a first render full of new airlines would stack a dozen of
-     * those and trip the task watchdog. One probe per second - skipped
-     * airlines just try again on a later pass. */
-    static int64_t s_last_probe_us;
-    int64_t now_us = esp_timer_get_time();
-    if (now_us - s_last_probe_us < 1000000) {
-        return NULL;
-    }
-    s_last_probe_us = now_us;
-    char path[48];
-    snprintf(path, sizeof(path), "/assets/logos/%s.png", airline_icao);
-    FILE *f = fopen(path, "rb");
-    if (f == NULL) {
-        absent_remember(airline_icao);
-        logo_fetch_want(airline_icao);   /* not bundled: try the online set */
-        return NULL;
-    }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (size <= 0 || size > 64 * 1024) {
-        fclose(f);
-        return NULL;
-    }
-
-    uint8_t *data = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
-    if (data == NULL) {
-        fclose(f);
-        return NULL;
-    }
-    size_t rd = fread(data, 1, size, f);
-    fclose(f);
-    if (rd != (size_t)size) {
-        free(data);
-        return NULL;
-    }
-
-    cache_put(airline_icao, data, size);
-    for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
-        if (s_cache[i].used && strcmp(s_cache[i].icao, airline_icao) == 0) {
-            return &s_cache[i].dsc;
-        }
-    }
+    /* Never any flash or network I/O here: this runs under the LVGL lock
+     * on the render path. The worker loads the logo and it appears on a
+     * later pass. */
+    logo_fetch_want(airline_icao);
     return NULL;
 }
 
@@ -332,16 +331,11 @@ static int cache_evictable_slot(void)
     return slot;
 }
 
-static void cache_put(const char *icao, uint8_t *data, size_t size)
+/* Insert an already-decoded bitmap; caller holds the LVGL lock. */
+static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h)
 {
-    unsigned w = 0, h = 0;
-    uint8_t *bmp = png_to_bitmap(data, size, &w, &h);
-    free(data);   /* the raw PNG is no longer needed either way */
-    if (bmp == NULL) {
-        return;
-    }
-    data = bmp;
-    size = (size_t)w * h * 3;
+    uint8_t *data = bmp;
+    size_t size = (size_t)w * h * 3;
 
     int slot = cache_evictable_slot();
     if (slot < 0) {

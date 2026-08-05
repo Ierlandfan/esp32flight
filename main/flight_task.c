@@ -300,6 +300,11 @@ static const aircraft_t *find_emergency(const aircraft_list_t *list)
 static void publish_web_state(const aircraft_list_t *list, const weather_t *wx,
                               double lat, double lon, const char *city, int radius_nm)
 {
+    /* scalars for /metrics first: Prometheus scrapes must stay fresh even
+     * when no browser keeps the full JSON build alive */
+    web_metrics_publish(list->count, s_stats.unique, s_stats.max_alt_ft,
+                        list->count > 0 && list->ac[0].dist_nm >= 0
+                            ? list->ac[0].dist_nm * 1.852 : 0.0);
     if (!web_state_wanted()) {
         return;   /* nobody is looking at /api/state right now */
     }
