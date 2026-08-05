@@ -2256,9 +2256,14 @@ static void render_ambient(void)
             lv_obj_clear_flag(s_amb_home, LV_OBJ_FLAG_HIDDEN);
         }
     }
+    /* Local view without a tile projection (alloc or fetch failed, retried
+     * above): the world-map fallback math would collapse every aircraft in
+     * a 30 nm radius into one false blob (issue #12), so draw none. The
+     * world projection stays for the pre-location boot state only. */
+    bool proj_usable = s_amb_view_ok || !s_home_ok;
     /* every aircraft in range gets a sprite */
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
-        if (i >= s_all_count) {
+        if (i >= s_all_count || !proj_usable) {
             lv_obj_add_flag(s_amb_planes[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -2279,7 +2284,7 @@ static void render_ambient(void)
     /* bubble for the tapped aircraft */
     if (s_amb_selbub != NULL) {
         int sel = -1;
-        for (int i = 0; s_amb_sel_cs[0] && i < s_all_count; i++) {
+        for (int i = 0; proj_usable && s_amb_sel_cs[0] && i < s_all_count; i++) {
             if (strcmp(s_all[i].callsign, s_amb_sel_cs) == 0) {
                 sel = i;
                 break;
@@ -2433,8 +2438,10 @@ static void amb_click_cb(lv_event_t *e)
     lv_point_t pt;
     if (indev != NULL) {
         lv_indev_get_point(indev, &pt);
+        /* no sprites on screen (no tile projection) -> nothing to pick */
+        bool pickable = s_amb_view_ok || !s_home_ok;
         int best = -1, best_d2 = 48 * 48;
-        for (int i = 0; i < s_all_count; i++) {
+        for (int i = 0; pickable && i < s_all_count; i++) {
             lv_coord_t x, y;
             amb_proj(s_all[i].lat, s_all[i].lon, &x, &y);
             int dx = pt.x - x, dy = pt.y - y;
