@@ -40,7 +40,7 @@
 #define UIZOOM(z) ((uint16_t)(LV_HOR_RES < UI_DESIGN_W \
         ? (uint32_t)(z) * LV_HOR_RES / UI_DESIGN_W : (uint32_t)(z)))
 
-#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
+#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043 || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
 #define UIFONT(big, small) (UI_DOWNSCALE ? (small) : (big))
 #else
 #define UIFONT(big, small) (big)

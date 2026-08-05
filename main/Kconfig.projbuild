@@ -155,9 +155,17 @@ menu "Example Configuration"
                     renders its 800x480 design proportionally downscaled
                     (same physical layout as the Waveshare 4.3, lower
                     DPI). Dedicated build - the pins match the Guition,
-                    so autodetect cannot tell them apart. Capacitive
-                    (C, GT911) touch only; R (resistive) units are not
-                    supported.
+                    so autodetect cannot tell them apart. This is the
+                    capacitive (C, GT911) variant; resistive units use
+                    the 4827S043R option below.
+
+            config CANFLIGHT_BOARD_SUNTON_4827S043R
+                bool "Sunton ESP32-4827S043R (4.3 inch, 480x272, resistive)"
+                help
+                    The resistive-touch (XPT2046 over SPI) variant of the
+                    Sunton 4827S043. Same panel and pins as the C variant,
+                    touch on the SD-card SPI bus (CLK 12 / MOSI 11 /
+                    MISO 13, CS 38, IRQ 18).
         endchoice
 
         config CANFLIGHT_WIFI_SSID

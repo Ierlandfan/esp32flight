@@ -17,7 +17,7 @@ for sz in 8 10 12 14 16 20; do
         # small tiers ship only in the 480x272 firmware (and host builds)
         { echo '/* Compiled only for the 480x272 build (and host builds, which test it). */'
           echo '#include "sdkconfig.h"'
-          echo '#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043'
+          echo '#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043 || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R'
           cat "font_pl_$sz.c"
           echo '#endif /* small-screen build */'
         } > "font_pl_$sz.c.tmp" && mv "font_pl_$sz.c.tmp" "font_pl_$sz.c"

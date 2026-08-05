@@ -1,6 +1,6 @@
 /* Compiled only for the 480x272 build (and host builds, which test it). */
 #include "sdkconfig.h"
-#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
+#if !defined(ESP_PLATFORM) || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043 || CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043R
 /*******************************************************************************
  * Size: 12 px
  * Bpp: 4
