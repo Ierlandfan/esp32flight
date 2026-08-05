@@ -90,6 +90,26 @@ __attribute__((unused)) static const board_cfg_t k_guition = {
     .tp_mirror = false,
 };
 
+__attribute__((unused)) static const board_cfg_t k_crowpanel_50 = {
+    /* Elecrow CrowPanel 5.0 (DIS07050H): Guition-family RGB wiring with
+     * PCLK moved to GPIO0 (a strapping pin - harmless after boot) and no
+     * touch reset line under our control. Pin map from the ESPHome
+     * devices database (working configs). 4 MB flash: pairs with the
+     * partitions-4mb.csv single-slot layout, never auto-detected. */
+    .name = "Elecrow CrowPanel 5.0 (4MB)",
+    .de = 40, .vsync = 41, .hsync = 39, .pclk = 0,
+    .data = { 8, 3, 46, 9, 1,           /* B0..B4 */
+              5, 6, 7, 15, 16, 4,       /* G0..G5 */
+              45, 48, 47, 21, 14 },     /* R0..R4 */
+    .i2c_sda = 19, .i2c_scl = 20,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = -1,
+    .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
+    .tp_mirror = false,
+};
+
 __attribute__((unused)) static const board_cfg_t k_sunton_4827 = {
     /* Sunton ESP32-4827S043 (4.3" 480x272): electrically the Guition
      * JC8048W550's smaller sibling - same RGB wiring, I2C bus, backlight
@@ -236,6 +256,9 @@ static void board_detect(void)
     /* all helper-MCU pins to output, everything released (high) */
     ch32v003_reg_write(0x02, 0xFF);
     ch32v003_reg_write(0x03, s_ch32_out);
+#elif CONFIG_CANFLIGHT_BOARD_CROWPANEL_50
+    s_board = &k_crowpanel_50;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
 #elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
     s_board = &k_sunton_4827;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);

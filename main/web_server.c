@@ -978,6 +978,13 @@ static esp_err_t view_get(httpd_req_t *req)
 static esp_err_t ota_post(httpd_req_t *req)
 {
     AUTH_GUARD(req);
+    if (esp_ota_get_next_update_partition(NULL) == NULL) {
+        /* 4 MB flash class: one factory slot, nowhere to stage an update */
+        ESP_LOGW(TAG, "OTA rejected: no spare app slot on this flash layout");
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                   "this board has no OTA slots (4 MB flash) - "
+                                   "update from the web flasher, settings survive");
+    }
     if (!settings_get()->ota_enabled) {
         ESP_LOGW(TAG, "OTA rejected: updates locked");
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,

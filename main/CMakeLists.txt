@@ -75,6 +75,9 @@ target_compile_options(${lvgl_lib} PRIVATE -Wno-format)
 if(CONFIG_ESPTOOLPY_FLASHSIZE_8MB)
     # curated asset set built by tools/make_assets_8mb.sh
     spiffs_create_partition_image(assets ../assets-8mb FLASH_IN_PROJECT)
+elseif(CONFIG_ESPTOOLPY_FLASHSIZE_4MB)
+    # logo-less asset set built by tools/make_assets_4mb.sh
+    spiffs_create_partition_image(assets ../assets-4mb FLASH_IN_PROJECT)
 else()
     spiffs_create_partition_image(assets ../assets FLASH_IN_PROJECT)
 endif()

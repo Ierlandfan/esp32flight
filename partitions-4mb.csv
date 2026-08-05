@@ -1,0 +1,12 @@
+# 4 MB flash class (ESP32-S3-WROOM-1 N4R8, e.g. Elecrow CrowPanel 5.0).
+# One factory app slot instead of two OTA slots: 4 MB cannot hold two
+# 2.25 MB apps plus assets, so there is NO over-the-air update on this
+# class - updates go through the web flasher, which keeps nvs (settings)
+# untouched at the same 0x9000 offset as every other layout.
+# Assets carry no bundled logos (fetched on demand); the partition still
+# leaves headroom for the spotting/alert logs.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+phy_init, data, phy,     0xf000,   0x1000
+factory,  app,  factory, 0x10000,  0x240000
+assets,   data, spiffs,  0x250000, 0x1b0000

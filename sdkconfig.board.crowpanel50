@@ -1,0 +1,3 @@
+# Elecrow CrowPanel 5.0 (DIS07050H) pin selection - combine with the
+# 4 MB class fragment, see sdkconfig.board.4mb for the full invocation.
+CONFIG_CANFLIGHT_BOARD_CROWPANEL_50=y

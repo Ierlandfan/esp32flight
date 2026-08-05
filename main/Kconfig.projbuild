@@ -166,6 +166,16 @@ menu "Example Configuration"
                     Sunton 4827S043. Same panel and pins as the C variant,
                     touch on the SD-card SPI bus (CLK 12 / MOSI 11 /
                     MISO 13, CS 38, IRQ 18).
+
+            config CANFLIGHT_BOARD_CROWPANEL_50
+                bool "Elecrow CrowPanel 5.0 (DIS07050H, 800x480, 4 MB flash)"
+                help
+                    Elecrow's 5 inch HMI: Guition-family RGB wiring with
+                    PCLK moved to GPIO0 and GT911 on 19/20. The N4R8
+                    module has only 4 MB flash, so this board pairs with
+                    the 4 MB class (sdkconfig.board.4mb): single factory
+                    app slot, no OTA (update via the web flasher), and a
+                    logo-less asset set - logos are fetched on demand.
         endchoice
 
         config CANFLIGHT_WIFI_SSID

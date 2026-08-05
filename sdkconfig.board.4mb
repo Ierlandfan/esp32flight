@@ -1,0 +1,8 @@
+# Stack on top of sdkconfig.defaults for N4R8 modules (4 MB flash):
+# one factory app slot, no OTA, logo-less asset set (fetched on demand).
+# Combine with a board pin fragment, e.g.:
+#   idf.py -B build-crowpanel50 \
+#     -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.4mb;sdkconfig.board.crowpanel50' \
+#     -D SDKCONFIG=build-crowpanel50/sdkconfig build
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4mb.csv"
