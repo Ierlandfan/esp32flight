@@ -34,3 +34,4 @@ apkflight/shim/apk_version.h
 tools/simshot/*.ppm
 tools/simshot/*.png
 tools/simshot/simshot
+tools/simshot/apk_version.h
