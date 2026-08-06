@@ -3850,11 +3850,11 @@ static void build_detail(lv_obj_t *scr)
     make_stat(grid, 1, 1, L()->st_track, &s_stat_vals[4]);
     lv_obj_t *regbox = make_stat(grid, 2, 1, L()->st_reg, &s_stat_vals[5]);
     s_reg_flag = lv_img_create(regbox);
-    lv_img_set_zoom(s_reg_flag, UIZOOM(256));   /* flag PNGs are drawn for 800x480 */
+    lv_img_set_zoom(s_reg_flag, UIZOOM(184));   /* extra small: shares the tile with the value line */
     lv_img_set_antialias(s_reg_flag, true);
     lv_img_set_pivot(s_reg_flag, 0, 0);
     lv_img_set_size_mode(s_reg_flag, LV_IMG_SIZE_MODE_REAL);
-    lv_obj_align(s_reg_flag, LV_ALIGN_TOP_RIGHT, 0, -2);
+    lv_obj_align(s_reg_flag, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_flag(s_reg_flag, LV_OBJ_FLAG_HIDDEN);
 
     /* ship detail: same panel, own content shown when a ship is selected */
