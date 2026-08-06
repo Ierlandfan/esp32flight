@@ -221,6 +221,7 @@ static lv_point_t s_amb_trail_pts[TRAIL_LEN];
 /* RadarSpotter-style selection overlay: squawk banner + data strip + route */
 static lv_obj_t *s_ambx_sq, *s_ambx_em, *s_ambx_l, *s_ambx_m, *s_ambx_r, *s_ambx_rt;
 static lv_obj_t *s_ambx_cls;   /* class sprite beside the type description */
+static lv_obj_t *s_ambx_al;    /* airline/carrier, below the weather chip */
 static lv_obj_t *s_ambx_hdg;   /* red heading vane beside Reg/Heading/Speed */
 static bool s_amb_retro;          /* overlay currently hosts the retro panel */
 static bool s_retro_was_hidden;
@@ -2691,9 +2692,11 @@ static void render_ambient(void)
         if (sel >= 0) {
             /* full aircraft record for reg / type / squawk */
             const aircraft_t *fa = NULL;
+            const char *alname = NULL;
             for (int i = 0; i < s_shown_count; i++) {
                 if (strcmp(s_shown[i].ac.hex, s_all[sel].hex) == 0) {
                     fa = &s_shown[i].ac;
+                    alname = s_shown[i].airline;
                     break;
                 }
             }
@@ -2773,6 +2776,15 @@ static void render_ambient(void)
                                (rc.y1 + rc.y2) / 2 - 16);
             }
             lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
+            /* carrier under the weather chip (when known) */
+            if (alname != NULL && alname[0] != '\0' && s_amb_wx != NULL) {
+                lv_label_set_text(s_ambx_al, alname);
+                lv_obj_align_to(s_ambx_al, s_amb_wx,
+                                LV_ALIGN_OUT_BOTTOM_RIGHT, 0, UISY(6));
+                lv_obj_clear_flag(s_ambx_al, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_ambx_al, LV_OBJ_FLAG_HIDDEN);
+            }
             lv_obj_move_foreground(s_ambx_sq);
             lv_obj_move_foreground(s_ambx_em);
             lv_obj_move_foreground(s_ambx_l);
@@ -2781,6 +2793,7 @@ static void render_ambient(void)
             lv_obj_move_foreground(s_ambx_rt);
             lv_obj_move_foreground(s_ambx_cls);
             lv_obj_move_foreground(s_ambx_hdg);
+            lv_obj_move_foreground(s_ambx_al);
             lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
             if (s_amb_clock != NULL) {   /* squawk banner takes its corner */
                 lv_obj_add_flag(s_amb_clock, LV_OBJ_FLAG_HIDDEN);
@@ -2806,10 +2819,10 @@ static void render_ambient(void)
             if (s_amb_trail != NULL) {
                 lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
             }
-            lv_obj_t *panels[8] = { s_ambx_sq, s_ambx_em, s_ambx_l,
+            lv_obj_t *panels[9] = { s_ambx_sq, s_ambx_em, s_ambx_l,
                                     s_ambx_m, s_ambx_r, s_ambx_rt,
-                                    s_ambx_cls, s_ambx_hdg };
-            for (int i = 0; i < 8; i++) {
+                                    s_ambx_cls, s_ambx_hdg, s_ambx_al };
+            for (int i = 0; i < 9; i++) {
                 if (panels[i] != NULL) {
                     lv_obj_add_flag(panels[i], LV_OBJ_FLAG_HIDDEN);
                 }
@@ -2911,7 +2924,7 @@ static void amb_close(void)
         s_amb_trail = NULL;
         s_ambx_sq = s_ambx_em = s_ambx_l = NULL;
         s_ambx_m = s_ambx_r = s_ambx_rt = NULL;
-        s_ambx_cls = s_ambx_hdg = NULL;
+        s_ambx_cls = s_ambx_hdg = s_ambx_al = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -3113,6 +3126,14 @@ static void amb_show(void)
         lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
+        s_ambx_al = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_12),
+                               lv_color_hex(0xffffff));
+        lv_obj_set_style_bg_color(s_ambx_al, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_ambx_al, LV_OPA_70, 0);
+        lv_obj_set_style_pad_all(s_ambx_al, UISY(5), 0);
+        lv_obj_set_style_pad_hor(s_ambx_al, UISX(8), 0);
+        lv_obj_add_flag(s_ambx_al, LV_OBJ_FLAG_HIDDEN);
+
         /* the vane lives inside the Reg/Heading/Speed panel */
         lv_obj_set_style_pad_right(s_ambx_r, UISX(46), 0);
         lv_label_set_long_mode(s_ambx_m, LV_LABEL_LONG_DOT);
