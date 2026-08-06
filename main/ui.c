@@ -183,6 +183,8 @@ static lv_obj_t *s_amb_trail;                 /* breadcrumb of the tapped plane 
 static lv_point_t s_amb_trail_pts[TRAIL_LEN];
 /* RadarSpotter-style selection overlay: squawk banner + data strip + route */
 static lv_obj_t *s_ambx_sq, *s_ambx_em, *s_ambx_l, *s_ambx_m, *s_ambx_r, *s_ambx_rt;
+static lv_obj_t *s_ambx_cls;   /* class sprite beside the type description */
+static lv_obj_t *s_ambx_hdg;   /* red heading vane beside Reg/Heading/Speed */
 static bool s_amb_retro;          /* overlay currently hosts the retro panel */
 static bool s_retro_was_hidden;
 static char s_amb_sel_cs[9];   /* callsign picked by tapping its sprite */
@@ -2545,12 +2547,24 @@ static void render_ambient(void)
             lv_obj_clear_flag(s_ambx_l, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_m, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_r, LV_OBJ_FLAG_HIDDEN);
+            img_src_if_changed(s_ambx_cls, class_sprite(s_all[sel].fcls));
+            lv_obj_update_layout(s_ambx_m);
+            lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_LEFT_MID,
+                            -UISX(10), 0);
+            lv_obj_clear_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
+            lv_img_set_angle(s_ambx_hdg, (int)(s_all[sel].track * 10));
+            lv_obj_update_layout(s_ambx_r);
+            lv_obj_align_to(s_ambx_hdg, s_ambx_r, LV_ALIGN_OUT_LEFT_MID,
+                            -UISX(10), 0);
+            lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(s_ambx_sq);
             lv_obj_move_foreground(s_ambx_em);
             lv_obj_move_foreground(s_ambx_l);
             lv_obj_move_foreground(s_ambx_m);
             lv_obj_move_foreground(s_ambx_r);
             lv_obj_move_foreground(s_ambx_rt);
+            lv_obj_move_foreground(s_ambx_cls);
+            lv_obj_move_foreground(s_ambx_hdg);
             lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
             if (s_amb_clock != NULL) {   /* squawk banner takes its corner */
                 lv_obj_add_flag(s_amb_clock, LV_OBJ_FLAG_HIDDEN);
@@ -2576,9 +2590,10 @@ static void render_ambient(void)
             if (s_amb_trail != NULL) {
                 lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
             }
-            lv_obj_t *panels[6] = { s_ambx_sq, s_ambx_em, s_ambx_l,
-                                    s_ambx_m, s_ambx_r, s_ambx_rt };
-            for (int i = 0; i < 6; i++) {
+            lv_obj_t *panels[8] = { s_ambx_sq, s_ambx_em, s_ambx_l,
+                                    s_ambx_m, s_ambx_r, s_ambx_rt,
+                                    s_ambx_cls, s_ambx_hdg };
+            for (int i = 0; i < 8; i++) {
                 if (panels[i] != NULL) {
                     lv_obj_add_flag(panels[i], LV_OBJ_FLAG_HIDDEN);
                 }
@@ -2680,6 +2695,7 @@ static void amb_close(void)
         s_amb_trail = NULL;
         s_ambx_sq = s_ambx_em = s_ambx_l = NULL;
         s_ambx_m = s_ambx_r = s_ambx_rt = NULL;
+        s_ambx_cls = s_ambx_hdg = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -2858,6 +2874,21 @@ static void amb_show(void)
         lv_obj_set_width(s_ambx_rt, SCR_W - UISX(16));
         lv_label_set_long_mode(s_ambx_rt, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(s_ambx_rt, LV_TEXT_ALIGN_CENTER, 0);
+
+        s_ambx_cls = lv_img_create(s_amb);
+        lv_img_set_zoom(s_ambx_cls, UIZOOM(320));
+        lv_obj_set_style_img_recolor(s_ambx_cls, lv_color_hex(0xe7f2ea), 0);
+        lv_obj_set_style_img_recolor_opa(s_ambx_cls, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(s_ambx_cls, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
+
+        s_ambx_hdg = lv_img_create(s_amb);
+        lv_img_set_src(s_ambx_hdg, &img_plane);
+        lv_img_set_zoom(s_ambx_hdg, UIZOOM(300));
+        lv_obj_set_style_img_recolor(s_ambx_hdg, lv_color_hex(0xd03030), 0);
+        lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
     }
 
     s_amb_selbub = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xffffff));
