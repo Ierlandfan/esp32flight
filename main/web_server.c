@@ -966,6 +966,7 @@ static esp_err_t view_get(httpd_req_t *req)
         httpd_query_key_value(q, "m", val, sizeof(val)) == ESP_OK) {
         int m = atoi(val);
         if (lvgl_port_lock(1000)) {
+            ui_ambient_dismiss();   /* remote switch beats the screensaver */
             if (m == 30) {
                 ui_set_update_available(true, "v9.9.9");   /* test helper */
             } else if (m >= 20 && m <= 24) {

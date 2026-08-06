@@ -10,6 +10,9 @@ void ui_init(void);
 /* Force a right-panel view (0 detail, 1 map, 2 radar, 3 stats, 4 retro);
  * used by the desktop build for screenshot testing. */
 void ui_set_view(int mode);
+
+/* Dismiss the ambient screensaver if it is showing (remote view switch). */
+void ui_ambient_dismiss(void);
 void ui_set_list_mode(int mode);   /* 0 planes, 1 ships, 2 all */
 
 /* One-line status in the header (Wi-Fi / location / errors). */

@@ -740,6 +740,13 @@ static void emb_release(void)
     }
 }
 
+static void amb_close(void);
+
+void ui_ambient_dismiss(void)
+{
+    amb_close();
+}
+
 void ui_set_view(int mode)
 {
     /* 5 and 6 are screenshot helpers for the desktop build: overlays that
