@@ -83,6 +83,8 @@ static void fake_traffic(aircraft_list_t *l)
            -0.31, -0.28, 34000, 431.f, 210.f, 27.6f, 221.f, 0, false);
     add_ac(l, "QTR27P", "06a2e4", "B77W", "BOEING 777-300ER", "A5",
            0.72, -0.10, 40000, 495.f, 285.f, 49.8f, 350.f, 0, false);
+    strlcpy(l->ac[0].squawk, "7700", sizeof(l->ac[0].squawk));
+    strlcpy(l->ac[0].reg, "EI-DWT", sizeof(l->ac[0].reg));
     l->fetched_at_ms = 1000;
 }
 
@@ -140,6 +142,19 @@ int main(int argc, char **argv)
 
     char path[256];
     for (const char *v = views; *v != '\0'; v++) {
+        if (*v == 'a') {   /* ambient screensaver with first plane selected */
+            void ui_test_ambient(const char *cs);
+            lvgl_port_lock(-1);
+            ui_test_ambient("RYR638T");
+            lvgl_port_unlock();
+            pump(2500);
+            snprintf(path, sizeof(path), "%s_ambient.ppm", prefix);
+            if (sim_shot_ppm(path) != 0) {
+                return 1;
+            }
+            printf("wrote %s\n", path);
+            continue;
+        }
         if (*v == 's') {   /* settings screen, tabs s0..s3 via next digit */
             int tab = (v[1] >= '0' && v[1] <= '9') ? *++v - '0' : 0;
             lvgl_port_lock(-1);

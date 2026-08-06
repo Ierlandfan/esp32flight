@@ -181,6 +181,8 @@ static lv_obj_t *s_amb_ring, *s_amb_home;
 static lv_obj_t *s_amb_selbub;
 static lv_obj_t *s_amb_trail;                 /* breadcrumb of the tapped plane */
 static lv_point_t s_amb_trail_pts[TRAIL_LEN];
+/* RadarSpotter-style selection overlay: squawk banner + data strip + route */
+static lv_obj_t *s_ambx_sq, *s_ambx_em, *s_ambx_l, *s_ambx_m, *s_ambx_r, *s_ambx_rt;
 static bool s_amb_retro;          /* overlay currently hosts the retro panel */
 static bool s_retro_was_hidden;
 static char s_amb_sel_cs[9];   /* callsign picked by tapping its sprite */
@@ -2486,37 +2488,73 @@ static void render_ambient(void)
             }
         }
         if (sel >= 0) {
-            char txt[96];
+            /* full aircraft record for reg / type / squawk */
+            const aircraft_t *fa = NULL;
+            for (int i = 0; i < s_shown_count; i++) {
+                if (strcmp(s_shown[i].ac.hex, s_all[sel].hex) == 0) {
+                    fa = &s_shown[i].ac;
+                    break;
+                }
+            }
             const route_info_t *rt = routes_get_cached(s_all[sel].callsign);
-            if (rt != NULL && rt->valid) {
-                char ua[20];
-                snprintf(txt, sizeof(txt), "%s\n%s " LV_SYMBOL_RIGHT " %s\n%s",
-                         s_all[sel].callsign,
-                         rt->origin.iata[0] ? rt->origin.iata : rt->origin.icao,
-                         rt->destination.iata[0] ? rt->destination.iata
-                                                 : rt->destination.icao,
-                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
+            char buf[160], ua[20], us[20];
+            const char *sq = (fa != NULL && fa->squawk[0]) ? fa->squawk : "----";
+            bool em = fa != NULL && (strcmp(fa->squawk, "7500") == 0 ||
+                                     strcmp(fa->squawk, "7600") == 0 ||
+                                     strcmp(fa->squawk, "7700") == 0);
+            snprintf(buf, sizeof(buf), "#5dd39e Squawk:# %s   %s", sq,
+                     s_all[sel].callsign);
+            lv_label_set_text(s_ambx_sq, buf);
+            lv_obj_set_style_bg_color(s_ambx_sq,
+                                      lv_color_hex(em ? 0xc00000 : 0x000000), 0);
+            if (em) {
+                lv_label_set_text(s_ambx_em, "EMERGENCY");
+                lv_obj_clear_flag(s_ambx_em, LV_OBJ_FLAG_HIDDEN);
             } else {
-                char ua[20];
-                snprintf(txt, sizeof(txt), "%s\n%s", s_all[sel].callsign,
-                         units_alt(s_all[sel].alt_ft, ua, sizeof(ua)));
+                lv_obj_add_flag(s_ambx_em, LV_OBJ_FLAG_HIDDEN);
             }
-            lv_label_set_text(s_amb_selbub, txt);
-            lv_coord_t x, y;
-            amb_proj(s_all[sel].lat, s_all[sel].lon, &x, &y);
-            int lx = x + 18, ly = y - 12;
-            if (lx > SCR_W - 140) {
-                lx = x - 140;
+            static const char *cls_word[FCLS_COUNT] =
+                { "Jet", "Light", "Heli", "Military", "Other" };
+            snprintf(buf, sizeof(buf),
+                     "#5dd39e Type:# %s\n#5dd39e Altitude:# %s\n#5dd39e Distance:# %.1f km",
+                     cls_word[s_all[sel].fcls < FCLS_COUNT ? s_all[sel].fcls : FCLS_OTHER],
+                     s_all[sel].ground ? L()->ground
+                                       : units_alt(s_all[sel].alt_ft, ua, sizeof(ua)),
+                     (double)(s_all[sel].dist_nm * 1.852f));
+            lv_label_set_text(s_ambx_l, buf);
+            lv_label_set_text(s_ambx_m,
+                              (fa != NULL && fa->type_desc[0]) ? fa->type_desc
+                              : (fa != NULL && fa->type_icao[0]) ? fa->type_icao : "?");
+            snprintf(buf, sizeof(buf),
+                     "#5dd39e Reg:# %s\n#5dd39e Heading:# %d\n#5dd39e Speed:# %s",
+                     (fa != NULL && fa->reg[0]) ? fa->reg : "-",
+                     (int)s_all[sel].track,
+                     fa != NULL ? units_speed(fa->gs_kts, us, sizeof(us)) : "-");
+            lv_label_set_text(s_ambx_r, buf);
+            if (rt != NULL && rt->valid) {
+                snprintf(buf, sizeof(buf),
+                         "%s %s   #5dd39e From " LV_SYMBOL_RIGHT " To#   %s %s",
+                         rt->origin.icao, rt->origin.name,
+                         rt->destination.icao, rt->destination.name);
+                lv_label_set_text(s_ambx_rt, buf);
+                lv_obj_clear_flag(s_ambx_rt, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_ambx_rt, LV_OBJ_FLAG_HIDDEN);
             }
-            if (ly < 0) {
-                ly = 0;
+            lv_obj_clear_flag(s_ambx_sq, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_ambx_l, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_ambx_m, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_ambx_r, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(s_ambx_sq);
+            lv_obj_move_foreground(s_ambx_em);
+            lv_obj_move_foreground(s_ambx_l);
+            lv_obj_move_foreground(s_ambx_m);
+            lv_obj_move_foreground(s_ambx_r);
+            lv_obj_move_foreground(s_ambx_rt);
+            lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
+            if (s_amb_clock != NULL) {   /* squawk banner takes its corner */
+                lv_obj_add_flag(s_amb_clock, LV_OBJ_FLAG_HIDDEN);
             }
-            if (ly > SCR_H - 70) {
-                ly = SCR_H - 70;
-            }
-            lv_obj_set_pos(s_amb_selbub, lx, ly);
-            lv_obj_clear_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_move_foreground(s_amb_selbub);
 
             /* breadcrumb trail, same style as the radar view's */
             float tlat[TRAIL_LEN], tlon[TRAIL_LEN];
@@ -2537,6 +2575,16 @@ static void render_ambient(void)
             lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
             if (s_amb_trail != NULL) {
                 lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
+            }
+            lv_obj_t *panels[6] = { s_ambx_sq, s_ambx_em, s_ambx_l,
+                                    s_ambx_m, s_ambx_r, s_ambx_rt };
+            for (int i = 0; i < 6; i++) {
+                if (panels[i] != NULL) {
+                    lv_obj_add_flag(panels[i], LV_OBJ_FLAG_HIDDEN);
+                }
+            }
+            if (s_amb_clock != NULL) {
+                lv_obj_clear_flag(s_amb_clock, LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
@@ -2630,6 +2678,8 @@ static void amb_close(void)
         s_amb_note = NULL;
         s_amb_selbub = NULL;
         s_amb_trail = NULL;
+        s_ambx_sq = s_ambx_em = s_ambx_l = NULL;
+        s_ambx_m = s_ambx_r = s_ambx_rt = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -2777,6 +2827,37 @@ static void amb_show(void)
         lv_obj_set_style_bg_opa(s_amb_lbls[i], LV_OPA_50, 0);
         lv_obj_set_style_pad_hor(s_amb_lbls[i], UISX(4), 0);
         lv_obj_add_flag(s_amb_lbls[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    /* selection data panels (RadarSpotter homage); filled in render_ambient */
+    {
+        static const lv_align_t al[6] = {
+            LV_ALIGN_TOP_LEFT, LV_ALIGN_TOP_MID, LV_ALIGN_BOTTOM_LEFT,
+            LV_ALIGN_BOTTOM_MID, LV_ALIGN_BOTTOM_RIGHT, LV_ALIGN_BOTTOM_MID,
+        };
+        lv_obj_t **w[6] = { &s_ambx_sq, &s_ambx_em, &s_ambx_l,
+                            &s_ambx_m, &s_ambx_r, &s_ambx_rt };
+        for (int i = 0; i < 6; i++) {
+            lv_obj_t *l = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10),
+                                     lv_color_hex(0xffffff));
+            lv_label_set_recolor(l, true);
+            lv_obj_set_style_bg_color(l, lv_color_hex(0x000000), 0);
+            lv_obj_set_style_bg_opa(l, LV_OPA_70, 0);
+            lv_obj_set_style_pad_all(l, UISY(6), 0);
+            lv_obj_set_style_pad_hor(l, UISX(8), 0);
+            lv_obj_align(l, al[i],
+                         i == 0 ? UISX(8) : i == 2 ? UISX(8) : i == 4 ? -UISX(8) : 0,
+                         i == 0 ? UISY(8) : i == 1 ? UISY(8) :
+                         i == 5 ? -UISY(4) : -UISY(34));
+            lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+            *w[i] = l;
+        }
+        lv_obj_set_style_bg_color(s_ambx_em, lv_color_hex(0xc00000), 0);
+        lv_obj_set_style_bg_opa(s_ambx_em, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_align(s_ambx_m, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(s_ambx_rt, SCR_W - UISX(16));
+        lv_label_set_long_mode(s_ambx_rt, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(s_ambx_rt, LV_TEXT_ALIGN_CENTER, 0);
     }
 
     s_amb_selbub = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xffffff));
@@ -4181,3 +4262,13 @@ static void render_list_rows(void)
         }
     }
 }
+
+#ifdef SIMSHOT
+/* headless-harness hook: open the screensaver with a plane pre-selected */
+void ui_test_ambient(const char *cs)
+{
+    s_home_ok = false;   /* offline harness: world-map fallback projection */
+    strlcpy(s_amb_sel_cs, cs, sizeof(s_amb_sel_cs));
+    amb_show();
+}
+#endif
