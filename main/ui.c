@@ -3350,6 +3350,14 @@ static void retro_map_update(void)
         return;
     }
     float k = radius_px / (float)RADAR_R;   /* canvas px per scope px */
+    /* gamma stretch: the dark basemap lives in the bottom of the
+     * luminance range; ^0.42 pulls coastlines and roads into view */
+    static uint8_t s_gamma[256];
+    if (s_gamma[255] == 0) {
+        for (int i = 0; i < 256; i++) {
+            s_gamma[i] = (uint8_t)(255.0f * powf((float)i / 255.0f, 0.42f));
+        }
+    }
     for (int y = 0; y < RADAR_H; y++) {
         uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
         float sy = hy + (y - RADAR_CY) * k;
@@ -3358,11 +3366,11 @@ static void retro_map_update(void)
             uint16_t out = 0;
             if (sx >= 0 && sx < RADAR_W && sy >= 0 && sy < RADAR_H) {
                 uint16_t c = s_radar_tiles[(int)sy * RADAR_W + (int)sx];
-                int lum = (((c >> 11) & 31) * 2 + ((c >> 5) & 63) +
-                           (c & 31) * 2) * 255 / 252;
-                out = (uint16_t)((((lum * 8) / 255) << 11) |
-                                 (((lum * 52) / 255) << 5) |
-                                 ((lum * 8) / 255));
+                int lum = s_gamma[(((c >> 11) & 31) * 2 + ((c >> 5) & 63) +
+                                   (c & 31) * 2) * 255 / 252];
+                out = (uint16_t)((((lum * 10) / 255) << 11) |
+                                 (((lum * 60) / 255) << 5) |
+                                 ((lum * 10) / 255));
             }
             dst[x] = out;
         }
