@@ -1388,6 +1388,7 @@ static void render_map_panel(void)
  */
 #if defined(ESP_PLATFORM)
 #include <sys/stat.h>
+#include <unistd.h>
 #include "esp_spiffs.h"
 
 typedef struct {
