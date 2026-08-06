@@ -3405,21 +3405,21 @@ static void retro_map_update(void)
             float sx = hx + (x - RADAR_CX) * k;
             uint16_t out = 0;
             int isx = (int)sx, isy = (int)sy;
-            if (isx >= 0 && isx < RADAR_W - 1 && isy >= 0 && isy < RADAR_H - 1) {
+            if (isx >= 2 && isx < RADAR_W - 3 && isy >= 2 && isy < RADAR_H - 3) {
                 const uint16_t *src = &s_radar_tiles[isy * RADAR_W + isx];
                 int l0 = RETRO_LUM(src[0]);
-                int lr = RETRO_LUM(src[1]);
-                int ld = RETRO_LUM(src[RADAR_W]);
-                int edge = (l0 > lr ? l0 - lr : lr - l0) +
-                           (l0 > ld ? l0 - ld : ld - l0);
-                int bright = s_gamma[l0 * 255 / 252];
-                edge = edge * 5;
+                /* wide-baseline gradient: the canvas upscale smears steps
+                 * over 2-3 px, so compare across 3 to recover the cliff */
+                int lr = RETRO_LUM(src[3]) - RETRO_LUM(src[-2]);
+                int ld = RETRO_LUM(src[3 * RADAR_W]) - RETRO_LUM(src[-2 * RADAR_W]);
+                int edge = (lr < 0 ? -lr : lr) + (ld < 0 ? -ld : ld);
+                edge = edge < 14 ? 0 : (edge - 14) * 6;   /* noise floor */
                 if (edge > 255) {
                     edge = 255;
                 }
-                if (edge > bright) {
-                    bright = edge;
-                }
+                /* dim base wash so the edge strokes stand out against it */
+                int base = s_gamma[l0 * 255 / 252] * 2 / 5;
+                int bright = edge > base ? edge : base;
                 out = (uint16_t)((((bright * 12) / 255) << 11) |
                                  (((bright * 63) / 255) << 5) |
                                  ((bright * 12) / 255));
