@@ -17,3 +17,6 @@ CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
 # internal RAM: keeps internal in large contiguous blocks so 10 KB tile-task
 # stacks and esp-aes DMA allocations always fit.
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
+
+# Personal preference (this device only): 4 s aircraft poll
+CONFIG_CANFLIGHT_POLL_SECONDS=4
