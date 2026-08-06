@@ -27,6 +27,17 @@ void geo_gc_point(double lat1, double lon1, double lat2, double lon2,
  * entries (e.g. a callsign reused on a different continent). */
 /* Corridor + direction-of-flight test; track_deg < 0 or low ground speed
  * skips the direction part. */
+/* Tri-state route-vs-position verdict: 0 = refuted, 1 = merely plausible
+ * (the discriminating checks stayed quiet: near an airport, low speed, no
+ * track), 2 = confirmed (en-route track evidence actually passed). */
+#define GEO_FIT_NO        0
+#define GEO_FIT_WEAK      1
+#define GEO_FIT_CONFIRMED 2
+int geo_route_fit_dir(double orig_lat, double orig_lon,
+                      double dest_lat, double dest_lon,
+                      double cur_lat, double cur_lon,
+                      float track_deg, float gs_kts, int vrate_fpm);
+
 bool geo_route_plausible_dir(double orig_lat, double orig_lon,
                              double dest_lat, double dest_lon,
                              double cur_lat, double cur_lon,

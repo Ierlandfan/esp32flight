@@ -328,6 +328,21 @@ static void hexdb_fallback(char *buf, route_info_t *slot)
     }
 }
 
+static int route_fit_position(const route_info_t *rt,
+                              double ac_lat, double ac_lon, bool has_pos,
+                              float track_deg, float gs_kts, int vrate_fpm)
+{
+    if (!rt->valid) {
+        return GEO_FIT_NO;
+    }
+    if (!has_pos) {
+        return GEO_FIT_WEAK;
+    }
+    return geo_route_fit_dir(rt->origin.lat, rt->origin.lon,
+                             rt->destination.lat, rt->destination.lon,
+                             ac_lat, ac_lon, track_deg, gs_kts, vrate_fpm);
+}
+
 static bool route_fits_position(const route_info_t *rt,
                                 double ac_lat, double ac_lon, bool has_pos,
                                 float track_deg, float gs_kts, int vrate_fpm)
@@ -338,6 +353,45 @@ static bool route_fits_position(const route_info_t *rt,
     return geo_route_plausible_dir(rt->origin.lat, rt->origin.lon,
                                    rt->destination.lat, rt->destination.lon,
                                    ac_lat, ac_lon, track_deg, gs_kts, vrate_fpm);
+}
+
+/* adsbdb by callsign into out; returns transport err for the negative-
+ * cache policy. out->valid set only when both airports parsed. */
+static esp_err_t adsbdb_route(char *buf, const char *callsign, route_info_t *out)
+{
+    char url[96];
+    snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
+    esp_err_t err = http_get_to_buffer_t(url, buf, 8192, NULL, 5000);
+    if (err != ESP_OK) {
+        return err;
+    }
+    cJSON *root = cJSON_Parse(buf);
+    if (root == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    const cJSON *resp = cJSON_GetObjectItem(root, "response");
+    const cJSON *fr = resp ? cJSON_GetObjectItem(resp, "flightroute") : NULL;
+    if (fr != NULL) {
+        const cJSON *airline = cJSON_GetObjectItem(fr, "airline");
+        const cJSON *f;
+        if (airline != NULL) {
+            if ((f = cJSON_GetObjectItem(airline, "name")) && cJSON_IsString(f)) {
+                strlcpy(out->airline_name, f->valuestring, sizeof(out->airline_name));
+            }
+            if ((f = cJSON_GetObjectItem(airline, "icao")) && cJSON_IsString(f)) {
+                strlcpy(out->airline_icao, f->valuestring, sizeof(out->airline_icao));
+            }
+        }
+        const cJSON *orig = cJSON_GetObjectItem(fr, "origin");
+        const cJSON *dest = cJSON_GetObjectItem(fr, "destination");
+        if (orig != NULL && dest != NULL) {
+            parse_airport(orig, &out->origin);
+            parse_airport(dest, &out->destination);
+            out->valid = out->origin.icao[0] != '\0' && out->destination.icao[0] != '\0';
+        }
+    }
+    cJSON_Delete(root);
+    return ESP_OK;
 }
 
 const route_info_t *routes_fetch(const char *callsign,
@@ -364,7 +418,8 @@ const route_info_t *routes_fetch(const char *callsign,
      * validates the route server-side, so it survives the stale shuttle
      * entries that plague the plain callsign tables. */
     lol_routeset(buf, slot, ac_lat, ac_lon, has_pos);
-    if (slot->valid && !route_fits_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts, vrate_fpm)) {
+    int fit = route_fit_position(slot, ac_lat, ac_lon, has_pos, track_deg, gs_kts, vrate_fpm);
+    if (slot->valid && fit == GEO_FIT_NO) {
         ESP_LOGW(TAG, "%s: routeset %s->%s doesn't fit position",
                  callsign, slot->origin.icao, slot->destination.icao);
         slot->valid = false;
@@ -373,43 +428,50 @@ const route_info_t *routes_fetch(const char *callsign,
     }
     bool authoritative = slot->valid;
 
-    char url[96];
-    esp_err_t err = ESP_FAIL;
-    if (!slot->valid) {
-        snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
-        err = http_get_to_buffer_t(url, buf, 8192, NULL, 5000);
-        /* 200 (parsed below) and 404 are authoritative answers; timeouts,
-         * rate limits and server errors are not - those must retry soon
-         * instead of poisoning the negative cache for half an hour. */
-        authoritative = (err == ESP_OK) || (err == ESP_ERR_HTTP_BASE + 404);
-    }
-
-    if (err == ESP_OK) {
-        cJSON *root = cJSON_Parse(buf);
-        if (root != NULL) {
-            const cJSON *resp = cJSON_GetObjectItem(root, "response");
-            const cJSON *fr = resp ? cJSON_GetObjectItem(resp, "flightroute") : NULL;
-            if (fr != NULL) {
-                const cJSON *airline = cJSON_GetObjectItem(fr, "airline");
-                const cJSON *f;
-                if (airline != NULL) {
-                    if ((f = cJSON_GetObjectItem(airline, "name")) && cJSON_IsString(f)) {
-                        strlcpy(slot->airline_name, f->valuestring, sizeof(slot->airline_name));
+    if (slot->valid && fit == GEO_FIT_WEAK) {
+        /* The position could not CONFIRM this route (fresh departure near
+         * the airport fits half the continent) - ask a second, independent
+         * database. Agreement settles it; a confirmed disagreement wins;
+         * a merely-plausible disagreement keeps the server-validated
+         * routeset answer. Best effort: errors change nothing. */
+        route_info_t second;
+        memset(&second, 0, sizeof(second));
+        if (adsbdb_route(buf, callsign, &second) == ESP_OK && second.valid) {
+            bool same = strcmp(slot->origin.icao, second.origin.icao) == 0 &&
+                        strcmp(slot->destination.icao, second.destination.icao) == 0;
+            if (!same) {
+                int sfit = route_fit_position(&second, ac_lat, ac_lon, has_pos,
+                                              track_deg, gs_kts, vrate_fpm);
+                if (sfit == GEO_FIT_CONFIRMED) {
+                    ESP_LOGW(TAG, "%s: adsbdb %s->%s confirmed over routeset %s->%s",
+                             callsign, second.origin.icao, second.destination.icao,
+                             slot->origin.icao, slot->destination.icao);
+                    slot->origin = second.origin;
+                    slot->destination = second.destination;
+                    if (second.airline_name[0]) {
+                        strlcpy(slot->airline_name, second.airline_name,
+                                sizeof(slot->airline_name));
                     }
-                    if ((f = cJSON_GetObjectItem(airline, "icao")) && cJSON_IsString(f)) {
-                        strlcpy(slot->airline_icao, f->valuestring, sizeof(slot->airline_icao));
+                    if (second.airline_icao[0]) {
+                        strlcpy(slot->airline_icao, second.airline_icao,
+                                sizeof(slot->airline_icao));
                     }
-                }
-                const cJSON *orig = cJSON_GetObjectItem(fr, "origin");
-                const cJSON *dest = cJSON_GetObjectItem(fr, "destination");
-                if (orig != NULL && dest != NULL) {
-                    parse_airport(orig, &slot->origin);
-                    parse_airport(dest, &slot->destination);
-                    slot->valid = slot->origin.icao[0] != '\0' && slot->destination.icao[0] != '\0';
+                } else {
+                    ESP_LOGW(TAG, "%s: sources disagree (%s->%s vs %s->%s), keeping routeset",
+                             callsign, slot->origin.icao, slot->destination.icao,
+                             second.origin.icao, second.destination.icao);
                 }
             }
-            cJSON_Delete(root);
         }
+    }
+
+    esp_err_t err = ESP_FAIL;
+    if (!slot->valid) {
+        err = adsbdb_route(buf, callsign, slot);
+        /* 200 and 404 are authoritative answers; timeouts, rate limits and
+         * server errors are not - those must retry soon instead of
+         * poisoning the negative cache for half an hour. */
+        authoritative = (err == ESP_OK) || (err == ESP_ERR_HTTP_BASE + 404);
     }
 
     if (err == ESP_OK && slot->valid &&
@@ -449,6 +511,35 @@ const route_info_t *routes_fetch(const char *callsign,
                  slot->origin.icao, slot->destination.icao, slot->airline_name);
     }
     return slot;
+}
+
+void routes_revalidate(const char *callsign,
+                       double ac_lat, double ac_lon, bool has_pos,
+                       float track_deg, float gs_kts, int vrate_fpm)
+{
+    if (callsign == NULL || callsign[0] == '\0' || !has_pos || !cache_ready()) {
+        return;
+    }
+    for (int i = 0; i < s_used; i++) {
+        if (strcmp(s_cache[i].callsign, callsign) != 0) {
+            continue;
+        }
+        if (!s_cache[i].valid) {
+            return;
+        }
+        /* rate-limit: a boundary-hugging flight must not refetch every
+         * cycle; one verdict per minute per callsign is plenty */
+        if (esp_timer_get_time() / 1000 - s_cache[i].fetched_ms < 60000) {
+            return;
+        }
+        if (route_fit_position(&s_cache[i], ac_lat, ac_lon, has_pos,
+                               track_deg, gs_kts, vrate_fpm) == GEO_FIT_NO) {
+            ESP_LOGW(TAG, "%s: cached route %s->%s refuted by position, refetching",
+                     callsign, s_cache[i].origin.icao, s_cache[i].destination.icao);
+            s_cache[i].callsign[0] = '\0';   /* hole: the next cycle refetches */
+        }
+        return;
+    }
 }
 
 void routes_inject(const char *callsign, const char *orig_icao, const char *dest_icao)

@@ -705,8 +705,14 @@ static void flight_task(void *arg)
             int top = list->count < ROUTE_LOOKUP_TOP_N ? list->count : ROUTE_LOOKUP_TOP_N;
             int pending = 0;
             for (int i = 0; i < top; i++) {
-                const char *cs = list->ac[i].callsign;
-                if (cs[0] != '\0' && routes_get_cached(cs) == NULL) {
+                const aircraft_t *ac = &list->ac[i];
+                if (ac->callsign[0] == '\0') {
+                    continue;
+                }
+                /* evict cached routes the current geometry refutes */
+                routes_revalidate(ac->callsign, ac->lat, ac->lon, ac->has_pos,
+                                  ac->track_deg, ac->gs_kts, ac->baro_rate_fpm);
+                if (routes_get_cached(ac->callsign) == NULL) {
                     pending++;
                 }
             }

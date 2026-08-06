@@ -12,6 +12,14 @@ const route_info_t *routes_get_cached(const char *callsign);
  * is known, each source's answer is sanity-checked against it - a route the
  * aircraft can't plausibly be on triggers the next source instead of being
  * shown. Call from a network task, never from the UI. */
+/* Re-check a cached route against the aircraft's current geometry: a
+ * wrong-but-plausible entry gets refuted (and refetched) the moment the
+ * flight's track starts contradicting it. Cheap local math, rate-limited
+ * per callsign. */
+void routes_revalidate(const char *callsign,
+                       double ac_lat, double ac_lon, bool has_pos,
+                       float track_deg, float gs_kts, int vrate_fpm);
+
 const route_info_t *routes_fetch(const char *callsign,
                                  double ac_lat, double ac_lon, bool has_pos,
                                  float track_deg, float gs_kts, int vrate_fpm);
