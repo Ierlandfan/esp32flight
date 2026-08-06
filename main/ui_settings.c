@@ -48,6 +48,7 @@ static lv_obj_t *s_ta_oaip, *s_ta_ais;
 static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle, *s_sw_nauto;
 static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_sw_map_light;
+static lv_obj_t *s_sw_retro_map;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
 static bool s_scan_busy;
@@ -326,6 +327,7 @@ static void save_cb(lv_event_t *e)
     strlcpy(cfg->openaip_key, lv_textarea_get_text(s_ta_oaip), sizeof(cfg->openaip_key));
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
     cfg->map_light = lv_obj_has_state(s_sw_map_light, LV_STATE_CHECKED);
+    cfg->retro_map = lv_obj_has_state(s_sw_retro_map, LV_STATE_CHECKED);
     cfg->metric_units = lv_dropdown_get_selected(s_dd_units) == 1;
     cfg->metar_decoded = lv_dropdown_get_selected(s_dd_metar) == 1;
     cfg->follow_mode = !lv_obj_has_state(s_sw_cycle, LV_STATE_CHECKED);
@@ -715,6 +717,7 @@ void ui_settings_open(void)
     lv_dropdown_set_options(s_dd_amb_style, L()->amb_style_opts);
     lv_dropdown_set_selected(s_dd_amb_style, cfg->amb_style == 1 ? 1 : 0);
     s_sw_map_light = add_switch(p, L()->map_light_lbl, 0, 524, cfg->map_light);
+    s_sw_retro_map = add_switch(p, L()->retro_map_lbl, 380, 524, cfg->retro_map);
 
 #ifdef APKFLIGHT
     /* No web panel and no OTA in the app - updates arrive as a new APK. */

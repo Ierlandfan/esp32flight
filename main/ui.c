@@ -297,6 +297,11 @@ static float s_retro_bearing[MAX_AIRCRAFT];
 static bool  s_retro_valid[MAX_AIRCRAFT];
 /* optional precipitation echo under the sweep (RainViewer, rain-only) */
 static lv_obj_t     *s_retro_rain_img;
+/* optional green map underlay (settings toggle) */
+static lv_obj_t     *s_retro_map_img;
+static uint16_t     *s_retro_map_buf;
+static lv_img_dsc_t  s_retro_map_dsc;
+static char          s_retro_map_key[48];
 static uint16_t     *s_retro_rain_buf;
 static lv_img_dsc_t  s_retro_rain_dsc;
 static volatile bool s_retro_rain_busy;
@@ -3305,10 +3310,76 @@ static void retro_timer_cb(lv_timer_t *t)
     }
 }
 
+/* Phosphor-green map under the retro sweep: the radar view's stitched
+ * canvas, resampled so the scope radius matches the blips' polar scale,
+ * and collapsed to a dark green luminance ramp. Rebuilt only when the
+ * radar canvas key changes. */
+static void retro_map_update(void)
+{
+    if (!settings_get()->retro_map || !s_radar_view_ok) {
+        if (s_retro_map_img != NULL) {
+            lv_obj_add_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        s_retro_map_key[0] = '\0';
+        return;
+    }
+    if (strcmp(s_retro_map_key, s_radar_key) == 0) {
+        lv_obj_clear_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (s_retro_map_buf == NULL) {
+        s_retro_map_buf = heap_caps_malloc((size_t)RADAR_W * RADAR_H * 2,
+                                           MALLOC_CAP_SPIRAM);
+    }
+    if (s_retro_map_buf == NULL || s_radar_tiles == NULL) {
+        return;
+    }
+    int hx, hy, ex, ey;
+    radar_project(s_home_lat, s_home_lon, &hx, &hy);
+    double rkm = settings_get()->radius_nm * 1.852;
+    radar_project(s_home_lat + rkm / 111.0, s_home_lon, &ex, &ey);
+    float radius_px = (float)(hy - ey);
+    if (radius_px < 10.0f) {
+        return;
+    }
+    float k = radius_px / (float)RADAR_R;   /* canvas px per scope px */
+    for (int y = 0; y < RADAR_H; y++) {
+        uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
+        float sy = hy + (y - RADAR_CY) * k;
+        for (int x = 0; x < RADAR_W; x++) {
+            float sx = hx + (x - RADAR_CX) * k;
+            uint16_t out = 0;
+            if (sx >= 0 && sx < RADAR_W && sy >= 0 && sy < RADAR_H) {
+                uint16_t c = s_radar_tiles[(int)sy * RADAR_W + (int)sx];
+                int lum = (((c >> 11) & 31) * 2 + ((c >> 5) & 63) +
+                           (c & 31) * 2) * 255 / 252;
+                out = (uint16_t)((((lum * 8) / 255) << 11) |
+                                 (((lum * 52) / 255) << 5) |
+                                 ((lum * 8) / 255));
+            }
+            dst[x] = out;
+        }
+    }
+    s_retro_map_dsc.header.always_zero = 0;
+    s_retro_map_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+    s_retro_map_dsc.header.w = RADAR_W;
+    s_retro_map_dsc.header.h = RADAR_H;
+    s_retro_map_dsc.data = (const uint8_t *)s_retro_map_buf;
+    s_retro_map_dsc.data_size = (size_t)RADAR_W * RADAR_H * 2;
+    lv_img_set_src(s_retro_map_img, &s_retro_map_dsc);
+    lv_obj_clear_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+    strlcpy(s_retro_map_key, s_radar_key, sizeof(s_retro_map_key));
+    ESP_LOGI("ui", "retro map underlay rebuilt");
+}
+
 static void render_retro_panel(void)
 {
     int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
     int radius_nm = settings_get()->radius_nm;
+    if (settings_get()->retro_map) {
+        radar_tiles_want();   /* scope wants the canvas even if radar view never opened */
+    }
+    retro_map_update();
     lv_area_t lbl_box[24];
     int nlbl = 0;
 
@@ -3374,6 +3445,10 @@ static void build_retro_panel(lv_obj_t *scr)
     lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
 
     int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+
+    s_retro_map_img = lv_img_create(s_retro_panel);
+    lv_obj_set_pos(s_retro_map_img, 0, 0);
+    lv_obj_add_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
 
     s_retro_rain_img = lv_img_create(s_retro_panel);
     lv_obj_set_pos(s_retro_rain_img, 0, 0);
