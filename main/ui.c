@@ -3850,7 +3850,8 @@ static void build_detail(lv_obj_t *scr)
     make_stat(grid, 1, 1, L()->st_track, &s_stat_vals[4]);
     lv_obj_t *regbox = make_stat(grid, 2, 1, L()->st_reg, &s_stat_vals[5]);
     s_reg_flag = lv_img_create(regbox);
-    lv_img_set_zoom(s_reg_flag, UIZOOM(184));   /* extra small: shares the tile with the value line */
+    /* extra small: shares the tile with the value line (800x480 unchanged) */
+    lv_img_set_zoom(s_reg_flag, UI_DOWNSCALE ? UIZOOM(184) : 256);
     lv_img_set_antialias(s_reg_flag, true);
     lv_img_set_pivot(s_reg_flag, 0, 0);
     lv_img_set_size_mode(s_reg_flag, LV_IMG_SIZE_MODE_REAL);
