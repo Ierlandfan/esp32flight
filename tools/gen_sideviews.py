@@ -227,10 +227,11 @@ def preview(imgs, path):
     ph = rows * (H * scale + pad) + pad
     px = [[(16, 28, 40)] * pw for _ in range(ph)]
     for i, (_, a) in enumerate(imgs):
+        ih, iw = len(a), len(a[0])
         ox = pad + (i % cols) * (W * scale + pad)
         oy = pad + (i // cols) * (H * scale + pad)
-        for y in range(H * scale):
-            for x in range(W * scale):
+        for y in range(min(ih, H) * scale):
+            for x in range(min(iw, W) * scale):
                 v = a[y // scale][x // scale]
                 if v:
                     bg = px[oy + y][ox + x]
@@ -254,26 +255,46 @@ def emit_c(imgs, path):
          " * for the ambient selection overlay. White + alpha (recolorable). */",
          '#include "lvgl.h"', ""]
     for name, a in imgs:
+        ih, iw = len(a), len(a[0])
         o.append(f"static const uint8_t {name}_map[] = {{")
-        for y in range(H):
+        for y in range(ih):
             row = []
-            for x in range(W):
+            for x in range(iw):
                 row += ["0xff, 0xff", f"0x{a[y][x]:02x}"]
             o.append("    " + ", ".join(row) + ",")
         o.append("};")
         o.append(f"const lv_img_dsc_t img_{name} = {{")
         o.append("    .header.always_zero = 0,")
         o.append("    .header.cf = LV_IMG_CF_TRUE_COLOR_ALPHA,")
-        o.append(f"    .header.w = {W},")
-        o.append(f"    .header.h = {H},")
-        o.append(f"    .data_size = {W * H * 3},")
+        o.append(f"    .header.w = {iw},")
+        o.append(f"    .header.h = {ih},")
+        o.append(f"    .data_size = {iw * ih * 3},")
         o.append(f"    .data = {name}_map,")
         o.append("};")
         o.append("")
     open(path, "w").write("\n".join(o))
 
 
+def vane():
+    """Compass/wind vane needle pointing up (rotated to track at runtime)."""
+    c = canvas()
+    # arrowhead
+    poly(c, [(24, 3), (16.5, 16), (31.5, 16)])
+    # shaft
+    poly(c, [(22.6, 14), (25.4, 14), (25.4, 34), (22.6, 34)])
+    # fletching
+    poly(c, [(24, 31), (16, 43.5), (20, 44.5), (24, 37)])
+    poly(c, [(24, 31), (32, 43.5), (28, 44.5), (24, 37)])
+    return c
+
+
 imgs = [(n, downsample(f())) for n, f in FLEET]
+
+# the vane is authored on its own 48x48 grid, emitted at 1x (small box)
+W, H = 48, 48
+SW, SH = W * SS, H * SS
+SCL = SW / 48.0
+imgs.append(("side_vane", downsample(vane())))
 if "--preview" in sys.argv:
     preview(imgs, "sideviews_preview.png")
     print("sideviews_preview.png")

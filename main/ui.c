@@ -82,6 +82,7 @@ LV_IMG_DECLARE(img_side_small);
 LV_IMG_DECLARE(img_side_heli);
 LV_IMG_DECLARE(img_side_mil);
 LV_IMG_DECLARE(img_side_miltrans);
+LV_IMG_DECLARE(img_side_vane);
 LV_IMG_DECLARE(img_side_glider);
 LV_IMG_DECLARE(img_side_balloon);
 LV_IMG_DECLARE(img_side_drone);
@@ -2751,14 +2752,26 @@ static void render_ambient(void)
                 sideimg = &img_side_miltrans;
             }
             img_src_if_changed(s_ambx_cls, sideimg);
+            /* long type names must not grow under the side panels */
+            lv_obj_set_width(s_ambx_m, LV_SIZE_CONTENT);
             lv_obj_update_layout(s_ambx_m);
-            lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_LEFT_MID,
-                            -UISX(8), 0);
+            if (lv_obj_get_width(s_ambx_m) > UISX(380)) {
+                lv_obj_set_width(s_ambx_m, UISX(380));
+                lv_obj_update_layout(s_ambx_m);
+            }
+            lv_obj_align(s_ambx_m, LV_ALIGN_BOTTOM_MID, 0, -UISY(34));
+            /* silhouette above the aircraft model text */
+            lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_TOP_MID,
+                            0, -UISY(6));
             lv_obj_clear_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
             lv_img_set_angle(s_ambx_hdg, (int)(s_all[sel].track * 10));
             lv_obj_update_layout(s_ambx_r);
-            lv_obj_align_to(s_ambx_hdg, s_ambx_r, LV_ALIGN_OUT_LEFT_MID,
-                            -UISX(8), 0);
+            {
+                lv_area_t rc;
+                lv_obj_get_coords(s_ambx_r, &rc);
+                lv_obj_set_pos(s_ambx_hdg, rc.x2 - 48 - UISX(6),
+                               (rc.y1 + rc.y2) / 2 - 24);
+            }
             lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(s_ambx_sq);
             lv_obj_move_foreground(s_ambx_em);
@@ -3093,17 +3106,16 @@ static void amb_show(void)
         lv_obj_add_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
 
         s_ambx_hdg = lv_img_create(s_amb);
-        lv_img_set_src(s_ambx_hdg, &img_plane);
-        lv_img_set_zoom(s_ambx_hdg, UIZOOM(300));
+        lv_img_set_src(s_ambx_hdg, &img_side_vane);
+        lv_img_set_zoom(s_ambx_hdg, UIZOOM(256));
         lv_img_set_antialias(s_ambx_hdg, true);
-        lv_obj_set_style_bg_color(s_ambx_hdg, lv_color_hex(0x000000), 0);
-        lv_obj_set_style_bg_opa(s_ambx_hdg, LV_OPA_70, 0);
-        lv_obj_set_style_radius(s_ambx_hdg, UISY(6), 0);
-        lv_obj_set_style_pad_all(s_ambx_hdg, UISY(5), 0);
         lv_obj_set_style_img_recolor(s_ambx_hdg, lv_color_hex(0xd03030), 0);
         lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
+        /* the vane lives inside the Reg/Heading/Speed panel */
+        lv_obj_set_style_pad_right(s_ambx_r, UISX(90), 0);
+        lv_label_set_long_mode(s_ambx_m, LV_LABEL_LONG_DOT);
     }
 
     s_amb_selbub = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10), lv_color_hex(0xffffff));
