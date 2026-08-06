@@ -865,7 +865,7 @@ static void build_list(lv_obj_t *scr)
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
         lv_obj_set_size(row, LIST_W - UISX(16) - UISX(8),
-                        UI_DOWNSCALE ? UISY(52) : 64);   /* compact rows on small panels */
+                        UI_DOWNSCALE ? UISY(46) : 64);   /* compact rows on small panels */
         lv_obj_set_style_bg_color(row, COL_ROW, 0);
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_radius(row, UISY(8), 0);
@@ -875,7 +875,7 @@ static void build_list(lv_obj_t *scr)
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12), COL_TEXT);
+        lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_10), COL_TEXT);
         lv_obj_align(cs, LV_ALIGN_TOP_LEFT, UISX(48), -2);
         lv_obj_t *type = make_label(row, UIFONT(&lv_font_montserrat_14, &lv_font_montserrat_8), COL_ACCENT);
         lv_obj_align(type, UI_DOWNSCALE ? LV_ALIGN_BOTTOM_RIGHT : LV_ALIGN_TOP_RIGHT,
@@ -886,7 +886,7 @@ static void build_list(lv_obj_t *scr)
         /* chip border and rounded corners are baked into the PNG assets */
         lv_obj_t *logo = lv_img_create(row);
         lv_img_set_pivot(logo, 0, 0);
-        lv_img_set_zoom(logo, 256 * UISY(40) / 90);
+        lv_img_set_zoom(logo, 256 * (UI_DOWNSCALE ? UISY(36) : 40) / 90);
         lv_img_set_size_mode(logo, LV_IMG_SIZE_MODE_REAL);
         lv_obj_align(logo, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_flag(logo, LV_OBJ_FLAG_HIDDEN);
