@@ -928,6 +928,7 @@ static void build_list(lv_obj_t *scr)
         /* chip border and rounded corners are baked into the PNG assets */
         lv_obj_t *logo = lv_img_create(row);
         lv_img_set_pivot(logo, 0, 0);
+        lv_img_set_antialias(logo, true);
         lv_img_set_zoom(logo, 256 * (UI_DOWNSCALE ? UISY(36) : 40) / 90);
         lv_img_set_size_mode(logo, LV_IMG_SIZE_MODE_REAL);
         lv_obj_align(logo, LV_ALIGN_LEFT_MID, 0, 0);
@@ -1133,6 +1134,7 @@ static lv_obj_t *plane_img(lv_obj_t *parent)
     lv_obj_t *im = lv_img_create(parent);
     lv_img_set_src(im, &img_plane);
     lv_img_set_zoom(im, UIZOOM(256));
+    lv_img_set_antialias(im, true);
     lv_obj_set_style_img_recolor_opa(im, LV_OPA_COVER, 0);
     lv_obj_clear_flag(im, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(im, LV_OBJ_FLAG_HIDDEN);
@@ -1213,6 +1215,7 @@ static void build_map_panel(lv_obj_t *scr)
     lv_obj_clear_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
 
     s_mb_logo = lv_img_create(bubble);
+    lv_img_set_antialias(s_mb_logo, true);
     lv_img_set_pivot(s_mb_logo, 0, 0);
     lv_img_set_zoom(s_mb_logo, 256 * UISY(48) / 90);
     lv_img_set_size_mode(s_mb_logo, LV_IMG_SIZE_MODE_REAL);
@@ -1604,6 +1607,7 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_obj_clear_flag(s_radar_bub, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
     s_radar_blogo = lv_img_create(s_radar_bub);
+    lv_img_set_antialias(s_radar_blogo, true);
     lv_img_set_pivot(s_radar_blogo, 0, 0);
     lv_img_set_zoom(s_radar_blogo, 256 * UISY(36) / 90);
     lv_img_set_size_mode(s_radar_blogo, LV_IMG_SIZE_MODE_REAL);
@@ -2895,7 +2899,7 @@ static void amb_show(void)
         lv_obj_t **w[6] = { &s_ambx_sq, &s_ambx_em, &s_ambx_l,
                             &s_ambx_m, &s_ambx_r, &s_ambx_rt };
         for (int i = 0; i < 6; i++) {
-            lv_obj_t *l = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10),
+            lv_obj_t *l = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_12),
                                      lv_color_hex(0xffffff));
             lv_label_set_recolor(l, true);
             lv_obj_set_style_bg_color(l, lv_color_hex(0x000000), 0);
@@ -2917,7 +2921,10 @@ static void amb_show(void)
         lv_obj_set_style_text_align(s_ambx_rt, LV_TEXT_ALIGN_CENTER, 0);
 
         s_ambx_cls = lv_img_create(s_amb);
-        lv_img_set_zoom(s_ambx_cls, UIZOOM(256));
+        lv_img_set_zoom(s_ambx_cls, UIZOOM(128));   /* 2x source, AA halved */
+        lv_img_set_antialias(s_ambx_cls, true);
+        lv_img_set_pivot(s_ambx_cls, 0, 0);
+        lv_img_set_size_mode(s_ambx_cls, LV_IMG_SIZE_MODE_REAL);
         lv_obj_set_style_bg_color(s_ambx_cls, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_ambx_cls, LV_OPA_70, 0);
         lv_obj_set_style_radius(s_ambx_cls, UISY(6), 0);
@@ -2930,6 +2937,7 @@ static void amb_show(void)
         s_ambx_hdg = lv_img_create(s_amb);
         lv_img_set_src(s_ambx_hdg, &img_plane);
         lv_img_set_zoom(s_ambx_hdg, UIZOOM(300));
+        lv_img_set_antialias(s_ambx_hdg, true);
         lv_obj_set_style_bg_color(s_ambx_hdg, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_ambx_hdg, LV_OPA_70, 0);
         lv_obj_set_style_radius(s_ambx_hdg, UISY(6), 0);

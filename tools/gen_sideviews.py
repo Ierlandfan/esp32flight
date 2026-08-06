@@ -8,8 +8,10 @@ import struct
 import sys
 import zlib
 
-W, H, SS = 64, 28, 4          # target size, supersample factor
+W, H = 128, 56                # emitted size (2x the 64x28 design grid)
+SS = 4                        # supersample factor on top of that
 SW, SH = W * SS, H * SS
+SCL = SW / 64.0               # shapes are authored in 64x28 coordinates
 
 
 def canvas():
@@ -18,7 +20,7 @@ def canvas():
 
 def poly(c, pts, val=1.0):
     """Even-odd scanline fill; pts in 64x28 space."""
-    p = [(x * SS, y * SS) for x, y in pts]
+    p = [(x * SCL, y * SCL) for x, y in pts]
     for sy in range(SH):
         yc = sy + 0.5
         xs = []
@@ -36,8 +38,8 @@ def poly(c, pts, val=1.0):
 def ellipse(c, cx, cy, rx, ry, val=1.0):
     for sy in range(SH):
         for sx in range(SW):
-            dx = (sx + 0.5) / SS - cx
-            dy = (sy + 0.5) / SS - cy
+            dx = (sx + 0.5) / SCL - cx
+            dy = (sy + 0.5) / SCL - cy
             if (dx / rx) ** 2 + (dy / ry) ** 2 <= 1.0:
                 c[sy][sx] = max(c[sy][sx], val)
 
@@ -45,8 +47,8 @@ def ellipse(c, cx, cy, rx, ry, val=1.0):
 def ring(c, cx, cy, rx, ry, t, val=1.0):
     for sy in range(SH):
         for sx in range(SW):
-            dx = (sx + 0.5) / SS - cx
-            dy = (sy + 0.5) / SS - cy
+            dx = (sx + 0.5) / SCL - cx
+            dy = (sy + 0.5) / SCL - cy
             d = (dx / rx) ** 2 + (dy / ry) ** 2
             din = (dx / max(rx - t, 0.1)) ** 2 + (dy / max(ry - t, 0.1)) ** 2
             if d <= 1.0 and din >= 1.0:
