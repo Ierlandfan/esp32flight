@@ -3358,6 +3358,34 @@ static void retro_timer_cb(lv_timer_t *t)
  * canvas, resampled so the scope radius matches the blips' polar scale,
  * and collapsed to a dark green luminance ramp. Rebuilt only when the
  * radar canvas key changes. */
+/* see retro_map_update: grayscale-band classifier, lift-aware */
+static inline int retro_cls(uint16_t c, bool unlift)
+{
+    int r5 = (c >> 11) & 31, g6 = (c >> 5) & 63, b5 = c & 31;
+    if (r5 * 2 - g6 > 3 || g6 - r5 * 2 > 3 ||
+        b5 * 2 - g6 > 3 || g6 - b5 * 2 > 3) {
+        return 3;               /* colored: rain overlay, markers */
+    }
+    int l8 = g6 * 4;
+    if (unlift) {
+        /* invert v' = v + (255-v)*77/256 */
+        l8 = (l8 * 256 - 77 * 255) / 179;
+        if (l8 < 0) {
+            l8 = 0;
+        }
+    }
+    if (l8 < 15) {
+        return 0;               /* land */
+    }
+    if (l8 < 30) {
+        return 2;               /* roads, minor features */
+    }
+    if (l8 <= 130) {
+        return 1;               /* water */
+    }
+    return 3;                   /* labels */
+}
+
 static void retro_map_update(void)
 {
     if (!settings_get()->retro_map || !s_radar_view_ok) {
@@ -3388,17 +3416,11 @@ static void retro_map_update(void)
     }
     float k = radius_px / (float)RADAR_R;   /* canvas px per scope px */
     /* Land/water classification (CARTO dark_all is grayscale: land
-     * #090909, water and roads lighter grays): the class boundary IS the
-     * coastline, drawn at full phosphor brightness. Tuned offline against
-     * the real tiles - see the session prototype. */
-    #define RETRO_CLS(px, r5, g6, b5) \
-        ((r5) * 2 - (g6) > 3 || (g6) - (r5) * 2 > 3 || \
-         (b5) * 2 - (g6) > 3 || (g6) - (b5) * 2 > 3 ? 2 : \
-         (g6) < 5 ? 0 : (g6) <= 40 ? 1 : 2)
-    #define RETRO_CLS_AT(p) __extension__ ({ \
-        uint16_t c_ = (p); \
-        int r5_ = (c_ >> 11) & 31, g6_ = (c_ >> 5) & 63, b5_ = c_ & 31; \
-        RETRO_CLS(c_, r5_, g6_, b5_); })
+     * #090909, roads mid grays, water #262626). "Brighter map tiles"
+     * lifts v += 30% of headroom at decode - undo it first, or the
+     * classes collapse into 5 quantization steps. Tuned offline against
+     * the real tiles. Classes: 0 land, 1 water, 2 road, 3 other. */
+    const bool unlift = settings_get()->map_light;
     for (int y = 0; y < RADAR_H; y++) {
         uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
         float sy = hy + (y - RADAR_CY) * k;
@@ -3408,23 +3430,23 @@ static void retro_map_update(void)
             int isx = (int)sx, isy = (int)sy;
             if (isx >= 1 && isx < RADAR_W - 1 && isy >= 1 && isy < RADAR_H - 1) {
                 const uint16_t *src = &s_radar_tiles[isy * RADAR_W + isx];
-                int c0 = RETRO_CLS_AT(src[0]);
+                int c0 = retro_cls(src[0], unlift);
                 if (c0 == 1) {
-                    bool coast = RETRO_CLS_AT(src[-1]) == 0 ||
-                                 RETRO_CLS_AT(src[1]) == 0 ||
-                                 RETRO_CLS_AT(src[-RADAR_W]) == 0 ||
-                                 RETRO_CLS_AT(src[RADAR_W]) == 0;
+                    bool coast = retro_cls(src[-1], unlift) == 0 ||
+                                 retro_cls(src[1], unlift) == 0 ||
+                                 retro_cls(src[-RADAR_W], unlift) == 0 ||
+                                 retro_cls(src[RADAR_W], unlift) == 0;
                     out = coast ? (uint16_t)((5 << 11) | (63 << 5) | 5)
                                 : (uint16_t)((1 << 11) | (11 << 5) | 1);
                 } else if (c0 == 2) {
+                    out = (uint16_t)((2 << 11) | (17 << 5) | 2);
+                } else if (c0 == 3) {
                     out = (uint16_t)((1 << 11) | (7 << 5) | 1);
                 }
             }
             dst[x] = out;
         }
     }
-    #undef RETRO_CLS_AT
-    #undef RETRO_CLS
     s_retro_map_dsc.header.always_zero = 0;
     s_retro_map_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
     s_retro_map_dsc.header.w = RADAR_W;
