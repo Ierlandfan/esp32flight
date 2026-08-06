@@ -130,6 +130,7 @@ static void miss_remember(const char *icao)
 }
 
 static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h);
+static void logo_load_one(const char *icao);
 static int cache_evictable_slot(void);
 static uint8_t *png_to_bitmap(const uint8_t *png, size_t len,
                               unsigned *w, unsigned *h);
@@ -181,11 +182,20 @@ static void bitmap_insert_locked(const char *icao, uint8_t *png, size_t len)
 /* One worker at a time: SPIFFS probe + read + PNG decode + online fetch
  * all happen here, never on the render path. A probe that misses walks
  * the whole SPIFFS object table (100s of ms) - that cost lives here now. */
+static bool queue_pop(char *out);
+
 static void logo_fetch_task(void *arg)
 {
     char icao[4];
-    strlcpy(icao, s_fetching, sizeof(icao));
+    while (queue_pop(icao)) {
+        logo_load_one(icao);
+    }
+    s_fetch_busy = false;
+    vTaskDelete(NULL);
+}
 
+static void logo_load_one(const char *icao)
+{
     /* bundled or previously persisted logo first */
     if (!absent_known(icao)) {
         char path[48];
@@ -205,16 +215,14 @@ static void logo_fetch_task(void *arg)
                 }
             }
             fclose(f);
-            s_fetch_busy = false;
-            vTaskDelete(NULL);
+            return;
         }
         absent_remember(icao);   /* not in flash: online only from now on */
     }
 
     if (!index_has(icao)) {
         miss_remember(icao);     /* not in the online set either */
-        s_fetch_busy = false;
-        vTaskDelete(NULL);
+        return;
     }
 
     char url[128];
@@ -243,17 +251,58 @@ static void logo_fetch_task(void *arg)
         miss_remember(icao);   /* 404 or offline: don't retry this one */
     }
     free(buf);
-    s_fetch_busy = false;
-    vTaskDelete(NULL);
+}
+
+/* Small request ring filled on the render path (under the LVGL lock) and
+ * drained by the worker: one render pass queues every missing logo it
+ * sees and they all load back-to-back instead of one per UI refresh. */
+#define LOGO_Q_LEN 12
+static char s_logo_q[LOGO_Q_LEN][4];
+static volatile int s_q_head, s_q_count;
+static portMUX_TYPE s_q_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint32_t s_logo_gen;   /* bumped on every cache insert */
+
+uint32_t logos_generation(void)
+{
+    return s_logo_gen;
+}
+
+static bool queue_pop(char *out)
+{
+    bool got = false;
+    portENTER_CRITICAL(&s_q_mux);
+    if (s_q_count > 0) {
+        memcpy(out, s_logo_q[s_q_head], 4);
+        s_q_head = (s_q_head + 1) % LOGO_Q_LEN;
+        s_q_count--;
+        got = true;
+    }
+    portEXIT_CRITICAL(&s_q_mux);
+    return got;
 }
 
 static void logo_fetch_want(const char *icao)
 {
-    if (s_fetch_busy || miss_known(icao)) {
+    if (miss_known(icao)) {
+        return;
+    }
+    portENTER_CRITICAL(&s_q_mux);
+    bool queued = false;
+    for (int i = 0; i < s_q_count; i++) {
+        if (memcmp(s_logo_q[(s_q_head + i) % LOGO_Q_LEN], icao, 4) == 0) {
+            queued = true;
+            break;
+        }
+    }
+    if (!queued && s_q_count < LOGO_Q_LEN) {
+        memcpy(s_logo_q[(s_q_head + s_q_count) % LOGO_Q_LEN], icao, 4);
+        s_q_count++;
+    }
+    portEXIT_CRITICAL(&s_q_mux);
+    if (s_fetch_busy) {
         return;
     }
     s_fetch_busy = true;
-    strlcpy(s_fetching, icao, sizeof(s_fetching));
     if (xTaskCreate(logo_fetch_task, "logo_fetch", 6144, NULL, 3, NULL) != pdPASS) {
         s_fetch_busy = false;
     }
@@ -359,4 +408,5 @@ static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h)
     e->dsc.header.h = h;
     e->dsc.data = e->data;
     e->dsc.data_size = size;
+    s_logo_gen++;
 }

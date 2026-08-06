@@ -165,6 +165,7 @@ static tile_view_t   s_emb_view;
 static bool          s_emb_view_ok;
 static char          s_emb_key[24];       /* key of the rendered view */
 static int64_t       s_emb_partial_ms;     /* nonzero: rendered with missing tiles */
+static int           s_emb_missing;
 static char          s_emb_want_key[24];  /* key currently being rendered */
 static volatile bool s_emb_busy;
 static double        s_emb_bbox[4];       /* latmin, latmax, lonmin, lonmax */
@@ -197,6 +198,7 @@ static lv_img_dsc_t s_amb_tiles_dsc;
 static tile_view_t s_amb_view;
 static bool s_amb_view_ok;
 static int  s_amb_missing;   /* tiles absent from the current ambient render */
+static lv_obj_t *s_amb_note;  /* first-entry loading-map hint */
 static volatile bool s_amb_busy;
 static char s_amb_key[48];
 static double s_amb_bbox[4];
@@ -270,6 +272,7 @@ static bool          s_radar_view_ok;
 static volatile bool s_radar_busy;
 static char          s_radar_key[48];
 static int64_t       s_radar_partial_ms;   /* nonzero: rendered with missing tiles */
+static int           s_radar_missing;
 static char          s_radar_want[48];
 static double        s_radar_bbox[4];
 static double        s_home_lat, s_home_lon;
@@ -431,6 +434,25 @@ static void photo_click_cb(lv_event_t *e)
         const aircraft_t *ac = &s_shown[s_selected].ac;
         ui_photo_open(ac->hex, ac->callsign[0] ? ac->callsign : ac->hex);
     }
+}
+
+static void render_list_rows(void);
+
+/* Logos load asynchronously in a worker; repaint the affected panels as
+ * soon as a batch lands instead of waiting for the next data cycle. */
+static void logo_tick_cb(lv_timer_t *t)
+{
+    static uint32_t s_last_gen;
+    uint32_t gen = logos_generation();
+    if (gen == s_last_gen) {
+        return;
+    }
+    s_last_gen = gen;
+    if (s_amb != NULL) {
+        return;   /* covered by the screensaver; amb_close re-renders */
+    }
+    render_list_rows();
+    render_right();
 }
 
 static void clock_timer_cb(lv_timer_t *t)
@@ -954,10 +976,15 @@ static void emb_tiles_job(void)
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_emb_want_key) == 0) {
-            if (s_emb_tiles == NULL) {
+            if (s_emb_view_ok && strcmp(key, s_emb_key) == 0 &&
+                view.missing > s_emb_missing) {
+                s_emb_partial_ms = esp_timer_get_time() / 1000;   /* retry later */
+                ok = false;   /* keep the more complete frame on screen */
+            }
+            if (ok && s_emb_tiles == NULL) {
                 s_emb_tiles = heap_caps_malloc(EMB_MAP_W * EMB_MAP_H * 2, MALLOC_CAP_SPIRAM);
             }
-            ok = s_emb_tiles != NULL;
+            ok = ok && s_emb_tiles != NULL;
         } else {
             ok = false;
         }
@@ -967,6 +994,7 @@ static void emb_tiles_job(void)
             s_emb_view_ok = true;
             strlcpy(s_emb_key, key, sizeof(s_emb_key));
             /* partial render (offline blip): keep it, retry in 20 s */
+            s_emb_missing = view.missing;
             s_emb_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_emb_tiles_dsc.header.always_zero = 0;
             s_emb_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
@@ -1338,10 +1366,15 @@ static void radar_tiles_job(void)
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_radar_want) == 0) {
-            if (s_radar_tiles == NULL) {
+            if (s_radar_view_ok && strcmp(key, s_radar_key) == 0 &&
+                view.missing > s_radar_missing) {
+                s_radar_partial_ms = esp_timer_get_time() / 1000;   /* retry later */
+                ok = false;   /* keep the more complete frame on screen */
+            }
+            if (ok && s_radar_tiles == NULL) {
                 s_radar_tiles = heap_caps_malloc(RADAR_W * RADAR_H * 2, MALLOC_CAP_SPIRAM);
             }
-            ok = s_radar_tiles != NULL;
+            ok = ok && s_radar_tiles != NULL;
         } else {
             ok = false;
         }
@@ -1354,6 +1387,7 @@ static void radar_tiles_job(void)
             s_radar_spy = shy;
             strlcpy(s_radar_key, key, sizeof(s_radar_key));
             /* partial render (offline blip): keep it, retry in 20 s */
+            s_radar_missing = view.missing;
             s_radar_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_radar_tiles_dsc.header.always_zero = 0;
             s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
@@ -2240,10 +2274,18 @@ static void amb_tiles_job(void)
 
         if (lvgl_port_lock(-1)) {
         if (ok && s_amb != NULL) {
-            if (s_amb_tiles == NULL) {
+            /* never replace a better frame with a worse one: a flaky
+             * retry can come back with a single tile on flood color and
+             * would flash a near-black map for one interval */
+            if (s_amb_view_ok && view.missing > s_amb_missing) {
+                ESP_LOGW("ui", "ambient retry worse (%d missing > %d), keeping current",
+                         view.missing, s_amb_missing);
+                ok = false;
+            }
+            if (ok && s_amb_tiles == NULL) {
                 s_amb_tiles = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
             }
-            ok = s_amb_tiles != NULL;
+            ok = ok && s_amb_tiles != NULL;
         } else {
             ok = false;
         }
@@ -2264,6 +2306,9 @@ static void amb_tiles_job(void)
             lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
             lv_img_set_zoom(s_amb_img, LV_IMG_ZOOM_NONE);
             lv_obj_set_pos(s_amb_img, 0, 0);
+            if (s_amb_note != NULL) {
+                lv_obj_add_flag(s_amb_note, LV_OBJ_FLAG_HIDDEN);
+            }
             render_ambient();
         }
         lvgl_port_unlock();
@@ -2514,6 +2559,7 @@ static void amb_close(void)
            found on the 7B: weather tick after an ambient cycle) */
         s_amb_clock = NULL;
         s_amb_wx = NULL;
+        s_amb_note = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -2615,9 +2661,17 @@ static void amb_show(void)
 
     s_amb_img = lv_img_create(s_amb);
     lv_obj_set_pos(s_amb_img, 0, 0);
-    /* No world-map placeholder here: in a local screensaver it reads as a
-     * bug, not as content. Until the tile render lands (or when it fails)
-     * the ambient is a clean dark clock-and-weather screen instead. */
+    /* No world-map placeholder (in a local screensaver it read as a bug):
+     * re-entries show the last rendered frame instantly, a true first
+     * entry gets a quiet note until tiles land. */
+    if (s_amb_view_ok && s_amb_tiles != NULL) {
+        lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
+    } else {
+        s_amb_note = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10),
+                                lv_color_hex(0x66707a));
+        lv_label_set_text(s_amb_note, L()->amb_loading);
+        lv_obj_align(s_amb_note, LV_ALIGN_CENTER, 0, 0);
+    }
 
     s_amb_ring = lv_obj_create(s_amb);
     lv_obj_set_style_bg_opa(s_amb_ring, LV_OPA_TRANSP, 0);
@@ -3338,6 +3392,7 @@ void ui_init(void)
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);
     lv_timer_create(clock_timer_cb, 5000, NULL);
+    lv_timer_create(logo_tick_cb, 500, NULL);
     lv_timer_create(idle_timer_cb, 10000, NULL);
 }
 

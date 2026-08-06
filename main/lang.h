@@ -43,6 +43,7 @@ typedef struct {
     const char *sec_layers, *rain_lbl;   /* precipitation overlay */
     const char *map_light_lbl;
     const char *amb_style_lbl, *amb_style_opts;   /* screensaver style */
+    const char *amb_loading;   /* screensaver placeholder before tiles land */
     const char *apr_fmt;         /* approach: city/icao, minutes */
     const char *lbl_fltapt, *lbl_altmin, *lbl_altmax;
     const char *sec_traffic, *sec_watch, *sec_alerts;

@@ -10,3 +10,7 @@ esp_err_t logos_init(void);
  * missing. Descriptors are cached; pointers stay valid until evicted from a
  * small LRU, so set on an lv_img promptly after lookup. */
 const lv_img_dsc_t *logos_get(const char *airline_icao);
+
+/* Bumped whenever a logo lands in the RAM cache: the UI polls it cheaply
+ * and repaints the list as soon as fresh logos arrive. */
+uint32_t logos_generation(void);
