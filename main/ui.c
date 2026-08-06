@@ -224,6 +224,8 @@ static lv_obj_t *s_gear_label;
 /* Radar view */
 static lv_obj_t *s_radar_panel;
 static lv_obj_t *s_radar_dots[MAX_AIRCRAFT];
+static lv_obj_t *s_radar_trail;               /* breadcrumb of the selection */
+static lv_point_t s_radar_trail_pts[TRAIL_LEN];
 static lv_obj_t *s_radar_info;
 static lv_obj_t *s_radar_bub, *s_radar_blogo;
 static bool s_radar_bub_off;   /* tapped away by the user (#9) */
@@ -1528,6 +1530,13 @@ static void build_radar_panel(lv_obj_t *scr)
     lv_obj_clear_flag(home, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     s_radar_home = home;
 
+    s_radar_trail = lv_line_create(s_radar_panel);
+    lv_obj_set_style_line_width(s_radar_trail, 2, 0);
+    lv_obj_set_style_line_color(s_radar_trail, lv_color_hex(0xffd166), 0);
+    lv_obj_set_style_line_opa(s_radar_trail, LV_OPA_60, 0);
+    lv_obj_clear_flag(s_radar_trail, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_radar_trail, LV_OBJ_FLAG_HIDDEN);
+
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         s_radar_dots[i] = plane_img(s_radar_panel);
         lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_CLICKABLE);
@@ -2103,6 +2112,7 @@ static void render_radar_panel(void)
     const aircraft_t *selac = (s_selected >= 0 && s_selected < s_shown_count)
                                   ? &s_shown[s_selected].ac : NULL;
     bool planes_on = view_shows_planes();
+    bool trail_shown = false;
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         if (!planes_on || i >= s_all_count || s_all[i].dist_nm < 0) {
             lv_obj_add_flag(s_radar_dots[i], LV_OBJ_FLAG_HIDDEN);
@@ -2127,6 +2137,36 @@ static void render_radar_panel(void)
         }
         bool sel = selac != NULL && selac->callsign[0] &&
                    strcmp(t->callsign, selac->callsign) == 0;
+        if (sel) {
+            /* breadcrumb trail, same style as the map view's */
+            float tlat[TRAIL_LEN], tlon[TRAIL_LEN];
+            int tn = trails_get(selac->hex, tlat, tlon, TRAIL_LEN);
+            if (tn >= 2) {
+                for (int k = 0; k < tn; k++) {
+                    int tx, ty;
+                    if (map_mode) {
+                        radar_project(tlat[k], tlon[k], &tx, &ty);
+                    } else {
+                        float dkm = (float)geo_haversine_km(s_home_lat, s_home_lon,
+                                                            tlat[k], tlon[k]);
+                        float tfrac = dkm / 1.852f / (float)radius_nm;
+                        if (tfrac > 1.0f) {
+                            tfrac = 1.0f;
+                        }
+                        float trad = (float)geo_bearing_deg(s_home_lat, s_home_lon,
+                                                            tlat[k], tlon[k]) *
+                                     (float)M_PI / 180.0f;
+                        tx = RADAR_CX + (int)(sinf(trad) * tfrac * RADAR_R);
+                        ty = RADAR_CY - (int)(cosf(trad) * tfrac * RADAR_R);
+                    }
+                    s_radar_trail_pts[k].x = (lv_coord_t)tx;
+                    s_radar_trail_pts[k].y = (lv_coord_t)ty;
+                }
+                lv_line_set_points(s_radar_trail, s_radar_trail_pts, tn);
+                lv_obj_clear_flag(s_radar_trail, LV_OBJ_FLAG_HIDDEN);
+                trail_shown = true;
+            }
+        }
         lv_obj_set_pos(s_radar_dots[i], x - 14, y - 14);   /* UIZOOM keeps the 28px box */
         img_src_if_changed(s_radar_dots[i], class_sprite(t->fcls));
         lv_img_set_angle(s_radar_dots[i], (int)(t->track * 10));
@@ -2179,6 +2219,9 @@ static void render_radar_panel(void)
     if (!planes_on || s_selected < 0 || s_selected >= s_shown_count ||
         selac == NULL) {
         lv_obj_add_flag(s_radar_bub, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (!trail_shown) {
+        lv_obj_add_flag(s_radar_trail, LV_OBJ_FLAG_HIDDEN);
     }
     render_radar_extras(map_mode, radius_nm);
     render_airspaces(map_mode);

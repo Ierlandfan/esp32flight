@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 
 #include "lvgl.h"
@@ -19,6 +20,7 @@
 #include "logos.h"
 #include "settings.h"
 #include "tilemap.h"
+#include "trails.h"
 #include "ui.h"
 #include "ui_map.h"
 #include "ui_settings.h"
@@ -116,6 +118,16 @@ int main(int argc, char **argv)
 
     aircraft_list_t list;
     fake_traffic(&list);
+
+    /* a few sim poll cycles so breadcrumb trails have history */
+    for (int c = 0; c < 10; c++) {
+        trails_update(&list);
+        for (int i = 0; i < list.count; i++) {
+            double rad = list.ac[i].track_deg * 3.14159265 / 180.0;
+            list.ac[i].lat += 0.045 * cos(rad);
+            list.ac[i].lon += 0.045 * sin(rad) / 0.62;
+        }
+    }
 
     lvgl_port_lock(-1);
     ui_init();
