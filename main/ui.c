@@ -2550,12 +2550,12 @@ static void render_ambient(void)
             img_src_if_changed(s_ambx_cls, class_sprite(s_all[sel].fcls));
             lv_obj_update_layout(s_ambx_m);
             lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_LEFT_MID,
-                            -UISX(10), 0);
+                            -UISX(8), 0);
             lv_obj_clear_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
             lv_img_set_angle(s_ambx_hdg, (int)(s_all[sel].track * 10));
             lv_obj_update_layout(s_ambx_r);
             lv_obj_align_to(s_ambx_hdg, s_ambx_r, LV_ALIGN_OUT_LEFT_MID,
-                            -UISX(10), 0);
+                            -UISX(8), 0);
             lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(s_ambx_sq);
             lv_obj_move_foreground(s_ambx_em);
@@ -2877,6 +2877,10 @@ static void amb_show(void)
 
         s_ambx_cls = lv_img_create(s_amb);
         lv_img_set_zoom(s_ambx_cls, UIZOOM(320));
+        lv_obj_set_style_bg_color(s_ambx_cls, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_ambx_cls, LV_OPA_70, 0);
+        lv_obj_set_style_radius(s_ambx_cls, UISY(6), 0);
+        lv_obj_set_style_pad_all(s_ambx_cls, UISY(5), 0);
         lv_obj_set_style_img_recolor(s_ambx_cls, lv_color_hex(0xe7f2ea), 0);
         lv_obj_set_style_img_recolor_opa(s_ambx_cls, LV_OPA_COVER, 0);
         lv_obj_clear_flag(s_ambx_cls, LV_OBJ_FLAG_CLICKABLE);
@@ -2885,6 +2889,10 @@ static void amb_show(void)
         s_ambx_hdg = lv_img_create(s_amb);
         lv_img_set_src(s_ambx_hdg, &img_plane);
         lv_img_set_zoom(s_ambx_hdg, UIZOOM(300));
+        lv_obj_set_style_bg_color(s_ambx_hdg, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_ambx_hdg, LV_OPA_70, 0);
+        lv_obj_set_style_radius(s_ambx_hdg, UISY(6), 0);
+        lv_obj_set_style_pad_all(s_ambx_hdg, UISY(5), 0);
         lv_obj_set_style_img_recolor(s_ambx_hdg, lv_color_hex(0xd03030), 0);
         lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
