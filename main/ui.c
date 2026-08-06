@@ -44,7 +44,7 @@
 #include "esp_log.h"
 #include "waveshare_rgb_lcd_port.h"
 
-#define LIST_W        UISX(310)
+#define LIST_W        (UI_DOWNSCALE ? UISX(296) : 310)
 #define HEADER_H      UISY(48)
 #define MAX_SHOWN     40
 
@@ -865,7 +865,7 @@ static void build_list(lv_obj_t *scr)
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
         lv_obj_set_size(row, LIST_W - UISX(16) - UISX(8),
-                        UI_DOWNSCALE ? UISY(46) : 64);   /* compact rows on small panels */
+                        UI_DOWNSCALE ? UISY(56) : 64);   /* compact rows on small panels */
         lv_obj_set_style_bg_color(row, COL_ROW, 0);
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_radius(row, UISY(8), 0);
@@ -875,13 +875,12 @@ static void build_list(lv_obj_t *scr)
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
-        lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_10), COL_TEXT);
-        lv_obj_align(cs, LV_ALIGN_TOP_LEFT, UISX(48), -2);
+        lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12), COL_TEXT);
+        lv_obj_align(cs, LV_ALIGN_TOP_LEFT, UI_DOWNSCALE ? UISX(44) : 48, -2);
         lv_obj_t *type = make_label(row, UIFONT(&lv_font_montserrat_14, &lv_font_montserrat_8), COL_ACCENT);
-        lv_obj_align(type, UI_DOWNSCALE ? LV_ALIGN_BOTTOM_RIGHT : LV_ALIGN_TOP_RIGHT,
-                     0, UI_DOWNSCALE ? 2 : 0);   /* small panels: shares the stats line */
-        lv_obj_t *info = make_label(row, UIFONT(&lv_font_montserrat_12, &lv_font_montserrat_8), COL_DIM);
-        lv_obj_align(info, LV_ALIGN_BOTTOM_LEFT, UISX(48), 2);
+        lv_obj_align(type, LV_ALIGN_TOP_RIGHT, 0, 0);   /* small panels re-anchor per render */
+        lv_obj_t *info = make_label(row, UIFONT(&lv_font_montserrat_12, &lv_font_montserrat_10), COL_DIM);
+        lv_obj_align(info, LV_ALIGN_BOTTOM_LEFT, UI_DOWNSCALE ? UISX(44) : 48, 2);
 
         /* chip border and rounded corners are baked into the PNG assets */
         lv_obj_t *logo = lv_img_create(row);
@@ -4019,6 +4018,19 @@ static bool radar_view_filter(double lat, double lon, float dist_km)
                        settings_get()->radius_nm, &x, &y);
 }
 
+/* Small panels: the type code sits right after the (variable-width)
+ * callsign, so it is re-anchored after every text update. */
+static void row_anchor_type(lv_obj_t *row)
+{
+    if (!UI_DOWNSCALE) {
+        return;
+    }
+    lv_obj_t *cs = lv_obj_get_child(row, 0);
+    lv_obj_t *type = lv_obj_get_child(row, 1);
+    lv_obj_update_layout(cs);
+    lv_obj_align_to(type, cs, LV_ALIGN_OUT_RIGHT_BOTTOM, UISX(10), -1);
+}
+
 static void render_list_rows(void)
 {
     bool ships_on = settings_get()->ships_enabled;
@@ -4080,6 +4092,7 @@ static void render_list_rows(void)
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
             label_set_if_changed(typechip, sh->dest[0] ? sh->dest : ship_type_word(sh->stype));
             text_color_if_changed(typechip, lv_color_hex(0x4fd1c5));
+            row_anchor_type(row);
             char info[64];
             char us[20];
             snprintf(info, sizeof(info), "%s  %s  %.1f km",
@@ -4103,6 +4116,7 @@ static void render_list_rows(void)
             lv_obj_t *typechip = lv_obj_get_child(row, 1);
             label_set_if_changed(typechip, ac->type_icao[0] ? ac->type_icao : "?");
             text_color_if_changed(typechip, class_color(flight_class(ac)));
+            row_anchor_type(row);
 
             char info[64];
             if (ac->on_ground) {
