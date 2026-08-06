@@ -81,9 +81,24 @@ LV_IMG_DECLARE(img_side_plane);
 LV_IMG_DECLARE(img_side_small);
 LV_IMG_DECLARE(img_side_heli);
 LV_IMG_DECLARE(img_side_mil);
+LV_IMG_DECLARE(img_side_miltrans);
 LV_IMG_DECLARE(img_side_glider);
 LV_IMG_DECLARE(img_side_balloon);
 LV_IMG_DECLARE(img_side_drone);
+
+/* Military airlifters/tankers get the transport profile; everything else
+ * military shows the fighter. ICAO type designators. */
+static bool mil_is_transport(const char *ti)
+{
+    static const char *tr[] = { "C17", "C130", "C30J", "A400", "A124",
+                                "C5M", "C5", "AN12", "AN26", "K35R", "A332" };
+    for (unsigned i = 0; i < sizeof(tr) / sizeof(tr[0]); i++) {
+        if (strcmp(ti, tr[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /* side-view silhouette for the ambient selection overlay */
 static const lv_img_dsc_t *side_sprite(int spr)
@@ -2568,7 +2583,12 @@ static void render_ambient(void)
             lv_obj_clear_flag(s_ambx_l, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_m, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_r, LV_OBJ_FLAG_HIDDEN);
-            img_src_if_changed(s_ambx_cls, side_sprite(s_all[sel].fcls));
+            const lv_img_dsc_t *sideimg = side_sprite(s_all[sel].fcls);
+            if (s_all[sel].fcls == FSPR_MIL && fa != NULL &&
+                mil_is_transport(fa->type_icao)) {
+                sideimg = &img_side_miltrans;
+            }
+            img_src_if_changed(s_ambx_cls, sideimg);
             lv_obj_update_layout(s_ambx_m);
             lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_LEFT_MID,
                             -UISX(8), 0);

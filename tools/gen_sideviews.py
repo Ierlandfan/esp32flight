@@ -130,17 +130,41 @@ def heli():
 
 
 def fighter():
+    """F-16-ish: bubble canopy, chin intake, single tall fin."""
     c = canvas()
-    # slim pointed fuselage
-    poly(c, [(8, 15), (44, 13), (60, 15.5), (44, 18), (8, 17)])
-    # canopy
-    poly(c, [(36, 13.5), (46, 13.8), (42, 10.5), (37, 10.5)])
-    # delta wing
-    poly(c, [(22, 15), (14, 22.5), (20, 22.5), (34, 15.5)])
-    # twin fin
-    poly(c, [(12, 14.5), (7, 5.5), (12, 5.5), (18, 14.5)])
-    # intake
-    poly(c, [(30, 17.5), (38, 17.5), (38, 20), (30, 20)])
+    # fuselage, sharp nose
+    poly(c, [(10, 15), (42, 14), (60, 16), (42, 18.5), (10, 18)])
+    # bubble canopy
+    ellipse(c, 37, 13.6, 5, 2.5)
+    # single tall swept fin
+    poly(c, [(14, 15), (10, 4), (15, 4), (22, 15)])
+    # tailplane
+    poly(c, [(13, 16.5), (6, 18.5), (12, 19.5), (18, 17.5)])
+    # wing blade
+    poly(c, [(24, 16.5), (18, 21.5), (23, 22), (34, 17)])
+    # chin intake
+    poly(c, [(38, 18), (48, 18), (46, 21), (39, 21)])
+    # exhaust
+    poly(c, [(8, 15.7), (11, 15.4), (11, 17.6), (8, 17.2)])
+    return c
+
+
+def miltrans():
+    """C-17 / A400M-ish: fat body, high wing, big swept fin, engines."""
+    c = canvas()
+    # deep fat fuselage, blunt nose, upswept aft
+    poly(c, [(14, 11.5), (48, 11.5), (55, 13), (57, 16), (55, 18.5),
+             (46, 21.5), (26, 21.5), (14, 15.5)])
+    ellipse(c, 54, 15, 3.5, 4.5)
+    # big swept fin + high tailplane
+    poly(c, [(16, 12.5), (8, 2), (15, 2), (25, 12.5)])
+    poly(c, [(7, 4), (1, 3), (4, 6.5), (13, 6.5)])
+    # high wing
+    poly(c, [(26, 11.5), (22, 9.5), (44, 9.5), (46, 11.5)])
+    # four prop engines under the wing
+    for ex in (26, 32, 38, 44):
+        ellipse(c, ex, 12.6, 2.2, 1.8)
+        line(c, ex + 1.8, 10.4, ex + 1.8, 15.2, 1.1)
     return c
 
 
@@ -187,7 +211,8 @@ def drone():
 
 FLEET = [
     ("side_plane", airliner), ("side_small", prop), ("side_heli", heli),
-    ("side_mil", fighter), ("side_glider", glider),
+    ("side_mil", fighter), ("side_miltrans", miltrans),
+    ("side_glider", glider),
     ("side_balloon", balloon), ("side_drone", drone),
 ]
 
