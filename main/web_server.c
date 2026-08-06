@@ -1006,13 +1006,22 @@ static esp_err_t ota_post(httpd_req_t *req)
     char *buf = malloc(4096);
     int remaining = req->content_len;
     bool checked = false;
+    int since_yield = 0;
     while (remaining > 0) {
+        /* flash erases starve IDLE0 (task-watchdog spam) and stall the TCP
+         * stack long enough that senders reset mid-upload; breathe every
+         * 64 KB so the connection and the watchdog both stay fed */
+        if (since_yield >= 64 * 1024) {
+            since_yield = 0;
+            vTaskDelay(1);
+        }
         int n = httpd_req_recv(req, buf, remaining < 4096 ? remaining : 4096);
         if (n <= 0) {
             free(buf);
             esp_ota_abort(ota);
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv failed");
         }
+        since_yield += n;
         if (!checked && req->content_len - remaining + n > 512) {
             /* the app descriptor sits early in the image; refuse a binary
                built for a different board variant before writing further.
