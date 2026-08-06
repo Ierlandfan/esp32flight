@@ -1380,6 +1380,106 @@ static void render_map_panel(void)
     }
 }
 
+/* ---- persisted stitched canvases -------------------------------------
+ * The flash tile cache makes map rendering offline; this makes it
+ * instant: the finished radar/ambient frame is stored on the assets
+ * partition and restored whenever the view key (location, radius, zoom)
+ * still matches. Re-rendered and re-persisted only when the key changes.
+ */
+#if defined(ESP_PLATFORM)
+#include <sys/stat.h>
+#include "esp_spiffs.h"
+
+typedef struct {
+    char        magic[4];      /* "CNV1" */
+    uint16_t    w, h;
+    char        key[48];
+    tile_view_t view;
+    float       scale;
+    int32_t     px, py;
+} canvas_hdr_t;
+
+static bool canvas_restore(const char *path, const char *want, int w, int h,
+                           uint16_t **buf, tile_view_t *view, float *scale,
+                           int *px, int *py)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+    canvas_hdr_t hd;
+    bool ok = fread(&hd, sizeof(hd), 1, f) == 1 &&
+              memcmp(hd.magic, "CNV1", 4) == 0 &&
+              hd.w == (uint16_t)w && hd.h == (uint16_t)h;
+    if (ok) {
+        hd.key[sizeof(hd.key) - 1] = '\0';
+        ok = strcmp(hd.key, want) == 0;
+    }
+    if (ok && *buf == NULL) {
+        *buf = heap_caps_malloc((size_t)w * h * 2, MALLOC_CAP_SPIRAM);
+    }
+    ok = ok && *buf != NULL &&
+         fread(*buf, 1, (size_t)w * h * 2, f) == (size_t)w * h * 2;
+    fclose(f);
+    if (ok) {
+        *view = hd.view;
+        *scale = hd.scale;
+        *px = hd.px;
+        *py = hd.py;
+        ESP_LOGI("ui", "canvas restored: %s (%s)", path, want);
+    }
+    return ok;
+}
+
+static void canvas_persist(const char *path, const char *key, int w, int h,
+                           const uint16_t *data, const tile_view_t *view,
+                           float scale, int px, int py)
+{
+    struct stat st;
+    if (stat(path, &st) != 0) {   /* new file: respect the free-space floor */
+        size_t total = 0, used = 0;
+        if (esp_spiffs_info("assets", &total, &used) != ESP_OK ||
+            total - used < 1200 * 1024 + (size_t)w * h * 2) {
+            return;
+        }
+    }
+    canvas_hdr_t hd = { .w = (uint16_t)w, .h = (uint16_t)h,
+                        .scale = scale, .px = px, .py = py };
+    memcpy(hd.magic, "CNV1", 4);
+    strlcpy(hd.key, key, sizeof(hd.key));
+    hd.view = *view;
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        return;
+    }
+    bool ok = fwrite(&hd, sizeof(hd), 1, f) == 1 &&
+              fwrite(data, 1, (size_t)w * h * 2, f) == (size_t)w * h * 2;
+    fclose(f);
+    if (!ok) {
+        unlink(path);
+    } else {
+        ESP_LOGI("ui", "canvas persisted: %s (%s)", path, key);
+    }
+}
+#else
+static bool canvas_restore(const char *path, const char *want, int w, int h,
+                           uint16_t **buf, tile_view_t *view, float *scale,
+                           int *px, int *py)
+{
+    (void)path; (void)want; (void)w; (void)h; (void)buf;
+    (void)view; (void)scale; (void)px; (void)py;
+    return false;
+}
+
+static void canvas_persist(const char *path, const char *key, int w, int h,
+                           const uint16_t *data, const tile_view_t *view,
+                           float scale, int px, int py)
+{
+    (void)path; (void)key; (void)w; (void)h; (void)data;
+    (void)view; (void)scale; (void)px; (void)py;
+}
+#endif
+
 static void radar_tiles_job(void)
 {
     char key[48];
@@ -1413,6 +1513,7 @@ static void radar_tiles_job(void)
             fb_upscale(scratch, RADAR_W, RADAR_H, shx, shy, scale);
         }
     }
+    bool complete = ok && view.missing == 0;
 
     if (lvgl_port_lock(-1)) {
         if (ok && strcmp(key, s_radar_want) == 0) {
@@ -1454,6 +1555,10 @@ static void radar_tiles_job(void)
         }
         lvgl_port_unlock();
     }
+    if (complete && scratch != NULL) {
+        canvas_persist("/assets/cv_radar", key, RADAR_W, RADAR_H, scratch,
+                       &view, scale, shx, shy);
+    }
     if (scratch != NULL) {
         tile_scratch_give();
     }
@@ -1472,6 +1577,24 @@ static void radar_tiles_want(void)
     bool radar_stale = s_radar_partial_ms != 0 &&
                        esp_timer_get_time() / 1000 - s_radar_partial_ms > 20000;
     if (strcmp(key, s_radar_key) == 0 && !radar_stale) {
+        return;
+    }
+    if (!s_radar_view_ok &&
+        canvas_restore("/assets/cv_radar", key, RADAR_W, RADAR_H,
+                       &s_radar_tiles, &s_radar_view, &s_radar_scale,
+                       &s_radar_spx, &s_radar_spy)) {
+        s_radar_view_ok = true;
+        s_radar_missing = 0;
+        s_radar_partial_ms = 0;
+        strlcpy(s_radar_key, key, sizeof(s_radar_key));
+        s_radar_tiles_dsc.header.always_zero = 0;
+        s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+        s_radar_tiles_dsc.header.w = RADAR_W;
+        s_radar_tiles_dsc.header.h = RADAR_H;
+        s_radar_tiles_dsc.data = (const uint8_t *)s_radar_tiles;
+        s_radar_tiles_dsc.data_size = RADAR_W * RADAR_H * 2;
+        lv_img_set_src(s_radar_img, &s_radar_tiles_dsc);
+        lv_obj_invalidate(s_radar_img);
         return;
     }
     double rkm = radius_nm * 1.852 * s_radar_zoom;
@@ -2365,6 +2488,7 @@ static void amb_tiles_job(void)
             }
         }
 
+        bool complete = ok && view.missing == 0;
         if (lvgl_port_lock(-1)) {
         if (ok && s_amb != NULL) {
             /* never replace a better frame with a worse one: a flaky
@@ -2405,6 +2529,13 @@ static void amb_tiles_job(void)
             render_ambient();
         }
         lvgl_port_unlock();
+    }
+    if (complete && scratch != NULL) {
+        char fkey[48];
+        snprintf(fkey, sizeof(fkey), "amb:%.3f,%.3f,%d",
+                 s_home_lat, s_home_lon, settings_get()->radius_nm);
+        canvas_persist("/assets/cv_amb", fkey, SCR_W, SCR_H, scratch,
+                       &view, scale, hx, hy);
     }
     ESP_LOGI("ui", "ambient tiles: %s (scale %.2f)", ok ? "ok" : "FAILED",
              (double)scale);
@@ -2456,6 +2587,32 @@ static void amb_spawn_tiles(void)
     s_amb_bbox[2] = s_home_lon - dlon;
     s_amb_bbox[3] = s_home_lon + dlon;
     snprintf(s_amb_key, sizeof(s_amb_key), "amb");
+    if (!s_amb_view_ok) {
+        char fkey[48];
+        snprintf(fkey, sizeof(fkey), "amb:%.3f,%.3f,%d",
+                 s_home_lat, s_home_lon, radius_nm);
+        if (canvas_restore("/assets/cv_amb", fkey, SCR_W, SCR_H, &s_amb_tiles,
+                           &s_amb_view, &s_amb_scale, &s_amb_px, &s_amb_py)) {
+            s_amb_view_ok = true;
+            s_amb_missing = 0;
+            if (s_amb_img != NULL) {
+                s_amb_tiles_dsc.header.always_zero = 0;
+                s_amb_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+                s_amb_tiles_dsc.header.w = SCR_W;
+                s_amb_tiles_dsc.header.h = SCR_H;
+                s_amb_tiles_dsc.data = (const uint8_t *)s_amb_tiles;
+                s_amb_tiles_dsc.data_size = SCR_W * SCR_H * 2;
+                lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
+                lv_img_set_zoom(s_amb_img, LV_IMG_ZOOM_NONE);
+                lv_obj_set_pos(s_amb_img, 0, 0);
+                if (s_amb_note != NULL) {
+                    lv_obj_add_flag(s_amb_note, LV_OBJ_FLAG_HIDDEN);
+                }
+                render_ambient();
+            }
+            return;
+        }
+    }
     s_amb_last_try = esp_timer_get_time() / 1000;
     ESP_LOGI("ui", "ambient tiles: spawning worker");
     s_amb_busy = true;
