@@ -741,6 +741,25 @@ static void emb_release(void)
 }
 
 static void amb_close(void);
+static void apply_view(int mode);
+
+/* screensaver "Radar" chip: closing the ambient deletes the chip that
+ * fired the event, so hop out of the event context first */
+static void amb_goto_radar_async(void *arg)
+{
+    (void)arg;
+    if (lvgl_port_lock(1000)) {
+        amb_close();
+        apply_view(VIEW_RADAR);
+        lvgl_port_unlock();
+    }
+}
+
+static void amb_radar_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_async_call(amb_goto_radar_async, NULL);
+}
 
 void ui_ambient_dismiss(void)
 {
@@ -3158,6 +3177,24 @@ static void amb_show(void)
     lv_obj_set_style_border_width(s_amb_selbub, 1, 0);
     lv_obj_set_style_border_color(s_amb_selbub, COL_ACCENT, 0);
     lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
+
+    /* corner shortcut: leave the screensaver straight into the radar view.
+     * The parent dies inside its own child's event, so defer via async. */
+    {
+        lv_obj_t *rb = lv_btn_create(s_amb);
+        lv_obj_set_style_bg_color(rb, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(rb, LV_OPA_60, 0);
+        lv_obj_set_style_radius(rb, UISY(8), 0);
+        lv_obj_set_style_pad_hor(rb, UISX(10), 0);
+        lv_obj_set_style_pad_ver(rb, UISY(6), 0);
+        lv_obj_set_style_shadow_width(rb, 0, 0);
+        lv_obj_align(rb, LV_ALIGN_TOP_LEFT, UISX(10), UISY(66));
+        lv_obj_add_event_cb(rb, amb_radar_btn_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *rl = make_label(rb, UIFONT(&font_pl_16, &font_pl_12),
+                                  lv_color_hex(0xdddddd));
+        lv_label_set_text(rl, LV_SYMBOL_GPS "  Radar");
+        lv_obj_center(rl);
+    }
 
     s_amb_clock = make_label(s_amb, UIFONT(&lv_font_montserrat_32, &lv_font_montserrat_20), lv_color_hex(0xffffff));
     lv_obj_set_style_bg_color(s_amb_clock, lv_color_hex(0x000000), 0);
