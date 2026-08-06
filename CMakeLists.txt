@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-set(PROJECT_VER "0.4.3")
+set(PROJECT_VER "0.4.4")
 # Board-variant suffix: the 7B and Tab5 builds are not interchangeable with
 # the standard 800x480 binary, and the OTA handler refuses a mismatched
 # image based on this suffix.
@@ -9,6 +9,10 @@ elseif(DEFINED SDKCONFIG_DEFAULTS AND SDKCONFIG_DEFAULTS MATCHES "7b")
     set(PROJECT_VER "${PROJECT_VER}-7b")
 elseif(DEFINED SDKCONFIG_DEFAULTS AND SDKCONFIG_DEFAULTS MATCHES "crowpanel50")
     set(PROJECT_VER "${PROJECT_VER}-crowpanel")
+elseif(DEFINED SDKCONFIG_DEFAULTS AND SDKCONFIG_DEFAULTS MATCHES "sunton43r")
+    set(PROJECT_VER "${PROJECT_VER}-sunton43r")
+elseif(DEFINED SDKCONFIG_DEFAULTS AND SDKCONFIG_DEFAULTS MATCHES "sunton43")
+    set(PROJECT_VER "${PROJECT_VER}-sunton43")
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 add_compile_options("-Wno-attributes")
