@@ -1011,6 +1011,15 @@ static esp_err_t ota_post(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin failed");
     }
 
+    /* Freeze the UI for the write: flash erases disable the cache, and a
+     * rendering LVGL task (the ambient full-screen redraws especially)
+     * touching PSRAM in that window panics the chip ("Cache disabled but
+     * cached memory region accessed") - the cause of aborted uploads. */
+    bool ui_frozen = lvgl_port_lock(5000);
+    if (ui_frozen) {
+        ui_ambient_dismiss();
+    }
+
     char *buf = malloc(4096);
     int remaining = req->content_len;
     bool checked = false;
@@ -1027,6 +1036,9 @@ static esp_err_t ota_post(httpd_req_t *req)
         if (n <= 0) {
             free(buf);
             esp_ota_abort(ota);
+            if (ui_frozen) {
+                lvgl_port_unlock();
+            }
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv failed");
         }
         since_yield += n;
@@ -1053,6 +1065,9 @@ static esp_err_t ota_post(httpd_req_t *req)
                     ESP_LOGW(TAG, "OTA rejected: %s", msg);
                     free(buf);
                     esp_ota_abort(ota);
+                    if (ui_frozen) {
+                        lvgl_port_unlock();
+                    }
                     return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, msg);
                 }
             }
@@ -1060,14 +1075,21 @@ static esp_err_t ota_post(httpd_req_t *req)
         if (esp_ota_write(ota, buf, n) != ESP_OK) {
             free(buf);
             esp_ota_abort(ota);
+            if (ui_frozen) {
+                lvgl_port_unlock();
+            }
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "write failed");
         }
         remaining -= n;
     }
     free(buf);
 
-    if (esp_ota_end(ota) != ESP_OK ||
-        esp_ota_set_boot_partition(part) != ESP_OK) {
+    bool valid = esp_ota_end(ota) == ESP_OK &&
+                 esp_ota_set_boot_partition(part) == ESP_OK;
+    if (ui_frozen) {
+        lvgl_port_unlock();   /* device restarts anyway, but be tidy */
+    }
+    if (!valid) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "validate failed");
     }
     httpd_resp_sendstr(req, "OK - rebooting");
