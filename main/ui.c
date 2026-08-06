@@ -3387,17 +3387,18 @@ static void retro_map_update(void)
         return;
     }
     float k = radius_px / (float)RADAR_R;   /* canvas px per scope px */
-    /* gamma stretch + edge extraction: the dark basemap's coastlines are
-     * a small luminance step, so detect them explicitly and draw them at
-     * near-full phosphor brightness */
-    static uint8_t s_gamma[256];
-    if (s_gamma[255] == 0) {
-        for (int i = 0; i < 256; i++) {
-            s_gamma[i] = (uint8_t)(255.0f * powf((float)i / 255.0f, 0.34f));
-        }
-    }
-    #define RETRO_LUM(px) ((((px) >> 11) & 31) * 2 + (((px) >> 5) & 63) + \
-                           ((px) & 31) * 2)
+    /* Land/water classification (CARTO dark_all is grayscale: land
+     * #090909, water and roads lighter grays): the class boundary IS the
+     * coastline, drawn at full phosphor brightness. Tuned offline against
+     * the real tiles - see the session prototype. */
+    #define RETRO_CLS(px, r5, g6, b5) \
+        ((r5) * 2 - (g6) > 3 || (g6) - (r5) * 2 > 3 || \
+         (b5) * 2 - (g6) > 3 || (g6) - (b5) * 2 > 3 ? 2 : \
+         (g6) < 5 ? 0 : (g6) <= 40 ? 1 : 2)
+    #define RETRO_CLS_AT(p) __extension__ ({ \
+        uint16_t c_ = (p); \
+        int r5_ = (c_ >> 11) & 31, g6_ = (c_ >> 5) & 63, b5_ = c_ & 31; \
+        RETRO_CLS(c_, r5_, g6_, b5_); })
     for (int y = 0; y < RADAR_H; y++) {
         uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
         float sy = hy + (y - RADAR_CY) * k;
@@ -3405,29 +3406,25 @@ static void retro_map_update(void)
             float sx = hx + (x - RADAR_CX) * k;
             uint16_t out = 0;
             int isx = (int)sx, isy = (int)sy;
-            if (isx >= 2 && isx < RADAR_W - 3 && isy >= 2 && isy < RADAR_H - 3) {
+            if (isx >= 1 && isx < RADAR_W - 1 && isy >= 1 && isy < RADAR_H - 1) {
                 const uint16_t *src = &s_radar_tiles[isy * RADAR_W + isx];
-                int l0 = RETRO_LUM(src[0]);
-                /* wide-baseline gradient: the canvas upscale smears steps
-                 * over 2-3 px, so compare across 3 to recover the cliff */
-                int lr = RETRO_LUM(src[3]) - RETRO_LUM(src[-2]);
-                int ld = RETRO_LUM(src[3 * RADAR_W]) - RETRO_LUM(src[-2 * RADAR_W]);
-                int edge = (lr < 0 ? -lr : lr) + (ld < 0 ? -ld : ld);
-                edge = edge < 14 ? 0 : (edge - 14) * 6;   /* noise floor */
-                if (edge > 255) {
-                    edge = 255;
+                int c0 = RETRO_CLS_AT(src[0]);
+                if (c0 == 1) {
+                    bool coast = RETRO_CLS_AT(src[-1]) == 0 ||
+                                 RETRO_CLS_AT(src[1]) == 0 ||
+                                 RETRO_CLS_AT(src[-RADAR_W]) == 0 ||
+                                 RETRO_CLS_AT(src[RADAR_W]) == 0;
+                    out = coast ? (uint16_t)((5 << 11) | (63 << 5) | 5)
+                                : (uint16_t)((1 << 11) | (11 << 5) | 1);
+                } else if (c0 == 2) {
+                    out = (uint16_t)((1 << 11) | (7 << 5) | 1);
                 }
-                /* dim base wash so the edge strokes stand out against it */
-                int base = s_gamma[l0 * 255 / 252] * 2 / 5;
-                int bright = edge > base ? edge : base;
-                out = (uint16_t)((((bright * 12) / 255) << 11) |
-                                 (((bright * 63) / 255) << 5) |
-                                 ((bright * 12) / 255));
             }
             dst[x] = out;
         }
     }
-    #undef RETRO_LUM
+    #undef RETRO_CLS_AT
+    #undef RETRO_CLS
     s_retro_map_dsc.header.always_zero = 0;
     s_retro_map_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
     s_retro_map_dsc.header.w = RADAR_W;
