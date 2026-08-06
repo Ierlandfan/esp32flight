@@ -49,6 +49,7 @@ static lv_obj_t *s_dd_units, *s_dd_metar, *s_sw_cycle, *s_sw_nauto;
 static lv_obj_t *s_dd_amb_style;
 static lv_obj_t *s_sw_map_light;
 static lv_obj_t *s_sw_retro_map;
+static lv_obj_t *s_sw_ota_persist;
 static lv_obj_t *s_slider_radius, *s_radius_label;
 
 static bool s_scan_busy;
@@ -328,6 +329,10 @@ static void save_cb(lv_event_t *e)
     cfg->amb_style = (uint8_t)lv_dropdown_get_selected(s_dd_amb_style);
     cfg->map_light = lv_obj_has_state(s_sw_map_light, LV_STATE_CHECKED);
     cfg->retro_map = lv_obj_has_state(s_sw_retro_map, LV_STATE_CHECKED);
+    cfg->ota_persist = lv_obj_has_state(s_sw_ota_persist, LV_STATE_CHECKED);
+    if (cfg->ota_persist) {
+        cfg->ota_enabled = true;
+    }
     cfg->metric_units = lv_dropdown_get_selected(s_dd_units) == 1;
     cfg->metar_decoded = lv_dropdown_get_selected(s_dd_metar) == 1;
     cfg->follow_mode = !lv_obj_has_state(s_sw_cycle, LV_STATE_CHECKED);
@@ -730,9 +735,10 @@ void ui_settings_open(void)
     add_section(p, L()->sec_updates, 696);
     lv_obj_t *sw_ota = add_switch(p, L()->ota_unlock, 0, 728, cfg->ota_enabled);
     lv_obj_add_event_cb(sw_ota, ota_unlock_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 774);
+    s_sw_ota_persist = add_switch(p, L()->ota_persist_lbl, 0, 772, cfg->ota_persist);
+    lv_obj_t *hint = add_label(p, L()->ota_hint, 0, 818);
     lv_obj_set_style_text_font(hint, UIFONT(&font_pl_14, &font_pl_8), 0);
-    int nety = 822;
+    int nety = 866;
 #endif
 
     char netbuf[120] = "";

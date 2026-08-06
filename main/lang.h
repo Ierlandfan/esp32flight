@@ -26,6 +26,7 @@ typedef struct {
     const char *city_search, *latitude, *longitude;
     const char *search_radius, *theme_lbl, *language_lbl, *save;
     const char *ota_unlock;
+    const char *ota_persist_lbl;
     const char *ota_hint;
     /* spotter */
     const char *look_fmt;        /* compass, elevation */

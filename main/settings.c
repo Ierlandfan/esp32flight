@@ -44,7 +44,8 @@ void settings_load(void)
     s_settings.amb_style = 0;
     s_settings.theme = 0;
     s_settings.lang = 0;   /* English out of the box; 1 = Polish */
-    s_settings.ota_enabled = false;   /* never persisted, armed per session */
+    s_settings.ota_persist = false;
+    s_settings.ota_enabled = false;   /* armed per session unless ota_persist */
     s_settings.cpa_alerts = true;
     s_settings.cpa_all = false;
     s_settings.night_enabled = false;
@@ -112,6 +113,12 @@ void settings_load(void)
     }
     if (nvs_get_u8(h, "retro_map", &hide) == ESP_OK) {
         s_settings.retro_map = hide != 0;
+    }
+    if (nvs_get_u8(h, "ota_persist", &hide) == ESP_OK) {
+        s_settings.ota_persist = hide != 0;
+        if (s_settings.ota_persist) {
+            s_settings.ota_enabled = true;   /* opt-in: unlocked at boot */
+        }
     }
     if (nvs_get_u8(h, "rain", &hide) == ESP_OK) {
         s_settings.rain_overlay = hide != 0;
@@ -229,6 +236,7 @@ esp_err_t settings_save(void)
     nvs_set_u8(h, "fixed_loc", s_settings.use_fixed_loc ? 1 : 0);
     nvs_set_u8(h, "map_light", s_settings.map_light ? 1 : 0);
     nvs_set_u8(h, "retro_map", s_settings.retro_map ? 1 : 0);
+    nvs_set_u8(h, "ota_persist", s_settings.ota_persist ? 1 : 0);
     snprintf(coord, sizeof(coord), "%.6f", s_settings.lat);
     nvs_set_str(h, "lat", coord);
     snprintf(coord, sizeof(coord), "%.6f", s_settings.lon);
