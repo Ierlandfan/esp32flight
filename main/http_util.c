@@ -175,6 +175,8 @@ esp_err_t http_get_keepalive(int slot, const char *url,
         return http_get_to_buffer(url, buf, buf_size, out_len);
     }
     sink_t *sink = &s_ka_sink[slot];
+    bool reused = s_ka_client[slot] != NULL;
+retry_fresh:
     sink->buf = buf;
     sink->cap = buf_size;
     sink->len = 0;
@@ -213,6 +215,15 @@ esp_err_t http_get_keepalive(int slot, const char *url,
     esp_http_client_cleanup(s_ka_client[slot]);
     s_ka_client[slot] = NULL;
     if (err != ESP_OK) {
+        if (reused) {
+            /* Servers close idle connections between our cycles; the first
+             * request on a stale socket then fails. Without this retry the
+             * caller falls over to another aggregator with different
+             * coverage and aircraft blink out for a cycle. One immediate
+             * fresh-connection attempt makes staleness invisible. */
+            reused = false;
+            goto retry_fresh;
+        }
         ESP_LOGW(TAG, "GET(ka) %s failed: %s", url, esp_err_to_name(err));
         return err;
     }

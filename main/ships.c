@@ -168,6 +168,35 @@ int ships_get(ship_t *out, int max)
     return n;
 }
 
+/* The subscription frame for the current box/key, rebuilt whenever the
+ * transport (re)starts; the subscriber task and the poll fallback both
+ * send exactly this buffer. */
+static char s_sub_json[320];
+
+static void build_subscription(void)
+{
+    snprintf(s_sub_json, sizeof(s_sub_json),
+             "{\"APIKey\":\"%s\",\"BoundingBoxes\":[[[%.3f,%.3f],[%.3f,%.3f]]],"
+             "\"FilterMessageTypes\":[\"PositionReport\",\"ShipStaticData\"]}",
+             s_active_key,
+             s_box_lat - BOX_LAT, s_box_lon - BOX_LON,
+             s_box_lat + BOX_LAT, s_box_lon + BOX_LON);
+}
+
+static bool send_subscription(void)
+{
+    if (s_sub_json[0] == '\0') {
+        build_subscription();
+    }
+    if (!tr_send(s_sub_json, strlen(s_sub_json))) {
+        return false;
+    }
+    s_subscribed = true;
+    s_last_frame = esp_timer_get_time();
+    ESP_LOGI(TAG, "subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
+    return true;
+}
+
 void ships_poll(double home_lat, double home_lon)
 {
     const settings_t *cfg = settings_get();
@@ -191,6 +220,7 @@ void ships_poll(double home_lat, double home_lon)
         strlcpy(s_active_key, cfg->ais_key, sizeof(s_active_key));
         s_box_lat = home_lat;
         s_box_lon = home_lon;
+        build_subscription();
         tr_start();
     }
     /* a healthy subscription near a coast never goes quiet for long;
@@ -201,18 +231,7 @@ void ships_poll(double home_lat, double home_lon)
         tr_stop();
     }
     if (tr_active() && !s_subscribed && tr_connected()) {
-        char sub[320];
-        snprintf(sub, sizeof(sub),
-                 "{\"APIKey\":\"%s\",\"BoundingBoxes\":[[[%.3f,%.3f],[%.3f,%.3f]]],"
-                 "\"FilterMessageTypes\":[\"PositionReport\",\"ShipStaticData\"]}",
-                 s_active_key,
-                 s_box_lat - BOX_LAT, s_box_lon - BOX_LON,
-                 s_box_lat + BOX_LAT, s_box_lon + BOX_LON);
-        if (tr_send(sub, strlen(sub))) {
-            s_subscribed = true;
-            s_last_frame = esp_timer_get_time();
-            ESP_LOGI(TAG, "subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
-        }
+        send_subscription();   /* fallback; the connect event usually won */
     }
 }
 
@@ -233,6 +252,39 @@ static bool tr_send(const char *buf, size_t len) { (void)buf; (void)len; return 
 
 static esp_websocket_client_handle_t s_ws;
 
+/* aisstream closes the socket when no subscription arrives within a few
+ * seconds of connecting; ships_poll ticks far too slowly to guarantee
+ * that (subscribing latched only when the poll happened to align with a
+ * reconnect - observed as an endless connect/close loop). Sending from
+ * the websocket task's own event handler can deadlock on the client
+ * lock, so the CONNECTED event arms a one-shot esp_timer instead and the
+ * send runs milliseconds later from the timer task. */
+/* Dedicated subscriber task: the CONNECTED event just notifies it, and
+ * the (potentially blocking) send happens here - never in the websocket
+ * task (deadlock on the client lock) and never in the esp_timer task
+ * (blocking it starves every system timer). */
+static TaskHandle_t s_sub_task;
+
+static void sub_task(void *arg)
+{
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (int try = 0; try < 10 && s_ws != NULL && !s_subscribed; try++) {
+            int r = esp_websocket_client_send_text(s_ws, s_sub_json,
+                                                   strlen(s_sub_json),
+                                                   pdMS_TO_TICKS(2000));
+            if (r >= 0) {
+                s_subscribed = true;
+                s_last_frame = esp_timer_get_time();
+                ESP_LOGI(TAG, "subscribed around %.2f,%.2f", s_box_lat, s_box_lon);
+                break;
+            }
+            ESP_LOGW(TAG, "subscribe send returned %d (try %d)", r, try);
+            vTaskDelay(pdMS_TO_TICKS(250));
+        }
+    }
+}
+
 static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_websocket_event_data_t *ev = event_data;
@@ -241,10 +293,11 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t event_id, void *e
         ESP_LOGW(TAG, "websocket %s", event_id == WEBSOCKET_EVENT_ERROR ? "error" : "disconnected");
     }
     if (event_id == WEBSOCKET_EVENT_CONNECTED) {
-        /* the subscription is sent from ships_poll: sending from this
-           handler runs inside the client task and the send can deadlock */
         s_subscribed = false;
         ESP_LOGI(TAG, "connected");
+        if (s_sub_task != NULL) {
+            xTaskNotifyGive(s_sub_task);
+        }
     }
     /* aisstream serves JSON in binary frames (opcode 2) */
     if (event_id == WEBSOCKET_EVENT_DATA && (ev->op_code == 0x1 || ev->op_code == 0x2) &&
@@ -295,6 +348,10 @@ static void tr_start(void)
     if (s_ws == NULL) {
         ESP_LOGE(TAG, "client init failed");
         return;
+    }
+    if (s_sub_task == NULL) {
+        BaseType_t ok = xTaskCreatePinnedToCore(sub_task, "ais_sub", 3072, NULL, 3, &s_sub_task, 0);
+        ESP_LOGI(TAG, "subscriber task: %s", ok == pdPASS ? "up" : "CREATE FAILED");
     }
     esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY, ws_event, NULL);
     esp_websocket_client_start(s_ws);
