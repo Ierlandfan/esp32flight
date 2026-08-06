@@ -3387,31 +3387,47 @@ static void retro_map_update(void)
         return;
     }
     float k = radius_px / (float)RADAR_R;   /* canvas px per scope px */
-    /* gamma stretch: the dark basemap lives in the bottom of the
-     * luminance range; ^0.42 pulls coastlines and roads into view */
+    /* gamma stretch + edge extraction: the dark basemap's coastlines are
+     * a small luminance step, so detect them explicitly and draw them at
+     * near-full phosphor brightness */
     static uint8_t s_gamma[256];
     if (s_gamma[255] == 0) {
         for (int i = 0; i < 256; i++) {
-            s_gamma[i] = (uint8_t)(255.0f * powf((float)i / 255.0f, 0.42f));
+            s_gamma[i] = (uint8_t)(255.0f * powf((float)i / 255.0f, 0.34f));
         }
     }
+    #define RETRO_LUM(px) ((((px) >> 11) & 31) * 2 + (((px) >> 5) & 63) + \
+                           ((px) & 31) * 2)
     for (int y = 0; y < RADAR_H; y++) {
         uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
         float sy = hy + (y - RADAR_CY) * k;
         for (int x = 0; x < RADAR_W; x++) {
             float sx = hx + (x - RADAR_CX) * k;
             uint16_t out = 0;
-            if (sx >= 0 && sx < RADAR_W && sy >= 0 && sy < RADAR_H) {
-                uint16_t c = s_radar_tiles[(int)sy * RADAR_W + (int)sx];
-                int lum = s_gamma[(((c >> 11) & 31) * 2 + ((c >> 5) & 63) +
-                                   (c & 31) * 2) * 255 / 252];
-                out = (uint16_t)((((lum * 10) / 255) << 11) |
-                                 (((lum * 60) / 255) << 5) |
-                                 ((lum * 10) / 255));
+            int isx = (int)sx, isy = (int)sy;
+            if (isx >= 0 && isx < RADAR_W - 1 && isy >= 0 && isy < RADAR_H - 1) {
+                const uint16_t *src = &s_radar_tiles[isy * RADAR_W + isx];
+                int l0 = RETRO_LUM(src[0]);
+                int lr = RETRO_LUM(src[1]);
+                int ld = RETRO_LUM(src[RADAR_W]);
+                int edge = (l0 > lr ? l0 - lr : lr - l0) +
+                           (l0 > ld ? l0 - ld : ld - l0);
+                int bright = s_gamma[l0 * 255 / 252];
+                edge = edge * 5;
+                if (edge > 255) {
+                    edge = 255;
+                }
+                if (edge > bright) {
+                    bright = edge;
+                }
+                out = (uint16_t)((((bright * 12) / 255) << 11) |
+                                 (((bright * 63) / 255) << 5) |
+                                 ((bright * 12) / 255));
             }
             dst[x] = out;
         }
     }
+    #undef RETRO_LUM
     s_retro_map_dsc.header.always_zero = 0;
     s_retro_map_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
     s_retro_map_dsc.header.w = RADAR_W;
