@@ -310,38 +310,44 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
             err = parse_point_response(buf, lat, lon, out);
         }
         if (err == ESP_OK) {
-            /* Union with the next aggregator: each network runs its own
-             * MLAT feeders, so a target the primary cannot multilaterate
-             * is often present on the secondary. One extra request per
-             * cycle, silently skipped when it fails. */
-            if (i + 1 < 3 && !s_first_fetch) {
+            /* Union with every other aggregator: each network runs its
+             * own MLAT feeders, so a target one cannot multilaterate is
+             * often present elsewhere. The winning source's record stays
+             * authoritative; the others only add missing aircraft. With
+             * per-host keep-alive these are sub-second requests, silently
+             * skipped when they fail. */
+            if (!s_first_fetch) {
                 aircraft_list_t *extra = heap_caps_malloc(sizeof(*extra), MALLOC_CAP_SPIRAM);
-                if (extra != NULL) {
+                for (int j = 0; extra != NULL && j < 3; j++) {
+                    if (j == i) {
+                        continue;
+                    }
                     char url2[128];
-                    snprintf(url2, sizeof(url2), src_fmt[i + 1], lat, lon, radius_nm);
-                    if (http_get_keepalive(i + 1, url2, buf, FETCH_BUF_SIZE, NULL) == ESP_OK &&
-                        parse_point_response(buf, lat, lon, extra) == ESP_OK) {
-                        int added = 0;
-                        for (int k = 0; k < extra->count && out->count < MAX_AIRCRAFT; k++) {
-                            bool dup = false;
-                            for (int m = 0; m < out->count; m++) {
-                                if (strcmp(out->ac[m].hex, extra->ac[k].hex) == 0) {
-                                    dup = true;
-                                    break;
-                                }
-                            }
-                            if (!dup) {
-                                out->ac[out->count++] = extra->ac[k];
-                                added++;
+                    snprintf(url2, sizeof(url2), src_fmt[j], lat, lon, radius_nm);
+                    if (http_get_keepalive(j, url2, buf, FETCH_BUF_SIZE, NULL) != ESP_OK ||
+                        parse_point_response(buf, lat, lon, extra) != ESP_OK) {
+                        continue;
+                    }
+                    int added = 0;
+                    for (int k = 0; k < extra->count && out->count < MAX_AIRCRAFT; k++) {
+                        bool dup = false;
+                        for (int m = 0; m < out->count; m++) {
+                            if (strcmp(out->ac[m].hex, extra->ac[k].hex) == 0) {
+                                dup = true;
+                                break;
                             }
                         }
-                        if (added > 0) {
-                            ESP_LOGI(TAG, "merged %d extra aircraft from source %d",
-                                     added, i + 1);
+                        if (!dup) {
+                            out->ac[out->count++] = extra->ac[k];
+                            added++;
                         }
                     }
-                    free(extra);
+                    if (added > 0) {
+                        ESP_LOGI(TAG, "merged %d extra aircraft from source %d",
+                                 added, j);
+                    }
                 }
+                free(extra);
             }
             localize_and_filter(out, lat, lon, radius_nm);
             if (i > 0) {
