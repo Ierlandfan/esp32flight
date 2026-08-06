@@ -3684,6 +3684,10 @@ static void build_detail(lv_obj_t *scr)
     s_orig_city = make_label(s_detail_content, s_f_small, COL_DIM);
     lv_obj_set_pos(s_orig_city, 0, s_city_y);
     s_orig_flag = lv_img_create(s_detail_content);
+    lv_img_set_zoom(s_orig_flag, UIZOOM(256));   /* flag PNGs are drawn for 800x480 */
+    lv_img_set_antialias(s_orig_flag, true);
+    lv_img_set_pivot(s_orig_flag, 0, 0);
+    lv_img_set_size_mode(s_orig_flag, LV_IMG_SIZE_MODE_REAL);
     lv_obj_set_pos(s_orig_flag, 0, s_city_y - 2);
     lv_obj_add_flag(s_orig_flag, LV_OBJ_FLAG_HIDDEN);
 
@@ -3706,6 +3710,10 @@ static void build_detail(lv_obj_t *scr)
     lv_obj_set_pos(s_dest_city, DTL_W - s_dcity_w, s_city_y);
     lv_obj_set_width(s_dest_city, s_dcity_w);
     s_dest_flag = lv_img_create(s_detail_content);
+    lv_img_set_zoom(s_dest_flag, UIZOOM(256));   /* flag PNGs are drawn for 800x480 */
+    lv_img_set_antialias(s_dest_flag, true);
+    lv_img_set_pivot(s_dest_flag, 0, 0);
+    lv_img_set_size_mode(s_dest_flag, LV_IMG_SIZE_MODE_REAL);
     lv_obj_set_pos(s_dest_flag, DTL_W - UISX(30), s_city_y - 2);
     lv_obj_add_flag(s_dest_flag, LV_OBJ_FLAG_HIDDEN);
 
@@ -3746,6 +3754,10 @@ static void build_detail(lv_obj_t *scr)
     make_stat(grid, 1, 1, L()->st_track, &s_stat_vals[4]);
     lv_obj_t *regbox = make_stat(grid, 2, 1, L()->st_reg, &s_stat_vals[5]);
     s_reg_flag = lv_img_create(regbox);
+    lv_img_set_zoom(s_reg_flag, UIZOOM(256));   /* flag PNGs are drawn for 800x480 */
+    lv_img_set_antialias(s_reg_flag, true);
+    lv_img_set_pivot(s_reg_flag, 0, 0);
+    lv_img_set_size_mode(s_reg_flag, LV_IMG_SIZE_MODE_REAL);
     lv_obj_align(s_reg_flag, LV_ALIGN_TOP_RIGHT, 0, -2);
     lv_obj_add_flag(s_reg_flag, LV_OBJ_FLAG_HIDDEN);
 
