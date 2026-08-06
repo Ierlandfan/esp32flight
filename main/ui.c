@@ -179,11 +179,14 @@ static lv_obj_t *s_amb_lbls[MAX_SHOWN];
 static lv_obj_t *s_amb_clock, *s_amb_wx;
 static lv_obj_t *s_amb_ring, *s_amb_home;
 static lv_obj_t *s_amb_selbub;
+static lv_obj_t *s_amb_trail;                 /* breadcrumb of the tapped plane */
+static lv_point_t s_amb_trail_pts[TRAIL_LEN];
 static bool s_amb_retro;          /* overlay currently hosts the retro panel */
 static bool s_retro_was_hidden;
 static char s_amb_sel_cs[9];   /* callsign picked by tapping its sprite */
 typedef struct {
     char  callsign[9];
+    char  hex[7];
     float lat, lon, track;
     float dist_nm, dir_deg;
     int   alt_ft;
@@ -2514,8 +2517,27 @@ static void render_ambient(void)
             lv_obj_set_pos(s_amb_selbub, lx, ly);
             lv_obj_clear_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(s_amb_selbub);
+
+            /* breadcrumb trail, same style as the radar view's */
+            float tlat[TRAIL_LEN], tlon[TRAIL_LEN];
+            int tn = trails_get(s_all[sel].hex, tlat, tlon, TRAIL_LEN);
+            if (s_amb_trail != NULL && tn >= 2) {
+                for (int k = 0; k < tn; k++) {
+                    lv_coord_t tx, ty;
+                    amb_proj(tlat[k], tlon[k], &tx, &ty);
+                    s_amb_trail_pts[k].x = tx;
+                    s_amb_trail_pts[k].y = ty;
+                }
+                lv_line_set_points(s_amb_trail, s_amb_trail_pts, tn);
+                lv_obj_clear_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
+            } else if (s_amb_trail != NULL) {
+                lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
+            }
         } else {
             lv_obj_add_flag(s_amb_selbub, LV_OBJ_FLAG_HIDDEN);
+            if (s_amb_trail != NULL) {
+                lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
 
@@ -2606,6 +2628,8 @@ static void amb_close(void)
         s_amb_clock = NULL;
         s_amb_wx = NULL;
         s_amb_note = NULL;
+        s_amb_selbub = NULL;
+        s_amb_trail = NULL;
         /* keep the rendered canvas for an instant next entry while PSRAM
            is comfortable; only hand it back under real pressure */
         if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
@@ -2718,6 +2742,13 @@ static void amb_show(void)
         lv_label_set_text(s_amb_note, L()->amb_loading);
         lv_obj_align(s_amb_note, LV_ALIGN_CENTER, 0, 0);
     }
+
+    s_amb_trail = lv_line_create(s_amb);
+    lv_obj_set_style_line_width(s_amb_trail, 2, 0);
+    lv_obj_set_style_line_color(s_amb_trail, lv_color_hex(0xffd166), 0);
+    lv_obj_set_style_line_opa(s_amb_trail, LV_OPA_60, 0);
+    lv_obj_clear_flag(s_amb_trail, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_amb_trail, LV_OBJ_FLAG_HIDDEN);
 
     s_amb_ring = lv_obj_create(s_amb);
     lv_obj_set_style_bg_opa(s_amb_ring, LV_OPA_TRANSP, 0);
@@ -3923,6 +3954,7 @@ void ui_update(const aircraft_list_t *list)
         }
         amb_target_t *t = &s_all[s_all_count++];
         strlcpy(t->callsign, list->ac[i].callsign, sizeof(t->callsign));
+        strlcpy(t->hex, list->ac[i].hex, sizeof(t->hex));
         t->lat = (float)list->ac[i].lat;
         t->lon = (float)list->ac[i].lon;
         t->track = list->ac[i].track_deg;
