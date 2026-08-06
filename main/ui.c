@@ -3491,7 +3491,9 @@ static void render_retro_panel(void)
         float rad = s_all[i].dir_deg * (float)M_PI / 180.0f;
         int x = cx + (int)(sinf(rad) * frac * r);
         int y = cy - (int)(cosf(rad) * frac * r);
-        lv_obj_set_pos(s_retro_blips[i], x - UISX(3), y - UISY(3));
+        lv_obj_set_pos(s_retro_blips[i],
+                       x - (UI_DOWNSCALE ? UISX(6) : 3),
+                       y - (UI_DOWNSCALE ? UISX(6) : 3));
         lv_obj_set_pos(s_retro_lbls[i], x + UISX(8), y - UISY(7));
         lv_label_set_text(s_retro_lbls[i], s_all[i].callsign);
         lv_obj_clear_flag(s_retro_blips[i], LV_OBJ_FLAG_HIDDEN);
@@ -3611,7 +3613,10 @@ static void build_retro_panel(lv_obj_t *scr)
     /* blips + callsign ghosts */
     for (int i = 0; i < MAX_AIRCRAFT; i++) {
         s_retro_blips[i] = lv_obj_create(s_retro_panel);
-        lv_obj_set_size(s_retro_blips[i], UISX(7), UISY(7));
+        /* small panels: chunkier blips (7u scales to a faint 4px dot) */
+        lv_obj_set_size(s_retro_blips[i],
+                        UI_DOWNSCALE ? UISX(12) : 7,
+                        UI_DOWNSCALE ? UISX(12) : 7);
         lv_obj_set_style_radius(s_retro_blips[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(s_retro_blips[i], RET_COL_BEAM, 0);
         lv_obj_set_style_border_width(s_retro_blips[i], 0, 0);
