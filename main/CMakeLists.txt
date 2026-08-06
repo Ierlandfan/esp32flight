@@ -35,6 +35,7 @@ idf_component_register(
         "geocode.c"
         "rainviewer.c"
         "img_plane.c"
+        "img_sideviews.c"
         "img_heli.c"
         "img_small.c"
         "img_mil.c"

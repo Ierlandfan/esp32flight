@@ -77,6 +77,27 @@ LV_IMG_DECLARE(img_mil);
 LV_IMG_DECLARE(img_glider);
 LV_IMG_DECLARE(img_balloon);
 LV_IMG_DECLARE(img_drone);
+LV_IMG_DECLARE(img_side_plane);
+LV_IMG_DECLARE(img_side_small);
+LV_IMG_DECLARE(img_side_heli);
+LV_IMG_DECLARE(img_side_mil);
+LV_IMG_DECLARE(img_side_glider);
+LV_IMG_DECLARE(img_side_balloon);
+LV_IMG_DECLARE(img_side_drone);
+
+/* side-view silhouette for the ambient selection overlay */
+static const lv_img_dsc_t *side_sprite(int spr)
+{
+    switch (spr) {
+    case FSPR_SMALL:   return &img_side_small;
+    case FSPR_HELI:    return &img_side_heli;
+    case FSPR_MIL:     return &img_side_mil;
+    case FSPR_GLIDER:  return &img_side_glider;
+    case FSPR_BALLOON: return &img_side_balloon;
+    case FSPR_DRONE:   return &img_side_drone;
+    default:           return &img_side_plane;
+    }
+}
 
 /* map sprite per flight_sprite_t id */
 static const lv_img_dsc_t *class_sprite(int spr)
@@ -2547,7 +2568,7 @@ static void render_ambient(void)
             lv_obj_clear_flag(s_ambx_l, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_m, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(s_ambx_r, LV_OBJ_FLAG_HIDDEN);
-            img_src_if_changed(s_ambx_cls, class_sprite(s_all[sel].fcls));
+            img_src_if_changed(s_ambx_cls, side_sprite(s_all[sel].fcls));
             lv_obj_update_layout(s_ambx_m);
             lv_obj_align_to(s_ambx_cls, s_ambx_m, LV_ALIGN_OUT_LEFT_MID,
                             -UISX(8), 0);
@@ -2876,7 +2897,7 @@ static void amb_show(void)
         lv_obj_set_style_text_align(s_ambx_rt, LV_TEXT_ALIGN_CENTER, 0);
 
         s_ambx_cls = lv_img_create(s_amb);
-        lv_img_set_zoom(s_ambx_cls, UIZOOM(320));
+        lv_img_set_zoom(s_ambx_cls, UIZOOM(256));
         lv_obj_set_style_bg_color(s_ambx_cls, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_ambx_cls, LV_OPA_70, 0);
         lv_obj_set_style_radius(s_ambx_cls, UISY(6), 0);
