@@ -3431,13 +3431,22 @@ static void retro_map_update(void)
             if (isx >= 1 && isx < RADAR_W - 1 && isy >= 1 && isy < RADAR_H - 1) {
                 const uint16_t *src = &s_radar_tiles[isy * RADAR_W + isx];
                 int c0 = retro_cls(src[0], unlift);
-                if (c0 == 1) {
-                    bool coast = retro_cls(src[-1], unlift) == 0 ||
-                                 retro_cls(src[1], unlift) == 0 ||
-                                 retro_cls(src[-RADAR_W], unlift) == 0 ||
-                                 retro_cls(src[RADAR_W], unlift) == 0;
-                    out = coast ? (uint16_t)((5 << 11) | (63 << 5) | 5)
-                                : (uint16_t)((1 << 11) | (11 << 5) | 1);
+                /* two-sided boundary with diagonals: a solid ~2 px stroke
+                 * instead of a resample-thinned 1 px thread */
+                int other = c0 == 1 ? 0 : c0 == 0 ? 1 : -1;
+                bool coast = false;
+                if (other >= 0) {
+                    static const int nx[8] = { -1, 1, 0, 0, -1, 1, -1, 1 };
+                    static const int ny[8] = { 0, 0, -1, 1, -1, -1, 1, 1 };
+                    for (int n = 0; n < 8 && !coast; n++) {
+                        coast = retro_cls(src[ny[n] * RADAR_W + nx[n]],
+                                          unlift) == other;
+                    }
+                }
+                if (coast) {
+                    out = (uint16_t)((3 << 11) | (63 << 5) | 3);
+                } else if (c0 == 1) {
+                    out = (uint16_t)((1 << 11) | (11 << 5) | 1);
                 } else if (c0 == 2) {
                     out = (uint16_t)((2 << 11) | (17 << 5) | 2);
                 } else if (c0 == 3) {
