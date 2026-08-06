@@ -831,7 +831,7 @@ static void build_list(lv_obj_t *scr)
     lv_obj_set_pos(s_list_panel, 0, HEADER_H);
     lv_obj_set_style_bg_color(s_list_panel, COL_BG, 0);
     lv_obj_set_style_pad_all(s_list_panel, UISY(8), 0);
-    lv_obj_set_style_pad_row(s_list_panel, UISY(6), 0);
+    lv_obj_set_style_pad_row(s_list_panel, UI_DOWNSCALE ? UISY(4) : 6, 0);
     lv_obj_set_flex_flow(s_list_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_list_panel, LV_DIR_VER);
@@ -864,11 +864,13 @@ static void build_list(lv_obj_t *scr)
 
     for (int i = 0; i < MAX_SHOWN; i++) {
         lv_obj_t *row = lv_obj_create(s_list_panel);
-        lv_obj_set_size(row, LIST_W - UISX(16) - UISX(8), UISY(64));
+        lv_obj_set_size(row, LIST_W - UISX(16) - UISX(8),
+                        UI_DOWNSCALE ? UISY(52) : 64);   /* compact rows on small panels */
         lv_obj_set_style_bg_color(row, COL_ROW, 0);
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_radius(row, UISY(8), 0);
-        lv_obj_set_style_pad_all(row, UISY(8), 0);
+        lv_obj_set_style_pad_all(row, UI_DOWNSCALE ? UISY(5) : 8, 0);
+        lv_obj_set_style_pad_left(row, UISY(8), 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -876,7 +878,8 @@ static void build_list(lv_obj_t *scr)
         lv_obj_t *cs = make_label(row, UIFONT(&lv_font_montserrat_20, &lv_font_montserrat_12), COL_TEXT);
         lv_obj_align(cs, LV_ALIGN_TOP_LEFT, UISX(48), -2);
         lv_obj_t *type = make_label(row, UIFONT(&lv_font_montserrat_14, &lv_font_montserrat_8), COL_ACCENT);
-        lv_obj_align(type, LV_ALIGN_TOP_RIGHT, 0, 0);
+        lv_obj_align(type, UI_DOWNSCALE ? LV_ALIGN_BOTTOM_RIGHT : LV_ALIGN_TOP_RIGHT,
+                     0, UI_DOWNSCALE ? 2 : 0);   /* small panels: shares the stats line */
         lv_obj_t *info = make_label(row, UIFONT(&lv_font_montserrat_12, &lv_font_montserrat_8), COL_DIM);
         lv_obj_align(info, LV_ALIGN_BOTTOM_LEFT, UISX(48), 2);
 
@@ -1820,7 +1823,8 @@ static void ship_group_cb(lv_event_t *e)
         lv_obj_set_style_bg_color(row, COL_PANEL, 0);
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_radius(row, UISY(8), 0);
-        lv_obj_set_style_pad_all(row, UISY(8), 0);
+        lv_obj_set_style_pad_all(row, UI_DOWNSCALE ? UISY(5) : 8, 0);
+        lv_obj_set_style_pad_left(row, UISY(8), 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, grp_row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)k);
