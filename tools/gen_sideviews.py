@@ -276,24 +276,22 @@ def emit_c(imgs, path):
 
 
 def vane():
-    """Compass/wind vane needle pointing up (rotated to track at runtime)."""
+    """Small compass: ring with a needle inside (rotated to track)."""
     c = canvas()
-    # arrowhead
-    poly(c, [(24, 3), (16.5, 16), (31.5, 16)])
-    # shaft
-    poly(c, [(22.6, 14), (25.4, 14), (25.4, 34), (22.6, 34)])
-    # fletching
-    poly(c, [(24, 31), (16, 43.5), (20, 44.5), (24, 37)])
-    poly(c, [(24, 31), (32, 43.5), (28, 44.5), (24, 37)])
+    ring(c, 16, 16, 14, 14, 2.4)
+    # needle: north arrow + slim south tail
+    poly(c, [(16, 5), (12.2, 17.5), (19.8, 17.5)])
+    poly(c, [(16, 27), (13.6, 16.5), (18.4, 16.5)])
+    ellipse(c, 16, 16, 2.4, 2.4)
     return c
 
 
 imgs = [(n, downsample(f())) for n, f in FLEET]
 
-# the vane is authored on its own 48x48 grid, emitted at 1x (small box)
-W, H = 48, 48
+# the compass vane is authored on its own 32x32 grid, emitted at 1x
+W, H = 32, 32
 SW, SH = W * SS, H * SS
-SCL = SW / 48.0
+SCL = SW / 32.0
 imgs.append(("side_vane", downsample(vane())))
 if "--preview" in sys.argv:
     preview(imgs, "sideviews_preview.png")

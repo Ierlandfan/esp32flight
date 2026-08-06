@@ -2769,8 +2769,8 @@ static void render_ambient(void)
             {
                 lv_area_t rc;
                 lv_obj_get_coords(s_ambx_r, &rc);
-                lv_obj_set_pos(s_ambx_hdg, rc.x2 - 48 - UISX(6),
-                               (rc.y1 + rc.y2) / 2 - 24);
+                lv_obj_set_pos(s_ambx_hdg, rc.x2 - 32 - UISX(4),
+                               (rc.y1 + rc.y2) / 2 - 16);
             }
             lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(s_ambx_sq);
@@ -3114,7 +3114,7 @@ static void amb_show(void)
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
         /* the vane lives inside the Reg/Heading/Speed panel */
-        lv_obj_set_style_pad_right(s_ambx_r, UISX(90), 0);
+        lv_obj_set_style_pad_right(s_ambx_r, UISX(46), 0);
         lv_label_set_long_mode(s_ambx_m, LV_LABEL_LONG_DOT);
     }
 
