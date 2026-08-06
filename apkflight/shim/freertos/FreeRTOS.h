@@ -16,3 +16,9 @@ typedef uint32_t TickType_t;
 #define portMAX_DELAY 0xffffffffU
 #define pdMS_TO_TICKS(ms) ((TickType_t)(ms))
 #define portTICK_PERIOD_MS 1
+
+/* Critical sections: a single global pthread mutex is plenty for the shim */
+typedef int portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED 0
+void portENTER_CRITICAL(portMUX_TYPE *mux);
+void portEXIT_CRITICAL(portMUX_TYPE *mux);

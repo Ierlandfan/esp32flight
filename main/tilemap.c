@@ -9,6 +9,11 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include "geo_math.h"
 
 #include "extra/libs/png/lodepng.h"
 #include "rainviewer.h"
@@ -143,6 +148,111 @@ static void tcache_put(uint32_t key, const uint8_t *data, uint32_t len)
     s_tc_bytes += len;
 }
 
+/* Persistent tile cache on the assets partition: the home area is a
+ * small, stable set (~20-40 tiles) and the CARTO basemap barely changes,
+ * so once fetched it survives restarts and renders offline. Guarded by a
+ * free-space floor (the spotting logs and on-demand logos share the
+ * partition) and wiped when the view center moves far away, so a
+ * relocation cannot slowly fill the flash with stale areas. */
+#define FTILE_DIR        "/assets/tiles"
+#define FTILE_MIN_FREE   (700 * 1024)
+
+static bool s_ftile_dir_ok;
+
+static void ftile_path(char *out, size_t n, uint32_t key)
+{
+    snprintf(out, n, FTILE_DIR "/%08lx.png", (unsigned long)key);
+}
+
+static uint8_t *ftile_get(uint32_t key, size_t *len)
+{
+    char path[48];
+    ftile_path(path, sizeof(path), key);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return NULL;
+    }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *buf = NULL;
+    if (sz > 8 && sz <= TILE_BUF) {
+        buf = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+        if (buf != NULL && fread(buf, 1, sz, f) != (size_t)sz) {
+            free(buf);
+            buf = NULL;
+        }
+    }
+    fclose(f);
+    if (buf != NULL) {
+        *len = (size_t)sz;
+    }
+    return buf;
+}
+
+static void ftile_put(uint32_t key, const uint8_t *data, size_t len)
+{
+    size_t total = 0, used = 0;
+    if (esp_spiffs_info("assets", &total, &used) != ESP_OK ||
+        total - used < FTILE_MIN_FREE + len) {
+        return;
+    }
+    if (!s_ftile_dir_ok) {
+        mkdir(FTILE_DIR, 0775);
+        s_ftile_dir_ok = true;
+    }
+    char path[48];
+    ftile_path(path, sizeof(path), key);
+    FILE *f = fopen(path, "wb");
+    if (f != NULL) {
+        fwrite(data, 1, len, f);
+        fclose(f);
+    }
+}
+
+/* Wipe the flash tiles when the render center moves far from the stored
+ * one (the device moved home): stale areas would otherwise linger. */
+static void ftile_check_center(double lat, double lon)
+{
+    static bool checked;
+    double clat = 0, clon = 0;
+    FILE *f;
+    if (!checked) {
+        checked = true;
+        f = fopen(FTILE_DIR "/center", "rb");
+        if (f != NULL) {
+            if (fscanf(f, "%lf %lf", &clat, &clon) == 2 &&
+                geo_haversine_km(clat, clon, lat, lon) > 150.0) {
+                fclose(f);
+                DIR *d = opendir(FTILE_DIR);
+                if (d != NULL) {
+                    struct dirent *e;
+                    char path[320];
+                    while ((e = readdir(d)) != NULL) {
+                        snprintf(path, sizeof(path), FTILE_DIR "/%s", e->d_name);
+                        unlink(path);
+                    }
+                    closedir(d);
+                }
+                ESP_LOGI(TAG, "flash tiles wiped (moved %d km)",
+                         (int)geo_haversine_km(clat, clon, lat, lon));
+            } else {
+                fclose(f);
+                return;   /* same area: keep everything */
+            }
+        }
+        f = fopen(FTILE_DIR "/center", "wb");
+        if (f == NULL) {
+            mkdir(FTILE_DIR, 0775);
+            f = fopen(FTILE_DIR "/center", "wb");
+        }
+        if (f != NULL) {
+            fprintf(f, "%.4f %.4f", lat, lon);
+            fclose(f);
+        }
+    }
+}
+
 /* WGS84 -> normalized web mercator (0..1) */
 static void merc_norm(double lat, double lon, double *nx, double *ny)
 {
@@ -202,6 +312,17 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     const uint8_t *fetch_buf = tcache_get(key, &clen);
     size_t len = clen;
     bool from_cache = fetch_buf != NULL;
+    uint8_t *flash_buf = NULL;
+
+    if (!from_cache) {
+        /* persisted on the assets partition? renders offline forever */
+        flash_buf = ftile_get(key, &len);
+        if (flash_buf != NULL) {
+            tcache_put(key, flash_buf, len);
+            fetch_buf = flash_buf;
+            from_cache = true;
+        }
+    }
 
     if (!from_cache) {
         char url[96];
@@ -221,6 +342,7 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
             return false;
         }
         tcache_put(key, sink->buf, sink->len);
+        ftile_put(key, sink->buf, sink->len);
         fetch_buf = sink->buf;
         len = sink->len;
     }
@@ -229,6 +351,7 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     unsigned w = 0, h = 0;
     if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
         free(rgba);   /* lodepng may allocate even when it reports an error */
+        free(flash_buf);
         return false;
     }
 
@@ -256,6 +379,7 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
         }
     }
     free(rgba);
+    free(flash_buf);
     return true;
 }
 
@@ -396,6 +520,9 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
                         double lon_min, double lon_max,
                         tile_view_t *out_view, int layers)
 {
+    if (layers & TM_LAYER_BASE) {
+        ftile_check_center((lat_min + lat_max) / 2.0, (lon_min + lon_max) / 2.0);
+    }
     double nx0, ny0, nx1, ny1;
     merc_norm(lat_max, lon_min, &nx0, &ny0);   /* top-left */
     merc_norm(lat_min, lon_max, &nx1, &ny1);   /* bottom-right */

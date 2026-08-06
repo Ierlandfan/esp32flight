@@ -147,3 +147,17 @@ void vQueueDelete(QueueHandle_t q)
     free(q->buf);
     free(q);
 }
+
+static pthread_mutex_t s_crit_mux = PTHREAD_MUTEX_INITIALIZER;
+
+void portENTER_CRITICAL(portMUX_TYPE *mux)
+{
+    (void)mux;
+    pthread_mutex_lock(&s_crit_mux);
+}
+
+void portEXIT_CRITICAL(portMUX_TYPE *mux)
+{
+    (void)mux;
+    pthread_mutex_unlock(&s_crit_mux);
+}
