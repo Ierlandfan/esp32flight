@@ -142,6 +142,24 @@ int main(int argc, char **argv)
 
     char path[256];
     for (const char *v = views; *v != '\0'; v++) {
+        if (*v == 'f') {   /* full-screen retro screensaver adoption */
+            void ui_test_ambient(const char *cs);
+            settings_get()->amb_style = 1;
+            lvgl_port_lock(-1);
+            ui_set_view(4);
+            lvgl_port_unlock();
+            pump(500);
+            lvgl_port_lock(-1);
+            ui_test_ambient("RYR638T");
+            lvgl_port_unlock();
+            pump(2500);
+            snprintf(path, sizeof(path), "%s_fullretro.ppm", prefix);
+            if (sim_shot_ppm(path) != 0) {
+                return 1;
+            }
+            printf("wrote %s\n", path);
+            continue;
+        }
         if (*v == 'b') {   /* retro view + spotter overlay via blip-tap path */
             void ui_test_spotter(void);
             lvgl_port_lock(-1);
