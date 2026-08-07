@@ -3422,13 +3422,20 @@ static void retro_timer_cb(lv_timer_t *t)
             delta += 360.0f;
         }
         /* afterglow survives a full revolution: ~11% left just before
-         * the beam repaints the blip */
+         * the beam repaints the blip. Quantized to 16 steps and written
+         * only on change: a busy sky repainting every blip every 40 ms
+         * tick starved the sweep timer (observed at ~7 deg/s). */
         int opa = (int)(255.0f * (1.0f - delta / 400.0f));
         if (opa < 15) {
             opa = 15;
         }
-        lv_obj_set_style_bg_opa(s_retro_blips[i], opa, 0);
-        lv_obj_set_style_text_opa(s_retro_lbls[i], opa > 60 ? opa : 0, 0);
+        opa &= ~0x0F;
+        static uint8_t s_blip_opa[MAX_AIRCRAFT];
+        if (s_blip_opa[i] != (uint8_t)opa) {
+            s_blip_opa[i] = (uint8_t)opa;
+            lv_obj_set_style_bg_opa(s_retro_blips[i], opa, 0);
+            lv_obj_set_style_text_opa(s_retro_lbls[i], opa > 60 ? opa : 0, 0);
+        }
     }
 }
 
