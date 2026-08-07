@@ -2937,7 +2937,7 @@ static void spotter_build(void)
         lv_obj_t **w[6] = { &s_ambx_sq, &s_ambx_em, &s_ambx_l,
                             &s_ambx_m, &s_ambx_r, &s_ambx_rt };
         for (int i = 0; i < 6; i++) {
-            lv_obj_t *l = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_12),
+            lv_obj_t *l = make_label(lv_layer_top(), UIFONT(&font_pl_16, &font_pl_12),
                                      lv_color_hex(0xffffff));
             lv_label_set_recolor(l, true);
             lv_obj_set_style_bg_color(l, lv_color_hex(0x000000), 0);
@@ -2980,7 +2980,7 @@ static void spotter_build(void)
         lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
-        s_ambx_al = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_12),
+        s_ambx_al = make_label(lv_layer_top(), UIFONT(&font_pl_16, &font_pl_12),
                                lv_color_hex(0xffffff));
         lv_obj_set_style_bg_color(s_ambx_al, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_ambx_al, LV_OPA_70, 0);
@@ -4825,6 +4825,16 @@ static void render_list_rows(void)
 }
 
 #ifdef SIMSHOT
+/* headless-harness hook: RadarSpotter overlay outside the ambient - the
+ * retro-blip-tap path (regression test for the dangling-parent crash) */
+void ui_test_spotter(void)
+{
+    if (s_all_count > 0) {
+        strlcpy(s_retro_sel_hex, s_all[0].hex, sizeof(s_retro_sel_hex));
+        spotter_fill(0);
+    }
+}
+
 /* headless-harness hook: open the screensaver with a plane pre-selected */
 void ui_test_ambient(const char *cs)
 {
