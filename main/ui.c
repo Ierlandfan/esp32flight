@@ -3031,6 +3031,9 @@ static void spotter_dismiss_cb(lv_event_t *e)
  * the ambient screensaver and the retro scope's tapped blips. */
 static void spotter_fill(int sel)
 {
+    if (s_ambx_sq == NULL) {
+        spotter_build();   /* first use may precede the first ambient open */
+    }
         /* full aircraft record for reg / type / squawk */
         const aircraft_t *fa = NULL;
         const char *alname = NULL;
