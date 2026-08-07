@@ -3421,9 +3421,11 @@ static void retro_timer_cb(lv_timer_t *t)
         while (delta < 0) {
             delta += 360.0f;
         }
-        int opa = (int)(255.0f * (1.0f - delta / 320.0f));
-        if (opa < 25) {
-            opa = 25;
+        /* afterglow survives a full revolution: ~11% left just before
+         * the beam repaints the blip */
+        int opa = (int)(255.0f * (1.0f - delta / 400.0f));
+        if (opa < 15) {
+            opa = 15;
         }
         lv_obj_set_style_bg_opa(s_retro_blips[i], opa, 0);
         lv_obj_set_style_text_opa(s_retro_lbls[i], opa > 60 ? opa : 0, 0);
