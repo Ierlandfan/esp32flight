@@ -3562,7 +3562,7 @@ static void render_retro_panel(void)
         radar_tiles_want();   /* scope wants the canvas even if radar view never opened */
     }
     retro_map_update();
-    if (s_view_mode == VIEW_RETRO && s_retro_sel_hex[0] != '\0') {
+    if (s_amb_retro && s_retro_sel_hex[0] != '\0') {
         int seli = -1;
         for (int i = 0; i < s_all_count; i++) {
             if (strcmp(s_all[i].hex, s_retro_sel_hex) == 0) {
@@ -3677,9 +3677,16 @@ static void retro_apply_geometry(bool full)
 static void retro_blip_cb(lv_event_t *e)
 {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
-    if (i >= 0 && i < s_all_count) {
+    if (i < 0 || i >= s_all_count) {
+        return;
+    }
+    if (s_amb_retro) {
+        /* screensaver scope: full RadarSpotter overlay */
         strlcpy(s_retro_sel_hex, s_all[i].hex, sizeof(s_retro_sel_hex));
         spotter_fill(i);
+    } else {
+        /* labeled view: the list is right there - select like the radar */
+        radar_dot_cb(e);
     }
 }
 
