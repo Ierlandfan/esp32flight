@@ -105,8 +105,11 @@ __attribute__((unused)) static const board_cfg_t k_crowpanel_50 = {
     .has_ch422g = false,
     .bl_gpio = 2,
     .tp_rst_gpio = -1,
-    .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
-    .vs_pulse = 4, .vs_bp = 8, .vs_fp = 8,
+    /* Classic wide 5" TFT window, confirmed on hardware: the Guition's
+     * tight 8/8 porches shifted the display window and blanked ~40% of
+     * the panel on the left (hardware report + A/B/C test builds). */
+    .hs_pulse = 4, .hs_bp = 40, .hs_fp = 40,
+    .vs_pulse = 4, .vs_bp = 30, .vs_fp = 13,
     .tp_mirror = false,
 };
 
