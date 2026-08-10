@@ -113,6 +113,28 @@ __attribute__((unused)) static const board_cfg_t k_crowpanel_50 = {
     .tp_mirror = false,
 };
 
+__attribute__((unused)) static const board_cfg_t k_crowpanel_70 = {
+    /* Elecrow CrowPanel 7.0 (DIS08070H) and its Amazon rebrands (e.g.
+     * "IoTeikXgo" 7" HMI, identified by the EK9716BD3 driver and the
+     * Elecrow support links on the listing). N4R8 module = 4 MB class.
+     * PCLK on GPIO0 like the CrowPanel 5.0, sync on 41/40/39, and note
+     * the R/B halves of the bus are swapped versus the Sunton 7". Pin
+     * map and timings from Elecrow's official 7.0 v3.0 LVGL demo. */
+    .name = "Elecrow CrowPanel 7.0 (4MB)",
+    .de = 41, .vsync = 40, .hsync = 39, .pclk = 0,
+    .data = { 15, 7, 6, 5, 4,           /* B0..B4 */
+              9, 46, 3, 8, 16, 1,       /* G0..G5 */
+              14, 21, 47, 48, 45 },     /* R0..R4 */
+    .i2c_sda = 19, .i2c_scl = 20,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = -1,
+    .hs_pulse = 48, .hs_bp = 40, .hs_fp = 40,
+    .vs_pulse = 31, .vs_bp = 13, .vs_fp = 1,
+    .pclk_hz = 15000000,
+    .tp_mirror = false,
+};
+
 __attribute__((unused)) static const board_cfg_t k_sunton_8070 = {
     /* Sunton ESP32-8048S070 (7" 800x480, ST7262) and its unbranded
      * Amazon/AliExpress clones. NOT Guition-compatible: DE and VSYNC are
@@ -286,6 +308,9 @@ static void board_detect(void)
     ch32v003_reg_write(0x03, s_ch32_out);
 #elif CONFIG_CANFLIGHT_BOARD_CROWPANEL_50
     s_board = &k_crowpanel_50;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+#elif CONFIG_CANFLIGHT_BOARD_CROWPANEL_70
+    s_board = &k_crowpanel_70;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
 #elif CONFIG_CANFLIGHT_BOARD_SUNTON_8070
     s_board = &k_sunton_8070;

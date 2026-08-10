@@ -147,6 +147,13 @@ menu "Example Configuration"
                     The resolution differs, so this is a dedicated
                     build, not part of the auto-detected binary.
 
+            config CANFLIGHT_BOARD_CROWPANEL_70
+                bool "Elecrow CrowPanel 7.0 (DIS08070H, 800x480, 4 MB flash)"
+                help
+                    The 7 inch CrowPanel and its unbranded Amazon rebrands
+                    (EK9716BD3 driver, GT911, N4R8 = 4 MB flash). PCLK on
+                    GPIO0 like the 5.0; pairs with the 4 MB class.
+
             config CANFLIGHT_BOARD_SUNTON_8070
                 bool "Sunton ESP32-8048S070 (7 inch, 800x480)"
                 help

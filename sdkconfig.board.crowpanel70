@@ -1,0 +1,6 @@
+# Elecrow CrowPanel 7.0 (DIS08070H) pin selection - combine with the
+# 4 MB class fragment:
+#   idf.py -B build-crowpanel70 \
+#     -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.4mb;sdkconfig.board.crowpanel70' \
+#     -D SDKCONFIG=build-crowpanel70/sdkconfig build
+CONFIG_CANFLIGHT_BOARD_CROWPANEL_70=y
