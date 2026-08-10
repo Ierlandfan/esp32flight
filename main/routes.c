@@ -203,7 +203,7 @@ static bool hexdb_airport(char *buf, const char *icao, airport_t *ap)
 
     char url[80];
     snprintf(url, sizeof(url), "https://hexdb.io/api/v1/airport/icao/%s", icao);
-    if (http_get_to_buffer_t(url, buf, 4096, NULL, 5000) != ESP_OK) {
+    if (http_get_keepalive_t(4, url, buf, 4096, NULL, 5000) != ESP_OK) {
         return false;
     }
     cJSON *root = cJSON_Parse(buf);
@@ -299,7 +299,7 @@ static void hexdb_fallback(char *buf, route_info_t *slot)
 {
     char url[80];
     snprintf(url, sizeof(url), "https://hexdb.io/api/v1/route/icao/%s", slot->callsign);
-    if (http_get_to_buffer_t(url, buf, 4096, NULL, 5000) != ESP_OK) {
+    if (http_get_keepalive_t(4, url, buf, 4096, NULL, 5000) != ESP_OK) {
         return;
     }
     cJSON *root = cJSON_Parse(buf);
@@ -361,7 +361,7 @@ static esp_err_t adsbdb_route(char *buf, const char *callsign, route_info_t *out
 {
     char url[96];
     snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
-    esp_err_t err = http_get_to_buffer_t(url, buf, 8192, NULL, 5000);
+    esp_err_t err = http_get_keepalive_t(3, url, buf, 8192, NULL, 5000);
     if (err != ESP_OK) {
         return err;
     }

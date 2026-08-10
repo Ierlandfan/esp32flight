@@ -386,6 +386,32 @@ static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h)
     uint8_t *data = bmp;
     size_t size = (size_t)w * h * 3;
 
+    /* The logo cache yields to the rest of the system: unbounded logo
+     * bytes once ate every kilobyte the 7B freed elsewhere and starved
+     * TLS and the tile renders. Evict cold logos until PSRAM breathes;
+     * a missing logo costs a letter badge, nothing more. */
+    while (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 700 * 1024) {
+        int cold = -1;
+        uint32_t oldest = UINT32_MAX;
+        for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
+            if (s_cache[i].used &&
+                s_cache[i].last_used + LOGO_HOT_WINDOW <= s_tick &&
+                s_cache[i].last_used < oldest) {
+                oldest = s_cache[i].last_used;
+                cold = i;
+            }
+        }
+        if (cold < 0) {
+            break;   /* nothing cold left to give back */
+        }
+        free(s_cache[cold].data);
+        memset(&s_cache[cold], 0, sizeof(s_cache[cold]));
+    }
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 500 * 1024) {
+        free(data);   /* truly tight: skip caching this one */
+        return;
+    }
+
     int slot = cache_evictable_slot();
     if (slot < 0) {
         free(data);   /* everything is on screen; better a letter badge

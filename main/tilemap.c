@@ -110,6 +110,24 @@ static void tcache_put(uint32_t key, const uint8_t *data, uint32_t len)
     if (len == 0 || len > TCACHE_BUDGET / 8) {
         return;
     }
+    /* The RAM cache yields to everything else: on big panels the pinned
+     * framebuffers leave little headroom, and a full cache once starved
+     * the aircraft fetch buffer and TLS on the 7B. The flash tile cache
+     * makes RAM misses cheap (one SPIFFS read), so shrinking here is
+     * nearly free. */
+    while (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1200 * 1024) {
+        int lru = -1;
+        for (int i = 0; i < TCACHE_N; i++) {
+            if (s_tc[i].data != NULL &&
+                (lru < 0 || s_tc[i].used_at < s_tc[lru].used_at)) {
+                lru = i;
+            }
+        }
+        if (lru < 0) {
+            return;   /* cache empty and PSRAM still tight: skip caching */
+        }
+        tcache_drop(lru);
+    }
     while (s_tc_bytes + len > TCACHE_BUDGET) {
         int lru = -1;
         for (int i = 0; i < TCACHE_N; i++) {
@@ -563,8 +581,15 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
         dst[i] = bgcol;
     }
 
+    /* Persistent: renders serialize on s_render_mux, and a per-render
+     * malloc used to fail under PSRAM pressure - which silenced the
+     * screensaver exactly when memory was busiest. */
+    static uint8_t *s_sink_buf;
+    if (s_sink_buf == NULL) {
+        s_sink_buf = heap_caps_malloc(TILE_BUF, MALLOC_CAP_SPIRAM);
+    }
     tile_sink_t sink = {
-        .buf = heap_caps_malloc(TILE_BUF, MALLOC_CAP_SPIRAM),
+        .buf = s_sink_buf,
         .cap = TILE_BUF,
         .len = 0,
     };
@@ -582,7 +607,6 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == NULL) {
-        free(sink.buf);
         return false;
     }
 
@@ -653,7 +677,6 @@ rain_pass:
     }
 
     esp_http_client_cleanup(client);
-    free(sink.buf);
 
     ESP_LOGI(TAG, "z%d: %d/%d tiles (dst %dx%d, bbox %.3f..%.3f / %.3f..%.3f)",
              z, ok, total, dst_w, dst_h, lat_min, lat_max, lon_min, lon_max);

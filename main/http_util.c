@@ -171,8 +171,15 @@ static sink_t s_ka_sink[HTTP_KEEPALIVE_SLOTS];
 esp_err_t http_get_keepalive(int slot, const char *url,
                              char *buf, size_t buf_size, size_t *out_len)
 {
+    return http_get_keepalive_t(slot, url, buf, buf_size, out_len, 12000);
+}
+
+esp_err_t http_get_keepalive_t(int slot, const char *url,
+                               char *buf, size_t buf_size, size_t *out_len,
+                               int timeout_ms)
+{
     if (slot < 0 || slot >= HTTP_KEEPALIVE_SLOTS) {
-        return http_get_to_buffer(url, buf, buf_size, out_len);
+        return http_get_to_buffer_t(url, buf, buf_size, out_len, timeout_ms);
     }
     sink_t *sink = &s_ka_sink[slot];
     bool reused = s_ka_client[slot] != NULL;
@@ -187,7 +194,7 @@ retry_fresh:
             .url = url,
             .event_handler = http_event_cb,
             .user_data = sink,
-            .timeout_ms = 12000,
+            .timeout_ms = timeout_ms,
             .crt_bundle_attach = esp_crt_bundle_attach,
             .disable_auto_redirect = false,
             .keep_alive_enable = true,
@@ -211,7 +218,14 @@ retry_fresh:
     if (err == ESP_OK && status >= 200 && status < 300 && !sink->overflow) {
         return ESP_OK;   /* connection stays open for the next cycle */
     }
-    /* any trouble: drop the cached connection, next call starts clean */
+    if (err == ESP_OK && status >= 300 && !sink->overflow) {
+        /* an HTTP-level answer (adsbdb says 404 for "no route" dozens of
+         * times a session) is a healthy connection: keep it - tearing it
+         * down made every enrichment miss cost a fresh TLS handshake */
+        ESP_LOGW(TAG, "GET(ka) %s -> HTTP %d", url, status);
+        return ESP_ERR_HTTP_BASE + status;
+    }
+    /* transport trouble: drop the cached connection, start clean next time */
     esp_http_client_cleanup(s_ka_client[slot]);
     s_ka_client[slot] = NULL;
     if (err != ESP_OK) {

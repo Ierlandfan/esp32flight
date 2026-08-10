@@ -267,7 +267,14 @@ static void localize_and_filter(aircraft_list_t *out, double lat, double lon, in
 
 esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_list_t *out)
 {
-    char *buf = heap_caps_malloc(FETCH_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    /* Persistent singleton: allocated on the first (early) fetch and kept.
+     * Allocating 256 KB per cycle used to fail outright once the big tile
+     * framebuffers pinned the 7B's PSRAM - no buffer, no aircraft. One
+     * flight_task, so no concurrency concerns. */
+    static char *buf;
+    if (buf == NULL) {
+        buf = heap_caps_malloc(FETCH_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    }
     if (buf == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -282,7 +289,6 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
         if (lerr == ESP_OK) {
             localize_and_filter(out, lat, lon, radius_nm);
             qsort(out->ac, out->count, sizeof(aircraft_t), cmp_by_dist);
-            free(buf);
             return ESP_OK;
         }
         ESP_LOGW(TAG, "local receiver failed (%s), falling back to internet",
@@ -359,7 +365,6 @@ esp_err_t flight_fetch_nearby(double lat, double lon, int radius_nm, aircraft_li
         ESP_LOGW(TAG, "source %d failed (%s)", i, esp_err_to_name(err));
     }
 
-    free(buf);
     return err;
 }
 

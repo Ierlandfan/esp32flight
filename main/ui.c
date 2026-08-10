@@ -141,8 +141,25 @@ static bool view_shows_ships(void);
 #define VIEW_STATS  3
 #define VIEW_RETRO  4
 #define VIEW_COUNT  5
+/* The ambient map composes in the 800x480 design space and is zoomed by
+ * LVGL on larger panels: full-resolution compose buffers (2x 1.2 MB on
+ * the 7B) plus the LVGL framebuffers simply do not coexist in a 6.4 MB
+ * PSRAM pool - the reason the 7B screensaver never came up. The zoom is
+ * uniform (keyed to width) and the upscale also makes ambient renders
+ * ~60% cheaper on big panels. 800x480 boards: identity, pixel-identical. */
+#define AMB_RENDER_W (SCR_W > 800 ? 800 : SCR_W)
+#define AMB_RENDER_H (SCR_W > 800 ? 480 : SCR_H)
+#define AMB_ZOOM_K   ((float)SCR_W / (float)AMB_RENDER_W)
+
 #define EMB_MAP_W   (SCR_W - LIST_W)
 #define EMB_MAP_H   (SCR_H - HEADER_H - UISY(187))   /* info bubble keeps its 169px strip */
+/* Map bitmaps compose in the 800x480 design space on larger panels and
+ * are zoomed by LVGL (see AMB_RENDER_*): full-res compose buffers for
+ * three views do not fit next to the LVGL framebuffers on the 7B. Text
+ * and widgets stay native-crisp; only the map bitmap scales. */
+#define EMB_RENDER_W (SCR_W > 800 ? 800 - 310 : EMB_MAP_W)
+#define EMB_RENDER_H (SCR_W > 800 ? (EMB_MAP_H * (800 - 310)) / EMB_MAP_W : EMB_MAP_H)
+#define EMB_K        ((float)EMB_MAP_W / (float)EMB_RENDER_W)
 /* Bundled world-map fallback image size (tiles replace it once rendered) */
 #define EMB_BASE_W  490
 #define EMB_BASE_H  245
@@ -257,6 +274,9 @@ static int64_t       s_retro_rain_ms = -1;
 static int           s_retro_rain_gen = -1;
 #define RADAR_W  (SCR_W - LIST_W)
 #define RADAR_H  (SCR_H - HEADER_H)
+#define RADAR_RENDER_W (SCR_W > 800 ? 800 - 310 : RADAR_W)
+#define RADAR_RENDER_H (SCR_W > 800 ? (RADAR_H * (800 - 310)) / RADAR_W : RADAR_H)
+#define RADAR_K        ((float)RADAR_W / (float)RADAR_RENDER_W)
 #define RADAR_CX (RADAR_W / 2)
 #define RADAR_CY (RADAR_H / 2 - UISY(6))
 #define RADAR_R  (LV_MIN(RADAR_CX, RADAR_CY) - UISY(25))
@@ -926,8 +946,9 @@ static void project_emb(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
     if (s_emb_view_ok) {
         int xx, yy;
         tilemap_project(&s_emb_view, lat, lon, &xx, &yy);
-        *x = (lv_coord_t)xx;
-        *y = (lv_coord_t)yy;
+        /* render space -> panel space (identity on 800x480) */
+        *x = (lv_coord_t)(EMB_MAP_W / 2 + (xx - EMB_RENDER_W / 2) * EMB_K);
+        *y = (lv_coord_t)(EMB_MAP_H / 2 + (yy - EMB_RENDER_H / 2) * EMB_K);
         return;
     }
     float k = emb_world_scale();
@@ -947,10 +968,7 @@ static uint16_t *s_tile_scratch;
 static uint16_t *tile_scratch_take(void)
 {
     xSemaphoreTake(s_scratch_mux, portMAX_DELAY);
-    if (s_tile_scratch == NULL) {
-        s_tile_scratch = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
-    }
-    if (s_tile_scratch == NULL) {
+    if (s_tile_scratch == NULL) {   /* boot alloc failed: nothing to render into */
         xSemaphoreGive(s_scratch_mux);
     }
     return s_tile_scratch;
@@ -971,7 +989,7 @@ static void emb_tiles_job(void)
     uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
     bool ok = scratch != NULL &&
-              tilemap_render(scratch, EMB_MAP_W, EMB_MAP_H,
+              tilemap_render(scratch, EMB_RENDER_W, EMB_RENDER_H,
                              b[0], b[1], b[2], b[3], &view);
 
     if (lvgl_port_lock(-1)) {
@@ -981,15 +999,12 @@ static void emb_tiles_job(void)
                 s_emb_partial_ms = esp_timer_get_time() / 1000;   /* retry later */
                 ok = false;   /* keep the more complete frame on screen */
             }
-            if (ok && s_emb_tiles == NULL) {
-                s_emb_tiles = heap_caps_malloc(EMB_MAP_W * EMB_MAP_H * 2, MALLOC_CAP_SPIRAM);
-            }
-            ok = ok && s_emb_tiles != NULL;
+            ok = ok && s_emb_tiles != NULL;   /* boot-allocated */
         } else {
             ok = false;
         }
         if (ok) {
-            memcpy(s_emb_tiles, scratch, (size_t)EMB_MAP_W * EMB_MAP_H * 2);
+            memcpy(s_emb_tiles, scratch, (size_t)EMB_RENDER_W * EMB_RENDER_H * 2);
             s_emb_view = view;
             s_emb_view_ok = true;
             strlcpy(s_emb_key, key, sizeof(s_emb_key));
@@ -998,13 +1013,19 @@ static void emb_tiles_job(void)
             s_emb_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_emb_tiles_dsc.header.always_zero = 0;
             s_emb_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
-            s_emb_tiles_dsc.header.w = EMB_MAP_W;
-            s_emb_tiles_dsc.header.h = EMB_MAP_H;
+            s_emb_tiles_dsc.header.w = EMB_RENDER_W;
+            s_emb_tiles_dsc.header.h = EMB_RENDER_H;
             s_emb_tiles_dsc.data = (const uint8_t *)s_emb_tiles;
-            s_emb_tiles_dsc.data_size = EMB_MAP_W * EMB_MAP_H * 2;
+            s_emb_tiles_dsc.data_size = (size_t)EMB_RENDER_W * EMB_RENDER_H * 2;
             lv_img_set_src(s_emb_img, &s_emb_tiles_dsc);
-            lv_img_set_zoom(s_emb_img, LV_IMG_ZOOM_NONE);
-            lv_obj_set_pos(s_emb_img, 0, 0);
+            if (EMB_MAP_W > EMB_RENDER_W) {
+                lv_img_set_zoom(s_emb_img, (uint16_t)(EMB_K * 256.0f + 0.5f));
+                lv_obj_set_pos(s_emb_img, EMB_MAP_W / 2 - EMB_RENDER_W / 2,
+                               EMB_MAP_H / 2 - EMB_RENDER_H / 2);
+            } else {
+                lv_img_set_zoom(s_emb_img, LV_IMG_ZOOM_NONE);
+                lv_obj_set_pos(s_emb_img, 0, 0);
+            }
             lv_obj_invalidate(s_emb_img);
             if (s_view_mode == VIEW_MAP) {
                 render_map_panel();
@@ -1340,10 +1361,10 @@ static void radar_tiles_job(void)
     uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
     bool ok = scratch != NULL &&
-              tilemap_render(scratch, RADAR_W, RADAR_H,
+              tilemap_render(scratch, RADAR_RENDER_W, RADAR_RENDER_H,
                              b[0], b[1], b[2], b[3], &view);
     if (ok) {
-        runways_draw(scratch, RADAR_W, RADAR_H, &view);
+        runways_draw(scratch, RADAR_RENDER_W, RADAR_RENDER_H, &view);
     }
     /* integer tile zooms leave dead margin around the range ring; upscale
        so the ring (divided by the user zoom) fills most of the height */
@@ -1354,13 +1375,13 @@ static void radar_tiles_job(void)
         tilemap_project(&view, s_home_lat, s_home_lon, &shx, &shy);
         tilemap_project(&view, s_home_lat, b[3], &ex, &ey);
         float r = (float)(ex - shx);
-        float target = 0.92f * (RADAR_H / 2) / (float)s_radar_zoom;
+        float target = 0.92f * (RADAR_RENDER_H / 2) / (float)s_radar_zoom;
         if (r > 16.0f && target / r > 1.05f) {
             scale = target / r;
             if (scale > 2.6f) {
                 scale = 2.6f;
             }
-            fb_upscale(scratch, RADAR_W, RADAR_H, shx, shy, scale);
+            fb_upscale(scratch, RADAR_RENDER_W, RADAR_RENDER_H, shx, shy, scale);
         }
     }
 
@@ -1371,15 +1392,12 @@ static void radar_tiles_job(void)
                 s_radar_partial_ms = esp_timer_get_time() / 1000;   /* retry later */
                 ok = false;   /* keep the more complete frame on screen */
             }
-            if (ok && s_radar_tiles == NULL) {
-                s_radar_tiles = heap_caps_malloc(RADAR_W * RADAR_H * 2, MALLOC_CAP_SPIRAM);
-            }
-            ok = ok && s_radar_tiles != NULL;
+            ok = ok && s_radar_tiles != NULL;   /* boot-allocated */
         } else {
             ok = false;
         }
         if (ok) {
-            memcpy(s_radar_tiles, scratch, (size_t)RADAR_W * RADAR_H * 2);
+            memcpy(s_radar_tiles, scratch, (size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2);
             s_radar_view = view;
             s_radar_view_ok = true;
             s_radar_scale = scale;
@@ -1391,11 +1409,16 @@ static void radar_tiles_job(void)
             s_radar_partial_ms = view.missing > 0 ? esp_timer_get_time() / 1000 : 0;
             s_radar_tiles_dsc.header.always_zero = 0;
             s_radar_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
-            s_radar_tiles_dsc.header.w = RADAR_W;
-            s_radar_tiles_dsc.header.h = RADAR_H;
+            s_radar_tiles_dsc.header.w = RADAR_RENDER_W;
+            s_radar_tiles_dsc.header.h = RADAR_RENDER_H;
             s_radar_tiles_dsc.data = (const uint8_t *)s_radar_tiles;
-            s_radar_tiles_dsc.data_size = RADAR_W * RADAR_H * 2;
+            s_radar_tiles_dsc.data_size = (size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2;
             lv_img_set_src(s_radar_img, &s_radar_tiles_dsc);
+            if (RADAR_W > RADAR_RENDER_W) {
+                lv_img_set_zoom(s_radar_img, (uint16_t)(RADAR_K * 256.0f + 0.5f));
+                lv_obj_set_pos(s_radar_img, RADAR_W / 2 - RADAR_RENDER_W / 2,
+                               RADAR_H / 2 - RADAR_RENDER_H / 2);
+            }
             lv_obj_invalidate(s_radar_img);
             if (s_view_mode == VIEW_RADAR) {
                 render_radar_panel();
@@ -1654,6 +1677,9 @@ static void radar_project(double lat, double lon, int *x, int *y)
         *x = s_radar_spx + (int)((*x - s_radar_spx) * s_radar_scale);
         *y = s_radar_spy + (int)((*y - s_radar_spy) * s_radar_scale);
     }
+    /* render space -> panel space (identity on 800x480) */
+    *x = RADAR_W / 2 + (int)((*x - RADAR_RENDER_W / 2) * RADAR_K);
+    *y = RADAR_H / 2 + (int)((*y - RADAR_RENDER_H / 2) * RADAR_K);
 }
 
 /* place a lat/lon at dist_km from home onto the radar; false = outside */
@@ -2233,6 +2259,8 @@ static void fb_upscale(uint16_t *fb, int W, int H, int px, int py, float k)
     free(tmp);
 }
 
+static void amb_img_fit(void);
+
 static void amb_tiles_job(void)
 {
     char key[48];
@@ -2243,13 +2271,13 @@ static void amb_tiles_job(void)
     uint16_t *scratch = tile_scratch_take();
     tile_view_t view;
     bool ok = scratch != NULL &&
-              tilemap_render(scratch, SCR_W, SCR_H, b[0], b[1], b[2], b[3], &view);
+              tilemap_render(scratch, AMB_RENDER_W, AMB_RENDER_H, b[0], b[1], b[2], b[3], &view);
     if (ok) {
-        runways_draw(scratch, SCR_W, SCR_H, &view);
+        runways_draw(scratch, AMB_RENDER_W, AMB_RENDER_H, &view);
     }
 
         float scale = 1.0f;
-        int hx = SCR_W / 2, hy = SCR_H / 2;
+        int hx = AMB_RENDER_W / 2, hy = AMB_RENDER_H / 2;
         if (ok) {
             /* Integer tile zooms rarely land exactly; pre-stretch the map
              * once so the observation circle spans the full height. */
@@ -2258,7 +2286,7 @@ static void amb_tiles_job(void)
             double rkm = settings_get()->radius_nm * 1.852;
             tilemap_project(&view, s_home_lat + rkm / 111.0, s_home_lon, &ex, &ey);
             float r = (float)(hy - ey);
-            float half = (float)(SCR_H / 2);
+            float half = (float)(AMB_RENDER_H / 2);
             if (r > 20.0f && r < half) {
                 scale = half / r;
                 if (scale > 2.5f) {
@@ -2266,7 +2294,7 @@ static void amb_tiles_job(void)
                 }
             }
             if (scale > 1.05f) {
-                fb_upscale(scratch, SCR_W, SCR_H, hx, hy, scale);
+                fb_upscale(scratch, AMB_RENDER_W, AMB_RENDER_H, hx, hy, scale);
             } else {
                 scale = 1.0f;
             }
@@ -2282,15 +2310,12 @@ static void amb_tiles_job(void)
                          view.missing, s_amb_missing);
                 ok = false;
             }
-            if (ok && s_amb_tiles == NULL) {
-                s_amb_tiles = heap_caps_malloc(SCR_W * SCR_H * 2, MALLOC_CAP_SPIRAM);
-            }
-            ok = ok && s_amb_tiles != NULL;
+            ok = ok && s_amb_tiles != NULL;   /* boot-allocated */
         } else {
             ok = false;
         }
         if (ok) {
-            memcpy(s_amb_tiles, scratch, (size_t)SCR_W * SCR_H * 2);
+            memcpy(s_amb_tiles, scratch, (size_t)AMB_RENDER_W * AMB_RENDER_H * 2);
             s_amb_view = view;
             s_amb_view_ok = true;
             s_amb_missing = view.missing;
@@ -2299,13 +2324,12 @@ static void amb_tiles_job(void)
             s_amb_py = hy;
             s_amb_tiles_dsc.header.always_zero = 0;
             s_amb_tiles_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
-            s_amb_tiles_dsc.header.w = SCR_W;
-            s_amb_tiles_dsc.header.h = SCR_H;
+            s_amb_tiles_dsc.header.w = AMB_RENDER_W;
+            s_amb_tiles_dsc.header.h = AMB_RENDER_H;
             s_amb_tiles_dsc.data = (const uint8_t *)s_amb_tiles;
-            s_amb_tiles_dsc.data_size = SCR_W * SCR_H * 2;
+            s_amb_tiles_dsc.data_size = (size_t)AMB_RENDER_W * AMB_RENDER_H * 2;
             lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
-            lv_img_set_zoom(s_amb_img, LV_IMG_ZOOM_NONE);
-            lv_obj_set_pos(s_amb_img, 0, 0);
+            amb_img_fit();
             if (s_amb_note != NULL) {
                 lv_obj_add_flag(s_amb_note, LV_OBJ_FLAG_HIDDEN);
             }
@@ -2330,6 +2354,21 @@ static float amb_world_scale(void)
     return kx < ky ? kx : ky;
 }
 
+/* Attach geometry for the (possibly design-space) ambient canvas: LVGL
+ * zooms around the widget center, so position the nominal box centered
+ * and let the uniform zoom fill the panel. Identity on 800x480. */
+static void amb_img_fit(void)
+{
+    if (SCR_W > AMB_RENDER_W) {
+        lv_img_set_zoom(s_amb_img, (uint16_t)(AMB_ZOOM_K * 256.0f + 0.5f));
+        lv_obj_set_pos(s_amb_img, SCR_W / 2 - AMB_RENDER_W / 2,
+                       SCR_H / 2 - AMB_RENDER_H / 2);
+    } else {
+        lv_img_set_zoom(s_amb_img, LV_IMG_ZOOM_NONE);
+        lv_obj_set_pos(s_amb_img, 0, 0);
+    }
+}
+
 static void amb_proj(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
 {
     if (s_amb_view_ok) {
@@ -2339,8 +2378,9 @@ static void amb_proj(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
             xx = s_amb_px + (int)((xx - s_amb_px) * s_amb_scale);
             yy = s_amb_py + (int)((yy - s_amb_py) * s_amb_scale);
         }
-        *x = (lv_coord_t)xx;
-        *y = (lv_coord_t)yy;
+        /* render space -> screen space (identity on 800x480 panels) */
+        *x = (lv_coord_t)(SCR_W / 2 + (xx - AMB_RENDER_W / 2) * AMB_ZOOM_K);
+        *y = (lv_coord_t)(SCR_H / 2 + (yy - AMB_RENDER_H / 2) * AMB_ZOOM_K);
         return;
     }
     float k = amb_world_scale();
@@ -2560,16 +2600,9 @@ static void amb_close(void)
         s_amb_clock = NULL;
         s_amb_wx = NULL;
         s_amb_note = NULL;
-        /* keep the rendered canvas for an instant next entry while PSRAM
-           is comfortable; only hand it back under real pressure */
-        if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 1400 * 1024) {
-            s_amb_view_ok = false;
-            if (!s_amb_busy && s_amb_tiles != NULL) {
-                free(s_amb_tiles);
-                s_amb_tiles = NULL;
-            }
-            s_amb_key[0] = '\0';
-        }
+        /* The canvas is boot-allocated and permanent: freeing it under
+         * pressure used to guarantee the re-allocation would fail later
+         * in a fragmented PSRAM (the 7B's forever-dark screensaver). */
         s_amb_scale = 1.0f;
         s_amb_sel_cs[0] = '\0';
         /* ui_update skipped list/right renders while the overlay covered
@@ -2666,6 +2699,7 @@ static void amb_show(void)
      * entry gets a quiet note until tiles land. */
     if (s_amb_view_ok && s_amb_tiles != NULL) {
         lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
+        amb_img_fit();
     } else {
         s_amb_note = make_label(s_amb, UIFONT(&font_pl_16, &font_pl_10),
                                 lv_color_hex(0x66707a));
@@ -3389,6 +3423,30 @@ void ui_init(void)
     build_retro_panel(scr);
 
     s_scratch_mux = xSemaphoreCreateMutex();
+    /* All big tile framebuffers are session-persistent once used, so they
+     * are allocated HERE, while PSRAM is one unfragmented block. Lazy
+     * allocation used to fail on the 7B (1.2 MB each): after an hour of
+     * caches and TLS churn no contiguous block that size was left, and
+     * the ambient map never came up (issue #12, second act). Boot-time
+     * allocation costs nothing extra in steady state - every buffer ends
+     * up allocated anyway once each view has been visited. */
+    size_t scratch_px = (size_t)AMB_RENDER_W * AMB_RENDER_H;
+    if ((size_t)RADAR_RENDER_W * RADAR_RENDER_H > scratch_px) {
+        scratch_px = (size_t)RADAR_RENDER_W * RADAR_RENDER_H;
+    }
+    if ((size_t)EMB_RENDER_W * EMB_RENDER_H > scratch_px) {
+        scratch_px = (size_t)EMB_RENDER_W * EMB_RENDER_H;
+    }
+    s_tile_scratch = heap_caps_malloc(scratch_px * 2, MALLOC_CAP_SPIRAM);
+    s_amb_tiles = heap_caps_malloc((size_t)AMB_RENDER_W * AMB_RENDER_H * 2, MALLOC_CAP_SPIRAM);
+    s_radar_tiles = heap_caps_malloc((size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2, MALLOC_CAP_SPIRAM);
+    s_emb_tiles = heap_caps_malloc((size_t)EMB_RENDER_W * EMB_RENDER_H * 2, MALLOC_CAP_SPIRAM);
+    if (s_tile_scratch == NULL || s_amb_tiles == NULL ||
+        s_radar_tiles == NULL || s_emb_tiles == NULL) {
+        ESP_LOGE(TAG, "tile framebuffer alloc FAILED at boot (scratch %d amb %d radar %d emb %d)",
+                 s_tile_scratch != NULL, s_amb_tiles != NULL,
+                 s_radar_tiles != NULL, s_emb_tiles != NULL);
+    }
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);
     lv_timer_create(clock_timer_cb, 5000, NULL);
