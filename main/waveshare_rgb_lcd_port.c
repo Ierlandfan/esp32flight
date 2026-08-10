@@ -113,6 +113,29 @@ __attribute__((unused)) static const board_cfg_t k_crowpanel_50 = {
     .tp_mirror = false,
 };
 
+__attribute__((unused)) static const board_cfg_t k_sunton_8070 = {
+    /* Sunton ESP32-8048S070 (7" 800x480, ST7262) and its unbranded
+     * Amazon/AliExpress clones. NOT Guition-compatible: DE and VSYNC are
+     * swapped and the data bus is wired in the opposite order, so the
+     * Guition build shows garbage on this glass. Pin map and timings
+     * from rzeldent/esp32-smartdisplay (working devices). Note the slow
+     * 12.5 MHz pclk and the unusual 210-pixel HSYNC front porch - both
+     * are what the 7" panel actually wants. */
+    .name = "Sunton ESP32-8048S070 (7in 800x480)",
+    .de = 41, .vsync = 40, .hsync = 39, .pclk = 42,
+    .data = { 14, 21, 47, 48, 45,       /* B0..B4 */
+              9, 46, 3, 8, 16, 1,       /* G0..G5 */
+              15, 7, 6, 5, 4 },         /* R0..R4 */
+    .i2c_sda = 19, .i2c_scl = 20,
+    .has_ch422g = false,
+    .bl_gpio = 2,
+    .tp_rst_gpio = 38,
+    .hs_pulse = 30, .hs_bp = 16, .hs_fp = 210,
+    .vs_pulse = 13, .vs_bp = 10, .vs_fp = 22,
+    .pclk_hz = 12500000,
+    .tp_mirror = false,
+};
+
 __attribute__((unused)) static const board_cfg_t k_sunton_4827 = {
     /* Sunton ESP32-4827S043 (4.3" 480x272): electrically the Guition
      * JC8048W550's smaller sibling - same RGB wiring, I2C bus, backlight
@@ -263,6 +286,9 @@ static void board_detect(void)
     ch32v003_reg_write(0x03, s_ch32_out);
 #elif CONFIG_CANFLIGHT_BOARD_CROWPANEL_50
     s_board = &k_crowpanel_50;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+#elif CONFIG_CANFLIGHT_BOARD_SUNTON_8070
+    s_board = &k_sunton_8070;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
 #elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
     s_board = &k_sunton_4827;

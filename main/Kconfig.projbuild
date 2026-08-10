@@ -147,6 +147,15 @@ menu "Example Configuration"
                     The resolution differs, so this is a dedicated
                     build, not part of the auto-detected binary.
 
+            config CANFLIGHT_BOARD_SUNTON_8070
+                bool "Sunton ESP32-8048S070 (7 inch, 800x480)"
+                help
+                    The 7 inch Sunton and its unbranded Amazon clones
+                    (ST7262, GT911, 16 MB). Same resolution as the
+                    Waveshare family but different wiring: DE/VSYNC are
+                    swapped versus the Guition and the data bus is wired
+                    in reverse order, so it needs its own build.
+
             config CANFLIGHT_BOARD_SUNTON_4827S043
                 bool "Sunton ESP32-4827S043 (4.3 inch, 480x272)"
                 help

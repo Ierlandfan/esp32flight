@@ -1,0 +1,6 @@
+# Sunton ESP32-8048S070 (7", 800x480, 16 MB) and unbranded 7" clones.
+# Stacks on sdkconfig.defaults; standard 16 MB layout:
+#   idf.py -B build-sunton70 \
+#     -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.sunton70' \
+#     -D SDKCONFIG=build-sunton70/sdkconfig build
+CONFIG_CANFLIGHT_BOARD_SUNTON_8070=y
