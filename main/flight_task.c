@@ -655,6 +655,7 @@ static void flight_task(void *arg)
         fetch_attempts++;
         if (!primed && (err == ESP_OK || fetch_attempts >= 3)) {
             primed = true;   /* don't starve weather forever on a bad link */
+            ui_prewarm_ambient();   /* cache the screensaver map while PSRAM is fresh */
         }
         if (err == ESP_OK) {
             consecutive_failures = 0;

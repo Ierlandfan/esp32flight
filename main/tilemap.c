@@ -85,6 +85,19 @@ static tcache_entry_t s_tc[TCACHE_N];
 static size_t s_tc_bytes;
 static uint32_t s_tc_tick;
 
+static void tcache_drop_key(uint32_t key)
+{
+    for (int i = 0; i < TCACHE_N; i++) {
+        if (s_tc[i].data != NULL && s_tc[i].key == key) {
+            free(s_tc[i].data);
+            s_tc_bytes -= s_tc[i].len;
+            s_tc[i].data = NULL;
+            s_tc[i].len = 0;
+            return;
+        }
+    }
+}
+
 static uint8_t *tcache_get(uint32_t key, uint32_t *len)
 {
     for (int i = 0; i < TCACHE_N; i++) {
@@ -223,9 +236,22 @@ static void ftile_put(uint32_t key, const uint8_t *data, size_t len)
     ftile_path(path, sizeof(path), key);
     FILE *f = fopen(path, "wb");
     if (f != NULL) {
-        fwrite(data, 1, len, f);
+        size_t wr = fwrite(data, 1, len, f);
         fclose(f);
+        if (wr != len) {
+            /* short write (full/failing FS): a truncated PNG poisons the
+             * cache - every later render would hit it, fail the decode
+             * and, before the retry logic below existed, never recover */
+            unlink(path);
+        }
     }
+}
+
+static void ftile_unlink(uint32_t key)
+{
+    char path[48];
+    ftile_path(path, sizeof(path), key);
+    unlink(path);
 }
 
 /* Wipe the flash tiles when the render center moves far from the stored
@@ -326,19 +352,25 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
                       int z, int tx, int ty, int ox, int oy)
 {
     uint32_t key = ((uint32_t)z << 26) | ((uint32_t)tx << 13) | (uint32_t)ty;
+    for (int attempt = 0; attempt < 2; attempt++) {
     uint32_t clen = 0;
-    const uint8_t *fetch_buf = tcache_get(key, &clen);
-    size_t len = clen;
-    bool from_cache = fetch_buf != NULL;
+    const uint8_t *fetch_buf = NULL;
+    size_t len = 0;
+    bool from_cache = false;
     uint8_t *flash_buf = NULL;
 
-    if (!from_cache) {
-        /* persisted on the assets partition? renders offline forever */
-        flash_buf = ftile_get(key, &len);
-        if (flash_buf != NULL) {
-            tcache_put(key, flash_buf, len);
-            fetch_buf = flash_buf;
-            from_cache = true;
+    if (attempt == 0) {
+        fetch_buf = tcache_get(key, &clen);
+        len = clen;
+        from_cache = fetch_buf != NULL;
+        if (!from_cache) {
+            /* persisted on the assets partition? renders offline forever */
+            flash_buf = ftile_get(key, &len);
+            if (flash_buf != NULL) {
+                tcache_put(key, flash_buf, len);
+                fetch_buf = flash_buf;
+                from_cache = true;
+            }
         }
     }
 
@@ -367,10 +399,21 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
 
     unsigned char *rgba = NULL;
     unsigned w = 0, h = 0;
-    if (lodepng_decode32(&rgba, &w, &h, fetch_buf, len) != 0 || rgba == NULL) {
+    unsigned lret = lodepng_decode32(&rgba, &w, &h, fetch_buf, len);
+    if (lret != 0 || rgba == NULL) {
+        ESP_LOGW(TAG, "tile %d/%d/%d decode err=%u, free spiram %u", z, tx, ty,
+                 lret, (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         free(rgba);   /* lodepng may allocate even when it reports an error */
         free(flash_buf);
-        return false;
+        if (!from_cache) {
+            return false;   /* fresh network data undecodable: give up */
+        }
+        /* poisoned cache (e.g. a tile truncated by a short flash write
+         * during memory pressure): purge both layers, refetch */
+        ESP_LOGW(TAG, "tile %d/%d/%d: cached copy undecodable, refetching", z, tx, ty);
+        tcache_drop_key(key);
+        ftile_unlink(key);
+        continue;
     }
 
     const bool light = settings_get()->map_light;
@@ -399,6 +442,8 @@ static bool blit_tile(esp_http_client_handle_t client, tile_sink_t *sink,
     free(rgba);
     free(flash_buf);
     return true;
+    }
+    return false;
 }
 
 /* Fetch one RainViewer tile and alpha-blend it over dst. Failures are

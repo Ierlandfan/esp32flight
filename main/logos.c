@@ -390,7 +390,7 @@ static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h)
      * bytes once ate every kilobyte the 7B freed elsewhere and starved
      * TLS and the tile renders. Evict cold logos until PSRAM breathes;
      * a missing logo costs a letter badge, nothing more. */
-    while (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 700 * 1024) {
+    while (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 800 * 1024) {
         int cold = -1;
         uint32_t oldest = UINT32_MAX;
         for (int i = 0; i < LOGO_CACHE_SIZE; i++) {
@@ -407,7 +407,7 @@ static void cache_insert(const char *icao, uint8_t *bmp, unsigned w, unsigned h)
         free(s_cache[cold].data);
         memset(&s_cache[cold], 0, sizeof(s_cache[cold]));
     }
-    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 500 * 1024) {
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 600 * 1024) {
         free(data);   /* truly tight: skip caching this one */
         return;
     }

@@ -2301,7 +2301,7 @@ static void amb_tiles_job(void)
         }
 
         if (lvgl_port_lock(-1)) {
-        if (ok && s_amb != NULL) {
+        if (ok) {
             /* never replace a better frame with a worse one: a flaky
              * retry can come back with a single tile on flood color and
              * would flash a near-black map for one interval */
@@ -2311,8 +2311,6 @@ static void amb_tiles_job(void)
                 ok = false;
             }
             ok = ok && s_amb_tiles != NULL;   /* boot-allocated */
-        } else {
-            ok = false;
         }
         if (ok) {
             memcpy(s_amb_tiles, scratch, (size_t)AMB_RENDER_W * AMB_RENDER_H * 2);
@@ -2328,12 +2326,14 @@ static void amb_tiles_job(void)
             s_amb_tiles_dsc.header.h = AMB_RENDER_H;
             s_amb_tiles_dsc.data = (const uint8_t *)s_amb_tiles;
             s_amb_tiles_dsc.data_size = (size_t)AMB_RENDER_W * AMB_RENDER_H * 2;
-            lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
-            amb_img_fit();
-            if (s_amb_note != NULL) {
-                lv_obj_add_flag(s_amb_note, LV_OBJ_FLAG_HIDDEN);
+            if (s_amb != NULL && s_amb_img != NULL) {
+                lv_img_set_src(s_amb_img, &s_amb_tiles_dsc);
+                amb_img_fit();
+                if (s_amb_note != NULL) {
+                    lv_obj_add_flag(s_amb_note, LV_OBJ_FLAG_HIDDEN);
+                }
+                render_ambient();
             }
-            render_ambient();
         }
         lvgl_port_unlock();
     }
@@ -2409,6 +2409,17 @@ static void amb_spawn_tiles(void)
     if (!tilemap_worker_submit(amb_tiles_job)) {
         ESP_LOGE("ui", "ambient tiles: worker queue full");
         s_amb_busy = false;
+    }
+}
+
+/* Fetch and persist the screensaver's map right after boot, while PSRAM
+ * still has room for TLS and tile decoding: the flash tile cache then
+ * serves every later ambient render offline, so the screensaver works
+ * no matter how tight memory is by the time it first engages. */
+void ui_prewarm_ambient(void)
+{
+    if (!s_amb_view_ok) {
+        amb_spawn_tiles();
     }
 }
 
