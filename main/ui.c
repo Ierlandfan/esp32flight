@@ -956,27 +956,23 @@ static void project_emb(double lat, double lon, lv_coord_t *x, lv_coord_t *y)
     *y = (lv_coord_t)(EMB_MAP_H / 2 + ((90.0 - lat) / 180.0 - 0.5) * EMB_BASE_H * k);
 }
 
-/* Shared compose scratch: tile workers render a frame here and copy the
- * finished result to the live buffer under the LVGL lock, so the panel
- * never shows a half-built frame (background flood + partial tiles used
- * to flicker on every re-render). One buffer serves all tile views - they
- * already serialize on the tilemap render mutex - and its own mutex spans
- * the render-plus-copy window. Lazily allocated, kept for the session. */
-static SemaphoreHandle_t s_scratch_mux;
-static uint16_t *s_tile_scratch;
-
-static uint16_t *tile_scratch_take(void)
+/* Cross-canvas compose instead of a dedicated scratch buffer: the radar
+ * and the ambient screensaver are never visible at the same time, so
+ * whichever is hidden lends its canvas as the compose target and the
+ * finished frame is copied under the LVGL lock. When the borrowed canvas
+ * is the ambient's, its kept frame is invalidated first (the next
+ * screensaver entry re-renders from the flash tile cache in a moment).
+ * This freed a full-screen buffer - the difference between the 7B
+ * fitting its memory budget and not. Renders already serialize on the
+ * tilemap mutex, so one borrow at a time is guaranteed. */
+static uint16_t *amb_canvas_borrow(void)
 {
-    xSemaphoreTake(s_scratch_mux, portMAX_DELAY);
-    if (s_tile_scratch == NULL) {   /* boot alloc failed: nothing to render into */
-        xSemaphoreGive(s_scratch_mux);
+    if (s_amb != NULL || s_amb_tiles == NULL) {
+        return NULL;   /* screensaver on screen (or no canvas): not lendable */
     }
-    return s_tile_scratch;
-}
-
-static void tile_scratch_give(void)
-{
-    xSemaphoreGive(s_scratch_mux);
+    s_amb_view_ok = false;   /* kept frame is about to be scribbled over */
+    s_amb_key[0] = '\0';
+    return s_amb_tiles;
 }
 
 static void emb_tiles_job(void)
@@ -986,7 +982,11 @@ static void emb_tiles_job(void)
     strlcpy(key, s_emb_want_key, sizeof(key));
     memcpy(b, s_emb_bbox, sizeof(b));
 
-    uint16_t *scratch = tile_scratch_take();
+    uint16_t *scratch = amb_canvas_borrow();
+    bool in_place = scratch == NULL;
+    if (in_place) {
+        scratch = s_emb_tiles;
+    }
     tile_view_t view;
     bool ok = scratch != NULL &&
               tilemap_render(scratch, EMB_RENDER_W, EMB_RENDER_H,
@@ -1004,7 +1004,9 @@ static void emb_tiles_job(void)
             ok = false;
         }
         if (ok) {
-            memcpy(s_emb_tiles, scratch, (size_t)EMB_RENDER_W * EMB_RENDER_H * 2);
+            if (!in_place) {
+                memcpy(s_emb_tiles, scratch, (size_t)EMB_RENDER_W * EMB_RENDER_H * 2);
+            }
             s_emb_view = view;
             s_emb_view_ok = true;
             strlcpy(s_emb_key, key, sizeof(s_emb_key));
@@ -1032,9 +1034,6 @@ static void emb_tiles_job(void)
             }
         }
         lvgl_port_unlock();
-    }
-    if (scratch != NULL) {
-        tile_scratch_give();
     }
     s_emb_busy = false;
 }
@@ -1358,7 +1357,14 @@ static void radar_tiles_job(void)
     strlcpy(key, s_radar_want, sizeof(key));
     memcpy(b, s_radar_bbox, sizeof(b));
 
-    uint16_t *scratch = tile_scratch_take();
+    /* ambient hidden -> borrow its canvas (flicker-free swap below);
+     * ambient covering the screen -> the radar panel is invisible, so
+     * composing straight into the radar canvas cannot be seen */
+    uint16_t *scratch = amb_canvas_borrow();
+    bool in_place = scratch == NULL;
+    if (in_place) {
+        scratch = s_radar_tiles;
+    }
     tile_view_t view;
     bool ok = scratch != NULL &&
               tilemap_render(scratch, RADAR_RENDER_W, RADAR_RENDER_H,
@@ -1397,7 +1403,9 @@ static void radar_tiles_job(void)
             ok = false;
         }
         if (ok) {
-            memcpy(s_radar_tiles, scratch, (size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2);
+            if (!in_place) {
+                memcpy(s_radar_tiles, scratch, (size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2);
+            }
             s_radar_view = view;
             s_radar_view_ok = true;
             s_radar_scale = scale;
@@ -1426,9 +1434,6 @@ static void radar_tiles_job(void)
             }
         }
         lvgl_port_unlock();
-    }
-    if (scratch != NULL) {
-        tile_scratch_give();
     }
     s_radar_busy = false;
 }
@@ -2268,7 +2273,15 @@ static void amb_tiles_job(void)
     strlcpy(key, s_amb_key, sizeof(key));
     memcpy(b, s_amb_bbox, sizeof(b));
 
-    uint16_t *scratch = tile_scratch_take();
+    /* Composes in its own canvas: with the flash tile cache a render is
+     * fast and nearly always complete, and skipping the background flood
+     * on same-area re-renders (tilemap TM_NO_FLOOD) means a visible retry
+     * morphs into the fresh frame instead of flashing dark. */
+    uint16_t *scratch = s_amb_tiles;
+    if (lvgl_port_lock(1000)) {
+        s_amb_view_ok = false;   /* canvas is being rewritten */
+        lvgl_port_unlock();
+    }
     tile_view_t view;
     bool ok = scratch != NULL &&
               tilemap_render(scratch, AMB_RENDER_W, AMB_RENDER_H, b[0], b[1], b[2], b[3], &view);
@@ -2301,19 +2314,8 @@ static void amb_tiles_job(void)
         }
 
         if (lvgl_port_lock(-1)) {
+        ok = ok && s_amb_tiles != NULL;   /* boot-allocated */
         if (ok) {
-            /* never replace a better frame with a worse one: a flaky
-             * retry can come back with a single tile on flood color and
-             * would flash a near-black map for one interval */
-            if (s_amb_view_ok && view.missing > s_amb_missing) {
-                ESP_LOGW("ui", "ambient retry worse (%d missing > %d), keeping current",
-                         view.missing, s_amb_missing);
-                ok = false;
-            }
-            ok = ok && s_amb_tiles != NULL;   /* boot-allocated */
-        }
-        if (ok) {
-            memcpy(s_amb_tiles, scratch, (size_t)AMB_RENDER_W * AMB_RENDER_H * 2);
             s_amb_view = view;
             s_amb_view_ok = true;
             s_amb_missing = view.missing;
@@ -2339,9 +2341,6 @@ static void amb_tiles_job(void)
     }
     ESP_LOGI("ui", "ambient tiles: %s (scale %.2f)", ok ? "ok" : "FAILED",
              (double)scale);
-    if (scratch != NULL) {
-        tile_scratch_give();
-    }
     s_amb_busy = false;
 }
 
@@ -3433,7 +3432,6 @@ void ui_init(void)
     build_stats_panel(scr);
     build_retro_panel(scr);
 
-    s_scratch_mux = xSemaphoreCreateMutex();
     /* All big tile framebuffers are session-persistent once used, so they
      * are allocated HERE, while PSRAM is one unfragmented block. Lazy
      * allocation used to fail on the 7B (1.2 MB each): after an hour of
@@ -3441,22 +3439,12 @@ void ui_init(void)
      * the ambient map never came up (issue #12, second act). Boot-time
      * allocation costs nothing extra in steady state - every buffer ends
      * up allocated anyway once each view has been visited. */
-    size_t scratch_px = (size_t)AMB_RENDER_W * AMB_RENDER_H;
-    if ((size_t)RADAR_RENDER_W * RADAR_RENDER_H > scratch_px) {
-        scratch_px = (size_t)RADAR_RENDER_W * RADAR_RENDER_H;
-    }
-    if ((size_t)EMB_RENDER_W * EMB_RENDER_H > scratch_px) {
-        scratch_px = (size_t)EMB_RENDER_W * EMB_RENDER_H;
-    }
-    s_tile_scratch = heap_caps_malloc(scratch_px * 2, MALLOC_CAP_SPIRAM);
     s_amb_tiles = heap_caps_malloc((size_t)AMB_RENDER_W * AMB_RENDER_H * 2, MALLOC_CAP_SPIRAM);
     s_radar_tiles = heap_caps_malloc((size_t)RADAR_RENDER_W * RADAR_RENDER_H * 2, MALLOC_CAP_SPIRAM);
     s_emb_tiles = heap_caps_malloc((size_t)EMB_RENDER_W * EMB_RENDER_H * 2, MALLOC_CAP_SPIRAM);
-    if (s_tile_scratch == NULL || s_amb_tiles == NULL ||
-        s_radar_tiles == NULL || s_emb_tiles == NULL) {
-        ESP_LOGE(TAG, "tile framebuffer alloc FAILED at boot (scratch %d amb %d radar %d emb %d)",
-                 s_tile_scratch != NULL, s_amb_tiles != NULL,
-                 s_radar_tiles != NULL, s_emb_tiles != NULL);
+    if (s_amb_tiles == NULL || s_radar_tiles == NULL || s_emb_tiles == NULL) {
+        ESP_LOGE(TAG, "tile framebuffer alloc FAILED at boot (amb %d radar %d emb %d)",
+                 s_amb_tiles != NULL, s_radar_tiles != NULL, s_emb_tiles != NULL);
     }
     s_cycle_timer = lv_timer_create(cycle_timer_cb, CYCLE_MS, NULL);
     lv_timer_pause(s_cycle_timer);

@@ -235,10 +235,15 @@ static void ftile_put(uint32_t key, const uint8_t *data, size_t len)
     char path[48];
     ftile_path(path, sizeof(path), key);
     FILE *f = fopen(path, "wb");
-    if (f != NULL) {
+    if (f == NULL) {
+        ESP_LOGW(TAG, "ftile open-for-write failed: %s", path);
+        return;
+    }
+    {
         size_t wr = fwrite(data, 1, len, f);
         fclose(f);
         if (wr != len) {
+            ESP_LOGW(TAG, "ftile short write %u/%u: %s", (unsigned)wr, (unsigned)len, path);
             /* short write (full/failing FS): a truncated PNG poisons the
              * cache - every later render would hit it, fail the decode
              * and, before the retry logic below existed, never recover */
@@ -586,6 +591,9 @@ static bool render_impl(uint16_t *dst, int dst_w, int dst_h,
     if (layers & TM_LAYER_BASE) {
         ftile_check_center((lat_min + lat_max) / 2.0, (lon_min + lon_max) / 2.0);
     }
+    /* Re-render of the same area into a live canvas: skip the background
+     * flood so the old frame morphs into the new one as tiles land,
+     * instead of flashing dark mid-retry. */
     double nx0, ny0, nx1, ny1;
     merc_norm(lat_max, lon_min, &nx0, &ny0);   /* top-left */
     merc_norm(lat_min, lon_max, &nx1, &ny1);   /* bottom-right */

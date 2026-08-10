@@ -49,6 +49,14 @@ esp_err_t http_post_text(const char *url, const char *body,
     return ESP_FAIL;
 }
 
+esp_err_t http_get_keepalive_t(int slot, const char *url,
+                               char *buf, size_t buf_size, size_t *out_len,
+                               int timeout_ms)
+{
+    (void)slot; (void)url; (void)buf; (void)buf_size; (void)out_len; (void)timeout_ms;
+    return ESP_FAIL;
+}
+
 esp_err_t http_get_keepalive(int slot, const char *url,
                              char *buf, size_t buf_size, size_t *out_len)
 {

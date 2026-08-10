@@ -175,6 +175,14 @@ esp_err_t http_post_text(const char *url, const char *body,
 /* The device build keeps per-slot connections alive between cycles; here
  * curl's own connection cache would need a persistent handle. Plain GET is
  * fine on a phone-class CPU. */
+esp_err_t http_get_keepalive_t(int slot, const char *url,
+                               char *buf, size_t buf_size, size_t *out_len,
+                               int timeout_ms)
+{
+    (void)timeout_ms;   /* curl side is fast enough; the cap matters on-device */
+    return http_get_keepalive(slot, url, buf, buf_size, out_len);
+}
+
 esp_err_t http_get_keepalive(int slot, const char *url,
                              char *buf, size_t buf_size, size_t *out_len)
 {
