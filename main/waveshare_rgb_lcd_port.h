@@ -31,7 +31,7 @@
 #define EXAMPLE_LCD_H_RES               (LVGL_PORT_H_RES)
 #define EXAMPLE_LCD_V_RES               (LVGL_PORT_V_RES)
 #if CONFIG_CANFLIGHT_BOARD_WAVESHARE_7B
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (30850000)   /* official 7B demo value */
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (28000000)   /* 30.85M is at the edge of some panels' tolerance: units shifted the whole image on PSRAM traffic spikes (touch, refresh) until the clock came down */
 #else
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (16 * 1000 * 1000)
 #endif

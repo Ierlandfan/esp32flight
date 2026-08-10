@@ -172,7 +172,9 @@ void *waveshare_lcd_get_fb(void)
         return NULL;
     }
     void *fb0 = NULL, *fb1 = NULL;
-    if (esp_lcd_rgb_panel_get_frame_buffer(s_panel, 2, &fb0, &fb1) != ESP_OK) {
+    /* single-framebuffer builds (7B) have no second buffer to ask for */
+    if (esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, &fb0) != ESP_OK &&
+        esp_lcd_rgb_panel_get_frame_buffer(s_panel, 2, &fb0, &fb1) != ESP_OK) {
         return NULL;
     }
     return fb0;
