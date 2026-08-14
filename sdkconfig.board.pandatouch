@@ -1,0 +1,5 @@
+# BigTreeTech Panda Touch pin selection - full 16 MB class:
+#   idf.py -B build-pandatouch \
+#     -D SDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.board.pandatouch' \
+#     -D SDKCONFIG=build-pandatouch/sdkconfig build
+CONFIG_CANFLIGHT_BOARD_PANDATOUCH=y

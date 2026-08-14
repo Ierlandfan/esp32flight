@@ -34,6 +34,7 @@ typedef struct {
     bool tp_mirror;             /* GT911 reports mirrored coordinates */
     bool has_xpt2046;           /* resistive touch over SPI instead of GT911 */
     int tp_sclk, tp_mosi, tp_miso, tp_cs, tp_irq;
+    int lcd_rst_gpio;           /* panel reset line; 0 = none (no board resets via GPIO0) */
 } board_cfg_t;
 
 __attribute__((unused)) static const board_cfg_t k_waveshare = {
@@ -133,6 +134,31 @@ __attribute__((unused)) static const board_cfg_t k_crowpanel_70 = {
     .vs_pulse = 31, .vs_bp = 13, .vs_fp = 1,
     .pclk_hz = 15000000,
     .tp_mirror = false,
+};
+
+__attribute__((unused)) static const board_cfg_t k_pandatouch = {
+    /* BigTreeTech Panda Touch: the 5" 800x480 Bambu-printer pendant is a
+     * plain ESP32-S3 R8 (16 MB flash) smart display underneath, and BTT
+     * publishes the full pin map in their own IDF SDK (PandaTouch_IDF,
+     * include/pandatouch_board.h) - pins and timings below are verbatim
+     * from there. DE-only panel: HSYNC/VSYNC are not wired, the esp_lcd
+     * RGB driver takes -1 for both. The panel has a real reset line on
+     * GPIO46 that must be released before init. Battery + enclosure
+     * on board; flashing this replaces BTT's Bambu-remote firmware. */
+    .name = "BigTreeTech Panda Touch",
+    .de = 38, .vsync = -1, .hsync = -1, .pclk = 5,
+    .data = { 17, 18, 48, 47, 39,       /* B0..B4 */
+              11, 12, 13, 14, 15, 16,   /* G0..G5 */
+              6, 7, 8, 9, 10 },         /* R0..R4 */
+    .i2c_sda = 2, .i2c_scl = 1,
+    .has_ch422g = false,
+    .bl_gpio = 21,
+    .tp_rst_gpio = 41,
+    .hs_pulse = 4, .hs_bp = 8, .hs_fp = 8,
+    .vs_pulse = 4, .vs_bp = 16, .vs_fp = 16,
+    .pclk_hz = 23000000,
+    .tp_mirror = false,
+    .lcd_rst_gpio = 46,
 };
 
 __attribute__((unused)) static const board_cfg_t k_sunton_8070 = {
@@ -315,6 +341,9 @@ static void board_detect(void)
 #elif CONFIG_CANFLIGHT_BOARD_SUNTON_8070
     s_board = &k_sunton_8070;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
+#elif CONFIG_CANFLIGHT_BOARD_PANDATOUCH
+    s_board = &k_pandatouch;
+    i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
 #elif CONFIG_CANFLIGHT_BOARD_SUNTON_4827S043
     s_board = &k_sunton_4827;
     i2c_master_init(s_board->i2c_sda, s_board->i2c_scl);
@@ -388,6 +417,20 @@ static void touch_reset(void)
 esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
 {
     board_detect();
+
+    if (s_board->lcd_rst_gpio > 0) {
+        /* Panda Touch class: panel held in reset until this line goes high */
+        gpio_config_t rst_conf = {
+            .intr_type = GPIO_INTR_DISABLE,
+            .pin_bit_mask = 1ULL << s_board->lcd_rst_gpio,
+            .mode = GPIO_MODE_OUTPUT,
+        };
+        gpio_config(&rst_conf);
+        gpio_set_level(s_board->lcd_rst_gpio, 0);
+        esp_rom_delay_us(20 * 1000);
+        gpio_set_level(s_board->lcd_rst_gpio, 1);
+        esp_rom_delay_us(120 * 1000);
+    }
 
     ESP_LOGI(TAG, "Install RGB LCD panel driver");
     esp_lcd_panel_handle_t panel_handle = NULL;

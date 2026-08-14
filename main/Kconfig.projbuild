@@ -154,6 +154,16 @@ menu "Example Configuration"
                     (EK9716BD3 driver, GT911, N4R8 = 4 MB flash). PCLK on
                     GPIO0 like the 5.0; pairs with the 4 MB class.
 
+            config CANFLIGHT_BOARD_PANDATOUCH
+                bool "BigTreeTech Panda Touch (5 inch, 800x480, battery)"
+                help
+                    BTT's Bambu-printer pendant: ESP32-S3 R8 with 16 MB
+                    flash, a 5 inch 800x480 DE-only RGB panel (no HSYNC/
+                    VSYNC wiring, reset on GPIO46), GT911 touch and a
+                    battery. Pin map from BTT's own PandaTouch_IDF SDK.
+                    Flashing replaces the stock Bambu-remote firmware
+                    (restorable from BTT's published images).
+
             config CANFLIGHT_BOARD_SUNTON_8070
                 bool "Sunton ESP32-8048S070 (7 inch, 800x480)"
                 help
