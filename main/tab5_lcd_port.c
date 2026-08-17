@@ -22,6 +22,7 @@
 #include "esp_lcd_touch_st7123.h"
 #include "freertos/semphr.h"
 #include "tab5/esp_lcd_st7123.h"
+#include "tab5/esp_lcd_st7121.h"
 
 static const char *TAG = "tab5";
 
@@ -62,7 +63,6 @@ static bool s_st7121;   /* older Sitronix generation, same I2C addr 0x55 */
 static const char *s_board_name = "M5Stack Tab5";
 
 #include "tab5/tab5_ili9881_init.inc"
-#include "tab5/tab5_st7121_init.inc"
 
 /* ST7123 panel vendor init (from M5Tab5-UserDemo) */
 static const st7123_lcd_init_cmd_t k_st7123_init[] = {
@@ -285,12 +285,32 @@ static esp_err_t panel_init(esp_lcd_dsi_bus_handle_t *out_bus)
         .flags.use_dma2d = true,
     };
 
-    if (s_st7123) {
+    if (s_st7121) {
+        /* Vendored driver from M5Tab5-UserDemo, used exactly like their
+         * BSP does: init_cmds = NULL selects the driver's built-in table
+         * (with its own inter-command settle delays). Hand-feeding that
+         * table through the st7123 driver looked close but strobed on
+         * real glass - the reference path is the one that works. */
+        st7121_vendor_config_t vendor = {
+            .init_cmds = NULL,
+            .init_cmds_size = 0,
+            .mipi_config = {
+                .dsi_bus = bus,
+                .dpi_config = &dpi_cfg,
+            },
+        };
+        esp_lcd_panel_dev_config_t dev_cfg = {
+            .reset_gpio_num = -1,
+            .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+            .data_endian = LCD_RGB_DATA_ENDIAN_LITTLE,
+            .bits_per_pixel = 24,
+            .vendor_config = &vendor,
+        };
+        ESP_ERROR_CHECK(esp_lcd_new_panel_st7121(io, &dev_cfg, &s_panel));
+    } else if (s_st7123) {
         st7123_vendor_config_t vendor = {
-            .init_cmds = s_st7121 ? k_st7121_init : k_st7123_init,
-            .init_cmds_size = s_st7121
-                ? sizeof(k_st7121_init) / sizeof(k_st7121_init[0])
-                : sizeof(k_st7123_init) / sizeof(k_st7123_init[0]),
+            .init_cmds = k_st7123_init,
+            .init_cmds_size = sizeof(k_st7123_init) / sizeof(k_st7123_init[0]),
             .mipi_config = {
                 .dsi_bus = bus,
                 .dpi_config = &dpi_cfg,
