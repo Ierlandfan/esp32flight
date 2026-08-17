@@ -58,9 +58,11 @@ static i2c_master_dev_handle_t s_exp1, s_exp2;
 static esp_lcd_panel_handle_t s_panel;
 static SemaphoreHandle_t s_trans_done;
 static bool s_st7123;
+static bool s_st7121;   /* older Sitronix generation, same I2C addr 0x55 */
 static const char *s_board_name = "M5Stack Tab5";
 
 #include "tab5/tab5_ili9881_init.inc"
+#include "tab5/tab5_st7121_init.inc"
 
 /* ST7123 panel vendor init (from M5Tab5-UserDemo) */
 static const st7123_lcd_init_cmd_t k_st7123_init[] = {
@@ -276,17 +278,19 @@ static esp_err_t panel_init(esp_lcd_dsi_bus_handle_t *out_bus)
             .hsync_pulse_width = s_st7123 ? 2 : 40,
             .hsync_back_porch = s_st7123 ? 40 : 140,
             .hsync_front_porch = 40,
-            .vsync_pulse_width = s_st7123 ? 2 : 4,
-            .vsync_back_porch = s_st7123 ? 8 : 20,
-            .vsync_front_porch = s_st7123 ? 220 : 20,
+            .vsync_pulse_width = s_st7121 ? 20 : (s_st7123 ? 2 : 4),
+            .vsync_back_porch = s_st7121 ? 24 : (s_st7123 ? 8 : 20),
+            .vsync_front_porch = s_st7121 ? 200 : (s_st7123 ? 220 : 20),
         },
         .flags.use_dma2d = true,
     };
 
     if (s_st7123) {
         st7123_vendor_config_t vendor = {
-            .init_cmds = k_st7123_init,
-            .init_cmds_size = sizeof(k_st7123_init) / sizeof(k_st7123_init[0]),
+            .init_cmds = s_st7121 ? k_st7121_init : k_st7123_init,
+            .init_cmds_size = s_st7121
+                ? sizeof(k_st7121_init) / sizeof(k_st7121_init[0])
+                : sizeof(k_st7123_init) / sizeof(k_st7123_init[0]),
             .mipi_config = {
                 .dsi_bus = bus,
                 .dpi_config = &dpi_cfg,
@@ -415,13 +419,33 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
     expanders_init();       /* also powers the C6 WLAN rail (exp2 P0) */
     panel_touch_reset();
 
-    /* Panel generation probe: GT911 at 0x14 = ILI9881C units, 0x55 = ST7123 */
+    /* Panel generation probe: GT911 at 0x14 = ILI9881C units, 0x55 = the
+     * Sitronix generations. Both ST7121 and ST7123 answer at 0x55; the
+     * touch firmware version register (0x0000) tells them apart the way
+     * the vendor BSP does it: 1 = ST7121, 3 = ST7123. They need different
+     * vsync timings and completely different init tables. */
     if (i2c_master_probe(s_i2c, ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS_BACKUP, 50) == ESP_OK) {
         s_st7123 = false;
         s_board_name = "M5Stack Tab5 (ILI9881C + GT911)";
     } else if (i2c_master_probe(s_i2c, 0x55, 50) == ESP_OK) {
         s_st7123 = true;
-        s_board_name = "M5Stack Tab5 (ST7123)";
+        i2c_device_config_t vcfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = 0x55,
+            .scl_speed_hz = 400000,
+        };
+        i2c_master_dev_handle_t vdev = NULL;
+        uint8_t vreg[2] = { 0x00, 0x00 };
+        uint8_t fw_ver = 0;
+        if (i2c_master_bus_add_device(s_i2c, &vcfg, &vdev) == ESP_OK) {
+            if (i2c_master_transmit_receive(vdev, vreg, 2, &fw_ver, 1, 100) == ESP_OK &&
+                fw_ver == 1) {
+                s_st7121 = true;
+            }
+            i2c_master_bus_rm_device(vdev);
+        }
+        s_board_name = s_st7121 ? "M5Stack Tab5 (ST7121)"
+                                : "M5Stack Tab5 (ST7123)";
     } else {
         s_st7123 = false;
         s_board_name = "M5Stack Tab5 (no touch detected)";
