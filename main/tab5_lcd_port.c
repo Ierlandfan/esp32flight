@@ -438,10 +438,16 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(void)
         uint8_t vreg[2] = { 0x00, 0x00 };
         uint8_t fw_ver = 0;
         if (i2c_master_bus_add_device(s_i2c, &vcfg, &vdev) == ESP_OK) {
-            if (i2c_master_transmit_receive(vdev, vreg, 2, &fw_ver, 1, 100) == ESP_OK &&
-                fw_ver == 1) {
+            esp_err_t verr = i2c_master_transmit_receive(vdev, vreg, 2, &fw_ver, 1, 100);
+            ESP_LOGI(TAG, "sitronix touch fw version: %u (read %s)",
+                     fw_ver, esp_err_to_name(verr));
+#if !CONFIG_CANFLIGHT_TAB5_FORCE_ST7123
+            if (verr == ESP_OK && fw_ver == 1) {
                 s_st7121 = true;
             }
+#else
+            ESP_LOGW(TAG, "ST7121 detection disabled by config, using ST7123 path");
+#endif
             i2c_master_bus_rm_device(vdev);
         }
         s_board_name = s_st7121 ? "M5Stack Tab5 (ST7121)"

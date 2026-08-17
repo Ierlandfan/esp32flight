@@ -204,6 +204,15 @@ menu "Example Configuration"
                     logo-less asset set - logos are fetched on demand.
         endchoice
 
+        config CANFLIGHT_TAB5_FORCE_ST7123
+            bool "Tab5: force the ST7123 panel path on 0x55 units"
+            default n
+            help
+                Diagnostic switch for the Tab5 panel-generation probe: treat
+                every Sitronix unit (I2C 0x55) as ST7123, ignoring the touch
+                firmware version register. Used by the tab5-b test build to
+                tell a real ST7121 panel apart from a misdetected ST7123.
+
         config CANFLIGHT_WIFI_SSID
             string "Wi-Fi SSID"
             default ""
