@@ -126,6 +126,180 @@ def downsample(c):
     return out
 
 
+# ---------------- SVG import (Wikimedia silhouettes) ----------------
+# Minimal importer for the vendored files in sideviews_svg/: M/L/C (+rel)
+# and Z, translate/scale/matrix transforms, fill:none skipped. Window
+# cutouts work through even-odd filling across a path's subpaths.
+
+import os
+import re
+import xml.etree.ElementTree as ET
+
+
+def _mat(a=1, b=0, c=0, d=1, e=0, f=0):
+    return (a, b, c, d, e, f)
+
+
+def _mat_mul(m, n):
+    a, b, c, d, e, f = m
+    a2, b2, c2, d2, e2, f2 = n
+    return (a * a2 + c * b2, b * a2 + d * b2,
+            a * c2 + c * d2, b * c2 + d * d2,
+            a * e2 + c * f2 + e, b * e2 + d * f2 + f)
+
+
+def _mat_apply(m, x, y):
+    a, b, c, d, e, f = m
+    return (a * x + c * y + e, b * x + d * y + f)
+
+
+def _parse_transform(t):
+    m = _mat()
+    for name, args in re.findall(r"(\w+)\s*\(([^)]*)\)", t or ""):
+        v = [float(x) for x in re.findall(r"[-+0-9.eE]+", args)]
+        if name == "translate":
+            m = _mat_mul(m, _mat(e=v[0], f=v[1] if len(v) > 1 else 0))
+        elif name == "scale":
+            m = _mat_mul(m, _mat(a=v[0], d=v[1] if len(v) > 1 else v[0]))
+        elif name == "matrix" and len(v) == 6:
+            m = _mat_mul(m, tuple(v))
+    return m
+
+
+def _path_contours(d, m, samples=24):
+    toks = re.findall(r"[MmLlCcZz]|[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", d)
+    i = 0
+    cx = cy = sx = sy = 0.0
+    cmd = None
+    contours, cur = [], []
+
+    def num():
+        nonlocal i
+        i += 1
+        return float(toks[i - 1])
+
+    while i < len(toks):
+        if toks[i] in "MmLlCcZz":
+            cmd = toks[i]
+            i += 1
+            if cmd in "Zz":
+                if len(cur) > 2:
+                    contours.append(cur)
+                cur = []
+                cx, cy = sx, sy
+                continue
+        rel = cmd.islower()
+        if cmd in "Mm":
+            x, y = num(), num()
+            if rel:
+                x, y = cx + x, cy + y
+            if len(cur) > 2:
+                contours.append(cur)
+            cur = [_mat_apply(m, x, y)]
+            cx, cy, sx, sy = x, y, x, y
+            cmd = "l" if rel else "L"   # subsequent pairs are linetos
+        elif cmd in "Ll":
+            x, y = num(), num()
+            if rel:
+                x, y = cx + x, cy + y
+            cur.append(_mat_apply(m, x, y))
+            cx, cy = x, y
+        elif cmd in "Cc":
+            x1, y1, x2, y2, x, y = (num() for _ in range(6))
+            if rel:
+                x1, y1 = cx + x1, cy + y1
+                x2, y2 = cx + x2, cy + y2
+                x, y = cx + x, cy + y
+            for k in range(1, samples + 1):
+                t = k / samples
+                u = 1 - t
+                px = u*u*u*cx + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x
+                py = u*u*u*cy + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y
+                cur.append(_mat_apply(m, px, py))
+            cx, cy = x, y
+        else:
+            i += 1   # unexpected token, skip
+    if len(cur) > 2:
+        contours.append(cur)
+    return contours
+
+
+def _svg_load(fname):
+    """-> list of paths, each a list of contours (holes via even-odd)."""
+    root = ET.parse(os.path.join(os.path.dirname(__file__) or ".",
+                                 "sideviews_svg", fname)).getroot()
+    out = []
+
+    def walk(el, m):
+        m = _mat_mul(m, _parse_transform(el.get("transform")))
+        tag = el.tag.split("}")[-1]
+        if tag == "path":
+            style = (el.get("style") or "") + ";fill:" + (el.get("fill") or "")
+            if "fill:none" in style.replace(" ", ""):
+                return
+            cs = _path_contours(el.get("d", ""), m)
+            if cs:
+                out.append(cs)
+        for ch in el:
+            walk(ch, m)
+
+    walk(root, _mat())
+    return out
+
+
+def poly_eo(c, contours, val=1.0):
+    """Even-odd fill across several contours (window cutouts)."""
+    ps = [[(x * SCLX, y * SCLY) for x, y in ct] for ct in contours]
+    ymin = max(0, int(min(q[1] for p in ps for q in p)))
+    ymax = min(SH, int(max(q[1] for p in ps for q in p)) + 2)
+    for sy in range(ymin, ymax):
+        yc = sy + 0.5
+        xs = []
+        for p in ps:
+            for i in range(len(p)):
+                x1, y1 = p[i]
+                x2, y2 = p[(i + 1) % len(p)]
+                if (y1 <= yc < y2) or (y2 <= yc < y1):
+                    xs.append(x1 + (yc - y1) * (x2 - x1) / (y2 - y1))
+        xs.sort()
+        for j in range(0, len(xs) - 1, 2):
+            for sx in range(max(0, int(xs[j] + 0.5)),
+                            min(SW, int(xs[j + 1] + 0.5))):
+                c[sy][sx] = max(c[sy][sx], val)
+
+
+def svg_shape(fname, flip=False, rot=0.0, box=(2.0, 62.0, 2.0, 26.0)):
+    """Shape callable: SVG fitted into the design box (aspect kept)."""
+    paths = _svg_load(fname)
+    pts = [q for cs in paths for ct in cs for q in ct]
+    if flip:
+        pts = None   # recompute after flip below
+        paths = [[[(-x, y) for x, y in ct] for ct in cs] for cs in paths]
+    if rot != 0.0:
+        import math
+        a = math.radians(rot)
+        ca, sa = math.cos(a), math.sin(a)
+        paths = [[[(x * ca - y * sa, x * sa + y * ca) for x, y in ct]
+                  for ct in cs] for cs in paths]
+    pts = [q for cs in paths for ct in cs for q in ct]
+    x0 = min(p[0] for p in pts); x1 = max(p[0] for p in pts)
+    y0 = min(p[1] for p in pts); y1 = max(p[1] for p in pts)
+    bx0, bx1, by0, by1 = box
+    k = min((bx1 - bx0) / max(x1 - x0, 1e-6),
+            (by1 - by0) / max(y1 - y0, 1e-6))
+    ox = (bx0 + bx1) / 2 - k * (x0 + x1) / 2
+    oy = (by0 + by1) / 2 - k * (y0 + y1) / 2
+    fitted = [[[(x * k + ox, y * k + oy) for x, y in ct] for ct in cs]
+              for cs in paths]
+
+    def draw():
+        c = canvas()
+        for cs in fitted:
+            poly_eo(c, cs)
+        return c
+    return draw
+
+
 # ---------------- the fleet (all facing right, 64x28 design) ----------------
 
 def airliner():
@@ -315,8 +489,11 @@ def vane():
 
 
 FLEET = [
-    ("side_plane", airliner), ("side_small", prop), ("side_heli", heli),
-    ("side_mil", fighter), ("side_miltrans", miltrans),
+    ("side_plane", svg_shape("svg_airliner.svg")),
+    ("side_small", svg_shape("svg_ga.svg")),
+    ("side_heli", svg_shape("svg_heli.svg", flip=True)),
+    ("side_mil", svg_shape("svg_fighter.svg", flip=True, rot=10)),
+    ("side_miltrans", miltrans),
     ("side_glider", glider),
     ("side_balloon", balloon), ("side_drone", drone),
 ]
