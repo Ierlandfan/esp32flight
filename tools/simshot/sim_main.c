@@ -16,6 +16,7 @@
 #include "sim_tick.h"
 
 #include "airports.h"
+#include "types.h"
 #include "flight_model.h"
 #include "logos.h"
 #include "settings.h"
@@ -114,6 +115,7 @@ int main(int argc, char **argv)
 
     logos_init();
     airports_init();
+    types_init();
     tilemap_init();
     ui_map_get_image();
     ui_map_get_image_small();

@@ -8,6 +8,7 @@
 #include "waveshare_rgb_lcd_port.h"
 
 #include "airports.h"
+#include "types.h"
 #include "flight_task.h"
 #include "logos.h"
 #include "settings.h"
@@ -53,6 +54,7 @@ void app_main(void)
 
     logos_init();
     airports_init();
+    types_init();
     tilemap_init();
     /* pre-decode both world maps so map opens never decode PNGs at draw time */
     ui_map_get_image();

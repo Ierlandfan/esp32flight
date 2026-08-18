@@ -1,4 +1,5 @@
 #include "flight_data.h"
+#include "types.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -122,6 +123,10 @@ static void parse_aircraft(const cJSON *jac, aircraft_t *ac)
     }
     if ((j = cJSON_GetObjectItem(jac, "desc")) && cJSON_IsString(j)) {
         strlcpy(ac->type_desc, j->valuestring, sizeof(ac->type_desc));
+    }
+    if (ac->type_desc[0] == '\0' && ac->type_icao[0] != '\0') {
+        /* only airplanes.live sends desc; DOC 8643 covers the rest */
+        types_lookup(ac->type_icao, ac->type_desc, sizeof(ac->type_desc));
     }
     if ((j = cJSON_GetObjectItem(jac, "lat")) && cJSON_IsNumber(j)) {
         ac->lat = j->valuedouble;

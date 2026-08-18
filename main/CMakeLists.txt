@@ -23,6 +23,7 @@ idf_component_register(
         "runways.c"
         "airlines.c"
         "airports.c"
+        "types.c"
         "dailystats.c"
         "faflight.c"
         "metar.c"
@@ -65,6 +66,7 @@ idf_component_register(
         "font_pl_16.c"
         "font_pl_20.c"
     INCLUDE_DIRS "." "tab5"
+    EMBED_TXTFILES "../assets/types.tsv"
     REQUIRES esp_wifi esp_http_client esp_http_server esp-tls nvs_flash json spiffs esp_netif app_update mqtt
 )
 
