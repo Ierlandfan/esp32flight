@@ -210,6 +210,7 @@ static const char INDEX_HTML[] =
 "</div></div>"
 "<div class='cfgcard'><h4>Display</h4><div class='grid2'>"
 "<div><label>Brighter map tiles</label><select id='c_map_light'><option value='0'>off</option><option value='1'>on</option></select>"
+"<div><label>Map on retro radar</label><select id='c_retro_map'><option value='0'>off</option><option value='1'>on</option></select>"
 "<div class='help'>Lifts the dark map style for readability. New tiles only; the device reloads its map after a restart.</div></div>"
 "<div><label>Theme</label><select id='c_theme'><option value='0'>Dark</option><option value='1'>Light</option><option value='2'>Black</option><option value='3'>Nord</option><option value='4'>Solarized</option><option value='5'>Purple</option><option value='6'>Forest</option></select></div>"
 "<div><label>Language</label><select id='c_lang'><option value='0'>English</option><option value='1'>Polski</option></select></div>"
@@ -459,6 +460,7 @@ static const char INDEX_HTML[] =
 "c.show_classes=0;for(let i=0;i<5;i++)if(document.getElementById('c_cls'+i).checked)c.show_classes|=1<<i;"
 "c.rain_overlay=document.getElementById('c_rain_overlay').value==='1';"
 "c.map_light=document.getElementById('c_map_light').value==='1';"
+"c.retro_map=document.getElementById('c_retro_map').value==='1';"
 "['taf','iss','sonde','ships','airspace'].forEach(k=>c[k+'_enabled']=document.getElementById('c_'+k+'_enabled').value==='1');"
 "['metric_units','metar_decoded','follow_mode'].forEach(k=>c[k]=document.getElementById('c_'+k).value==='1');"
 "c.favs=favs.map(f=>f&&f.name?f:{name:'',lat:0,lon:0});"
@@ -600,6 +602,7 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
     cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
     cJSON_AddBoolToObject(root, "map_light", c->map_light);
+    cJSON_AddBoolToObject(root, "retro_map", c->retro_map);
     cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddNumberToObject(root, "theme", c->theme);
     cJSON_AddNumberToObject(root, "lang", c->lang);
@@ -684,6 +687,7 @@ static esp_err_t backup_get(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "lang", c->lang);
     cJSON_AddBoolToObject(root, "rain_overlay", c->rain_overlay);
     cJSON_AddBoolToObject(root, "map_light", c->map_light);
+    cJSON_AddBoolToObject(root, "retro_map", c->retro_map);
     cJSON_AddNumberToObject(root, "amb_style", c->amb_style);
     cJSON_AddBoolToObject(root, "hide_ground", c->hide_ground);
     cJSON_AddNumberToObject(root, "show_classes", c->show_classes);
@@ -757,6 +761,9 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "map_light")))) {
         c->map_light = cJSON_IsTrue(j);
+    }
+    if (cJSON_IsBool((j = cJSON_GetObjectItem(root, "retro_map")))) {
+        c->retro_map = cJSON_IsTrue(j);
     }
     if (cJSON_IsNumber((j = cJSON_GetObjectItem(root, "amb_style")))) {
         c->amb_style = j->valueint == 1 ? 1 : 0;

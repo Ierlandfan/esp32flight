@@ -272,6 +272,11 @@ static lv_img_dsc_t  s_retro_rain_dsc;
 static volatile bool s_retro_rain_busy;
 static int64_t       s_retro_rain_ms = -1;
 static int           s_retro_rain_gen = -1;
+/* optional phosphor-green map underlay (land/water from the radar tiles) */
+static lv_obj_t     *s_retro_map_img;
+static uint16_t     *s_retro_map_buf;
+static lv_img_dsc_t  s_retro_map_dsc;
+static char          s_retro_map_key[48];
 #define RADAR_W  (SCR_W - LIST_W)
 #define RADAR_H  (SCR_H - HEADER_H)
 #define RADAR_RENDER_W (SCR_W > 800 ? 800 - 310 : RADAR_W)
@@ -2912,10 +2917,127 @@ static void retro_timer_cb(lv_timer_t *t)
     }
 }
 
+/* see retro_map_update: grayscale-band classifier, lift-aware */
+static inline int retro_cls(uint16_t c, bool unlift)
+{
+    int r5 = (c >> 11) & 31, g6 = (c >> 5) & 63, b5 = c & 31;
+    if (r5 * 2 - g6 > 3 || g6 - r5 * 2 > 3 ||
+        b5 * 2 - g6 > 3 || g6 - b5 * 2 > 3) {
+        return 3;               /* colored: rain overlay, markers */
+    }
+    int l8 = g6 * 4;
+    if (unlift) {
+        /* invert v' = v + (255-v)*77/256 */
+        l8 = (l8 * 256 - 77 * 255) / 179;
+        if (l8 < 0) {
+            l8 = 0;
+        }
+    }
+    if (l8 < 15) {
+        return 0;               /* land */
+    }
+    if (l8 < 30) {
+        return 2;               /* roads, minor features */
+    }
+    if (l8 <= 130) {
+        return 1;               /* water */
+    }
+    return 3;                   /* labels */
+}
+
+static void retro_map_update(void)
+{
+    if (!settings_get()->retro_map || !s_radar_view_ok) {
+        if (s_retro_map_img != NULL) {
+            lv_obj_add_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        s_retro_map_key[0] = '\0';
+        return;
+    }
+    if (strcmp(s_retro_map_key, s_radar_key) == 0) {
+        lv_obj_clear_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (s_retro_map_buf == NULL) {
+        s_retro_map_buf = heap_caps_malloc((size_t)RADAR_W * RADAR_H * 2,
+                                           MALLOC_CAP_SPIRAM);
+    }
+    if (s_retro_map_buf == NULL || s_radar_tiles == NULL) {
+        return;
+    }
+    int hx, hy, ex, ey;
+    radar_project(s_home_lat, s_home_lon, &hx, &hy);
+    double rkm = settings_get()->radius_nm * 1.852;
+    radar_project(s_home_lat + rkm / 111.0, s_home_lon, &ex, &ey);
+    float radius_px = (float)(hy - ey);
+    if (radius_px < 10.0f) {
+        return;
+    }
+    float k = radius_px / (float)RADAR_R;   /* panel px per scope px */
+    /* Land/water classification (CARTO dark_all is grayscale: land
+     * #090909, roads mid grays, water #262626). "Brighter map tiles"
+     * lifts v += 30% of headroom at decode - undo it first, or the
+     * classes collapse into 5 quantization steps. Tuned offline against
+     * the real tiles. Classes: 0 land, 1 water, 2 road, 3 other. */
+    const bool unlift = settings_get()->map_light;
+    for (int y = 0; y < RADAR_H; y++) {
+        uint16_t *dst = &s_retro_map_buf[y * RADAR_W];
+        float sy = hy + (y - RADAR_CY) * k;
+        for (int x = 0; x < RADAR_W; x++) {
+            float sx = hx + (x - RADAR_CX) * k;
+            uint16_t out = 0;
+            /* panel space -> tile render space (identity when RADAR_K is 1) */
+            int isx = (int)(RADAR_RENDER_W / 2 + (sx - RADAR_W / 2) / RADAR_K);
+            int isy = (int)(RADAR_RENDER_H / 2 + (sy - RADAR_H / 2) / RADAR_K);
+            if (isx >= 1 && isx < RADAR_RENDER_W - 1 &&
+                isy >= 1 && isy < RADAR_RENDER_H - 1) {
+                const uint16_t *src = &s_radar_tiles[isy * RADAR_RENDER_W + isx];
+                int c0 = retro_cls(src[0], unlift);
+                /* two-sided boundary with diagonals: a solid ~2 px stroke
+                 * instead of a resample-thinned 1 px thread */
+                int other = c0 == 1 ? 0 : c0 == 0 ? 1 : -1;
+                bool coast = false;
+                if (other >= 0) {
+                    static const int nx[8] = { -1, 1, 0, 0, -1, 1, -1, 1 };
+                    static const int ny[8] = { 0, 0, -1, 1, -1, -1, 1, 1 };
+                    for (int n = 0; n < 8 && !coast; n++) {
+                        coast = retro_cls(src[ny[n] * RADAR_RENDER_W + nx[n]],
+                                          unlift) == other;
+                    }
+                }
+                if (coast) {
+                    out = (uint16_t)((12 << 11) | (63 << 5) | 12);   /* mint-hot */
+                } else if (c0 == 1) {
+                    out = (uint16_t)((1 << 11) | (11 << 5) | 1);
+                } else if (c0 == 2) {
+                    out = (uint16_t)((2 << 11) | (17 << 5) | 2);
+                } else if (c0 == 3) {
+                    out = (uint16_t)((1 << 11) | (7 << 5) | 1);
+                }
+            }
+            dst[x] = out;
+        }
+    }
+    s_retro_map_dsc.header.always_zero = 0;
+    s_retro_map_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+    s_retro_map_dsc.header.w = RADAR_W;
+    s_retro_map_dsc.header.h = RADAR_H;
+    s_retro_map_dsc.data = (const uint8_t *)s_retro_map_buf;
+    s_retro_map_dsc.data_size = (size_t)RADAR_W * RADAR_H * 2;
+    lv_img_set_src(s_retro_map_img, &s_retro_map_dsc);
+    lv_obj_clear_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
+    strlcpy(s_retro_map_key, s_radar_key, sizeof(s_retro_map_key));
+    ESP_LOGI(TAG, "retro map underlay rebuilt");
+}
+
 static void render_retro_panel(void)
 {
     int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
     int radius_nm = settings_get()->radius_nm;
+    if (settings_get()->retro_map) {
+        radar_tiles_want();   /* scope wants the canvas even if radar view never opened */
+    }
+    retro_map_update();
     lv_area_t lbl_box[24];
     int nlbl = 0;
 
@@ -2981,6 +3103,10 @@ static void build_retro_panel(lv_obj_t *scr)
     lv_obj_add_flag(s_retro_panel, LV_OBJ_FLAG_HIDDEN);
 
     int cx = RADAR_CX, cy = RADAR_CY, r = RADAR_R;
+
+    s_retro_map_img = lv_img_create(s_retro_panel);
+    lv_obj_set_pos(s_retro_map_img, 0, 0);
+    lv_obj_add_flag(s_retro_map_img, LV_OBJ_FLAG_HIDDEN);
 
     s_retro_rain_img = lv_img_create(s_retro_panel);
     lv_obj_set_pos(s_retro_rain_img, 0, 0);

@@ -40,6 +40,7 @@ void settings_load(void)
     s_settings.show_classes = FCLS_ALL_MASK;
     s_settings.rain_overlay = false;
     s_settings.map_light = false;
+    s_settings.retro_map = false;
     s_settings.amb_style = 0;
     s_settings.theme = 0;
     s_settings.lang = 0;   /* English out of the box; 1 = Polish */
@@ -108,6 +109,9 @@ void settings_load(void)
     }
     if (nvs_get_u8(h, "map_light", &hide) == ESP_OK) {
         s_settings.map_light = hide != 0;
+    }
+    if (nvs_get_u8(h, "retro_map", &hide) == ESP_OK) {
+        s_settings.retro_map = hide != 0;
     }
     if (nvs_get_u8(h, "rain", &hide) == ESP_OK) {
         s_settings.rain_overlay = hide != 0;
@@ -224,6 +228,7 @@ esp_err_t settings_save(void)
     nvs_set_str(h, "pass", s_settings.wifi_pass);
     nvs_set_u8(h, "fixed_loc", s_settings.use_fixed_loc ? 1 : 0);
     nvs_set_u8(h, "map_light", s_settings.map_light ? 1 : 0);
+    nvs_set_u8(h, "retro_map", s_settings.retro_map ? 1 : 0);
     snprintf(coord, sizeof(coord), "%.6f", s_settings.lat);
     nvs_set_str(h, "lat", coord);
     snprintf(coord, sizeof(coord), "%.6f", s_settings.lon);

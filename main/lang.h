@@ -42,6 +42,7 @@ typedef struct {
     const char *cls_names[5];            /* flight_class_t display names */
     const char *sec_layers, *rain_lbl;   /* precipitation overlay */
     const char *map_light_lbl;
+    const char *retro_map_lbl;
     const char *amb_style_lbl, *amb_style_opts;   /* screensaver style */
     const char *amb_loading;   /* screensaver placeholder before tiles land */
     const char *apr_fmt;         /* approach: city/icao, minutes */
