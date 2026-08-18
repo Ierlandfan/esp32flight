@@ -86,6 +86,15 @@ LV_IMG_DECLARE(img_side_vane);
 LV_IMG_DECLARE(img_side_glider);
 LV_IMG_DECLARE(img_side_balloon);
 LV_IMG_DECLARE(img_side_drone);
+LV_IMG_DECLARE(img_side_plane_ds);
+LV_IMG_DECLARE(img_side_small_ds);
+LV_IMG_DECLARE(img_side_heli_ds);
+LV_IMG_DECLARE(img_side_mil_ds);
+LV_IMG_DECLARE(img_side_miltrans_ds);
+LV_IMG_DECLARE(img_side_vane_ds);
+LV_IMG_DECLARE(img_side_glider_ds);
+LV_IMG_DECLARE(img_side_balloon_ds);
+LV_IMG_DECLARE(img_side_drone_ds);
 
 /* Military airlifters/tankers get the transport profile; everything else
  * military shows the fighter. ICAO type designators. */
@@ -104,6 +113,17 @@ static bool mil_is_transport(const char *ti)
 /* side-view silhouette for the ambient selection overlay */
 static const lv_img_dsc_t *side_sprite(int spr)
 {
+    if (UI_DOWNSCALE) {   /* pre-rendered at display size, drawn 1:1 */
+        switch (spr) {
+        case FSPR_SMALL:   return &img_side_small_ds;
+        case FSPR_HELI:    return &img_side_heli_ds;
+        case FSPR_MIL:     return &img_side_mil_ds;
+        case FSPR_GLIDER:  return &img_side_glider_ds;
+        case FSPR_BALLOON: return &img_side_balloon_ds;
+        case FSPR_DRONE:   return &img_side_drone_ds;
+        default:           return &img_side_plane_ds;
+        }
+    }
     switch (spr) {
     case FSPR_SMALL:   return &img_side_small;
     case FSPR_HELI:    return &img_side_heli;
@@ -2967,7 +2987,8 @@ static void spotter_build(void)
         lv_obj_set_style_text_align(s_ambx_rt, LV_TEXT_ALIGN_CENTER, 0);
 
         s_ambx_cls = lv_img_create(lv_layer_top());
-        lv_img_set_zoom(s_ambx_cls, UIZOOM(128));   /* 2x source, AA halved */
+        /* >=800: 2x source at half zoom; downscale: exact-size, 1:1 */
+        lv_img_set_zoom(s_ambx_cls, UI_DOWNSCALE ? 256 : UIZOOM(128));
         lv_img_set_antialias(s_ambx_cls, true);
         lv_img_set_pivot(s_ambx_cls, 0, 0);
         lv_img_set_size_mode(s_ambx_cls, LV_IMG_SIZE_MODE_REAL);
@@ -2981,8 +3002,9 @@ static void spotter_build(void)
         lv_obj_add_flag(s_ambx_cls, LV_OBJ_FLAG_HIDDEN);
 
         s_ambx_hdg = lv_img_create(lv_layer_top());
-        lv_img_set_src(s_ambx_hdg, &img_side_vane);
-        lv_img_set_zoom(s_ambx_hdg, UIZOOM(256));
+        lv_img_set_src(s_ambx_hdg,
+                       UI_DOWNSCALE ? &img_side_vane_ds : &img_side_vane);
+        lv_img_set_zoom(s_ambx_hdg, 256);
         lv_img_set_antialias(s_ambx_hdg, true);
         lv_obj_set_style_img_recolor(s_ambx_hdg, lv_color_hex(0xd03030), 0);
         lv_obj_set_style_img_recolor_opa(s_ambx_hdg, LV_OPA_COVER, 0);
@@ -3104,7 +3126,8 @@ static void spotter_fill(int sel)
         const lv_img_dsc_t *sideimg = side_sprite(s_all[sel].fcls);
         if (s_all[sel].fcls == FSPR_MIL && fa != NULL &&
             mil_is_transport(fa->type_icao)) {
-            sideimg = &img_side_miltrans;
+            sideimg = UI_DOWNSCALE ? &img_side_miltrans_ds
+                                   : &img_side_miltrans;
         }
         img_src_if_changed(s_ambx_cls, sideimg);
         /* long type names must not grow under the side panels */
@@ -3124,8 +3147,9 @@ static void spotter_fill(int sel)
         {
             lv_area_t rc;
             lv_obj_get_coords(s_ambx_r, &rc);
-            lv_obj_set_pos(s_ambx_hdg, rc.x2 - 32 - UISX(4),
-                           (rc.y1 + rc.y2) / 2 - 16);
+            lv_obj_set_pos(s_ambx_hdg,
+                           rc.x2 - (UI_DOWNSCALE ? 26 : 32) - UISX(4),
+                           (rc.y1 + rc.y2) / 2 - (UI_DOWNSCALE ? 10 : 16));
         }
         lv_obj_clear_flag(s_ambx_hdg, LV_OBJ_FLAG_HIDDEN);
         /* carrier under the weather chip (when known) */
